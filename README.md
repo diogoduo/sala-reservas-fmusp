@@ -8,7 +8,7 @@ adequada e aprovar ou rejeitar — com avisos por e-mail em cada etapa.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/admin-analise-escuro.png">
-  <img src="docs/screenshots/admin-analise-claro.png" alt="Painel do Admin analisando uma solicitação: as salas aparecem ordenadas da mais para a menos adequada, com a recomendada em destaque e o botão de aprovar as 8 datas da série">
+  <img src="docs/screenshots/admin-analise-claro.png" alt="Painel do SAD analisando uma solicitação: as salas aparecem ordenadas da mais para a menos adequada, com a recomendada em destaque e o botão de aprovar as 8 datas da série">
 </picture>
 
 ## Telas
@@ -20,7 +20,9 @@ adequada e aprovar ou rejeitar — com avisos por e-mail em cada etapa.
 | ![Escolha do tipo de atividade em cards](docs/screenshots/escolher-atividade.png) | ![Formulário com recorrência semanal, prévia das datas da série e resumo lateral](docs/screenshots/formulario.png) |
 | **Reservar uma sala** — cada atividade tem seu formulário | **Formulário** — prévia das datas da série e checklist ao vivo |
 | ![Agenda do Auditório com o dia 15 selecionado mostrando o horário reservado](docs/screenshots/agenda.png) | ![Fila de solicitações do Admin com filtros por status](docs/screenshots/admin-solicitacoes.png) |
-| **Consultar salas** — agenda com os horários de cada dia | **Solicitações** — fila do Admin, com filtros e busca |
+| **Consultar salas** — agenda com os horários de cada dia | **Solicitações** — fila do SAD, com filtros e busca |
+| ![Salas livres: 3 salas livres no dia 15/10 das 19h às 21h e o Auditório ocupado pela Semana de Saúde Pública](docs/screenshots/salas-livres.png) | ![Cadastro de salas com estatísticas, filtros por status e cards de cada sala](docs/screenshots/admin-salas.png) |
+| **Salas livres** — "qual sala está livre dia 15, das 19 às 21?" | **Salas** — cadastro com capacidade, status e recursos |
 
 <p align="center">
   <img src="docs/screenshots/celular-minhas-reservas.png" width="260" alt="Minhas reservas no celular, com barra de navegação inferior">
