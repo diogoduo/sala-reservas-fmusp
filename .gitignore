@@ -7,3 +7,5 @@ dist/
 coverage/
 # jar do curl com o cookie de sessão usado nos testes manuais da API
 cookies.txt
+# ferramentas locais do Claude Code (skills etc.)
+.claude/

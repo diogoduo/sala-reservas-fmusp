@@ -1,61 +1,47 @@
-import { useEffect, useState } from "react";
-import { AdminPanel } from "./components/admin/AdminPanel";
+import { Navigate, Route, Routes } from "react-router";
+import { RequestsAdmin } from "./components/admin/RequestsAdmin";
+import { ResourcesAdmin } from "./components/admin/ResourcesAdmin";
+import { RoomsAdmin } from "./components/admin/RoomsAdmin";
+import { AppShell } from "./components/layout/AppShell";
 import { Login } from "./components/Login";
-import { RequesterPanel } from "./components/solicitante/RequesterPanel";
-import { api } from "./lib/api";
+import { MyReservations } from "./components/solicitante/MyReservations";
+import { ReservationPage } from "./components/solicitante/ReservationForm";
+import { RoomSearch } from "./components/solicitante/RoomSearch";
+import { LogoMark } from "./components/ui/Logo";
 import { useAuth } from "./lib/auth";
-
-interface Health {
-  status: string;
-  database: string;
-}
-
-function Dashboard() {
-  const { user, logout } = useAuth();
-  const [health, setHealth] = useState<Health | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    api<Health>("/health").then(setHealth).catch((e: Error) => setError(e.message));
-  }, []);
-
-  return (
-    <main className="mx-auto max-w-4xl p-8">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Reserva de Salas — FMUSP</h1>
-          <p className="text-sm text-slate-500">
-            {user?.name} · {user?.email} · {user?.role === "ADMIN" ? "Administrador" : "Solicitante"}
-          </p>
-        </div>
-        <button onClick={() => void logout()} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm">
-          Sair
-        </button>
-      </header>
-
-      <section className="mt-6 rounded-lg border border-slate-200 p-4">
-        <h2 className="font-medium">Status da API</h2>
-        {error && <p className="mt-2 text-red-600">Falha ao contatar a API: {error}</p>}
-        {!error && !health && <p className="mt-2 text-slate-500">Verificando…</p>}
-        {health && (
-          <p className="mt-2">
-            API: <strong>{health.status}</strong> · Banco: <strong>{health.database}</strong>
-          </p>
-        )}
-      </section>
-
-      {user?.role === "ADMIN" ? (
-        <AdminPanel />
-      ) : (
-        <RequesterPanel />
-      )}
-    </main>
-  );
-}
 
 export default function App() {
   const { user, loading } = useAuth();
 
-  if (loading) return <p className="p-8 text-center text-slate-500">Carregando…</p>;
-  return user ? <Dashboard /> : <Login />;
+  if (loading) {
+    return (
+      <div className="grid min-h-dvh place-items-center" role="status" aria-label="Carregando">
+        <LogoMark className="size-14 animate-pulse" />
+      </div>
+    );
+  }
+  if (!user) return <Login />;
+
+  // Cada papel tem suas telas; qualquer outro endereço cai na tela inicial do papel.
+  return (
+    <Routes>
+      <Route element={<AppShell />}>
+        {user.role === "ADMIN" ? (
+          <>
+            <Route path="/admin/solicitacoes" element={<RequestsAdmin />} />
+            <Route path="/admin/salas" element={<RoomsAdmin />} />
+            <Route path="/admin/recursos" element={<ResourcesAdmin />} />
+            <Route path="*" element={<Navigate to="/admin/solicitacoes" replace />} />
+          </>
+        ) : (
+          <>
+            <Route path="/minhas-reservas" element={<MyReservations />} />
+            <Route path="/reservar" element={<ReservationPage />} />
+            <Route path="/salas" element={<RoomSearch />} />
+            <Route path="*" element={<Navigate to="/minhas-reservas" replace />} />
+          </>
+        )}
+      </Route>
+    </Routes>
+  );
 }

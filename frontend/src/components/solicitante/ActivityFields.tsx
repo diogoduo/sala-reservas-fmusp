@@ -1,4 +1,4 @@
-import type { ChangeEvent, ReactNode } from "react";
+import type { ChangeEvent } from "react";
 import {
   COURSE_YEARS,
   CULTURE_KIND_LABELS,
@@ -6,6 +6,7 @@ import {
   UNDERGRADUATE_CLASS_TYPE_LABELS,
 } from "../../lib/activities";
 import type { ActivityType } from "../../lib/types";
+import { Input, Select, Switch, Textarea } from "../ui/Field";
 
 /**
  * Valores dos campos específicos do tipo de atividade, do jeito que saem dos
@@ -17,37 +18,64 @@ export type DetailValues = Record<string, string | boolean>;
 
 export const INITIAL_DETAIL_VALUES: DetailValues = { free: false, linkedToCcex: false };
 
+/** Nº de pessoas informado no formulário de cada tipo (para o resumo lateral). */
+export function attendeesOf(type: ActivityType, values: DetailValues): string {
+  const field = { UNDERGRADUATE: "studentCount", GRADUATE: "studentCount", CULTURE_EXTENSION: "participantCount", PUBLIC_EXAM: "audience", DEFENSE: "audience" }[type];
+  const value = values[field];
+  return typeof value === "string" ? value : "";
+}
+
 interface Props {
   type: ActivityType;
   values: DetailValues;
   onChange: (name: string, value: string | boolean) => void;
 }
 
-const inputClass = "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100";
+interface PillsProps {
+  legend: string;
+  name: string;
+  options: [string, string][];
+  value: unknown;
+  onChange: (value: string) => void;
+  required?: boolean;
+}
 
-function Field({ label, wide = false, children }: { label: string; wide?: boolean; children: ReactNode }) {
+/** Escolha única em formato de "pílulas" (radio por baixo, acessível pelo teclado). */
+function ChoicePills({ legend, name, options, value, onChange, required }: PillsProps) {
   return (
-    <label className={`block ${wide ? "col-span-2" : ""}`}>
-      <span className="text-sm font-medium text-slate-700">{label}</span>
-      {children}
-    </label>
+    <fieldset>
+      <legend className="text-sm font-medium text-foreground">
+        {legend}
+        {required && (
+          <span aria-hidden className="ml-0.5 text-danger-foreground">
+            *
+          </span>
+        )}
+      </legend>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {options.map(([optionValue, label]) => (
+          <label
+            key={optionValue}
+            className="inline-flex h-10 items-center rounded-full border border-border-strong bg-surface px-4 text-sm font-medium text-muted transition-colors hover:border-primary/50 hover:text-foreground has-[:checked]:border-primary has-[:checked]:bg-primary-soft has-[:checked]:text-primary-soft-foreground has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring"
+          >
+            <input
+              type="radio"
+              name={name}
+              value={optionValue}
+              required={required}
+              checked={value === optionValue}
+              onChange={() => onChange(optionValue)}
+              className="sr-only"
+            />
+            {label}
+          </label>
+        ))}
+      </div>
+    </fieldset>
   );
 }
 
-function Options({ labels }: { labels: Record<string, string> }) {
-  return (
-    <>
-      <option value="">Selecione</option>
-      {Object.entries(labels).map(([value, label]) => (
-        <option key={value} value={value}>
-          {label}
-        </option>
-      ))}
-    </>
-  );
-}
-
-/** Campos que mudam conforme o tipo de atividade (seção "Informações da reserva"). */
+/** Campos que mudam conforme o tipo de atividade (seção "Sobre a atividade"). */
 export function ActivityFields({ type, values, onChange }: Props) {
   const text = (name: string) => ({
     name,
@@ -60,49 +88,46 @@ export function ActivityFields({ type, values, onChange }: Props) {
   // disciplinas no banco é um passo futuro.
   const disciplineFields = (
     <>
-      <Field label="Código da disciplina">
-        <input
-          required
-          {...text("disciplineCode")}
-          pattern="[A-Za-z]{3}[0-9]{4}"
-          title="3 letras e 4 números, ex.: MCM0101"
-          placeholder="MCM0101"
-          maxLength={7}
-          className={`${inputClass} uppercase`}
-        />
-      </Field>
-      <Field label="Disciplina">
-        <input required {...text("disciplineName")} className={inputClass} />
-      </Field>
-      <Field label="Nº de alunos">
-        <input required type="number" min={1} {...text("studentCount")} className={inputClass} />
-      </Field>
-      <Field label="Responsável pela disciplina">
-        <input required {...text("disciplineOwner")} className={inputClass} />
-      </Field>
+      <Input
+        label="Código da disciplina"
+        required
+        {...text("disciplineCode")}
+        pattern="[A-Za-z]{3}[0-9]{4}"
+        title="3 letras e 4 números, ex.: MCM0101"
+        placeholder="MCM0101"
+        maxLength={7}
+        autoCapitalize="characters"
+        hint="3 letras e 4 números"
+        className="uppercase placeholder:normal-case"
+      />
+      <Input label="Disciplina" required {...text("disciplineName")} />
+      <Input label="Nº de alunos" required type="number" inputMode="numeric" min={1} {...text("studentCount")} />
+      <Input label="Responsável pela disciplina" required {...text("disciplineOwner")} />
     </>
   );
 
-  const department = (
-    <Field label="Departamento">
-      <input required {...text("department")} className={inputClass} />
-    </Field>
-  );
+  const department = <Input label="Departamento" required {...text("department")} />;
 
   switch (type) {
     case "UNDERGRADUATE":
       return (
         <>
-          <Field label="Tipo">
-            <select required {...text("classType")} className={inputClass}>
-              <Options labels={UNDERGRADUATE_CLASS_TYPE_LABELS} />
-            </select>
-          </Field>
-          <Field label="Ano">
-            <select required {...text("courseYear")} className={inputClass}>
-              <Options labels={Object.fromEntries(COURSE_YEARS.map((y) => [String(y), `${y}º ano`]))} />
-            </select>
-          </Field>
+          <Select label="Tipo" required {...text("classType")}>
+            <option value="">Selecione</option>
+            {Object.entries(UNDERGRADUATE_CLASS_TYPE_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+          <Select label="Ano" required {...text("courseYear")}>
+            <option value="">Selecione</option>
+            {COURSE_YEARS.map((year) => (
+              <option key={year} value={String(year)}>
+                {year}º ano
+              </option>
+            ))}
+          </Select>
           {disciplineFields}
           {department}
         </>
@@ -119,66 +144,60 @@ export function ActivityFields({ type, values, onChange }: Props) {
     case "CULTURE_EXTENSION":
       return (
         <>
-          <fieldset className="col-span-2">
-            <legend className="text-sm font-medium text-slate-700">Tipo de reserva</legend>
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
-              {Object.entries(CULTURE_KIND_LABELS).map(([value, label]) => (
-                <label key={value} className="flex items-center gap-1.5 text-sm">
-                  <input type="radio" name="kind" required value={value} checked={values.kind === value} onChange={() => onChange("kind", value)} />
-                  {label}
-                </label>
-              ))}
-            </div>
+          <div className="space-y-3 sm:col-span-2">
+            <ChoicePills
+              legend="Tipo de reserva"
+              name="kind"
+              required
+              value={values.kind}
+              onChange={(value) => onChange("kind", value)}
+              options={Object.entries(CULTURE_KIND_LABELS)}
+            />
             {values.kind === "OTHER" && (
-              <input required {...text("otherKind")} placeholder="Qual?" maxLength={120} className={`${inputClass} max-w-xs`} />
+              <Input
+                label="Qual?"
+                required
+                {...text("otherKind")}
+                maxLength={120}
+                containerClassName="max-w-sm animate-fade-in"
+              />
             )}
-          </fieldset>
-          <Field label="Título da atividade">
-            <input required {...text("activityTitle")} className={inputClass} />
-          </Field>
-          <Field label="Nº de participantes">
-            <input required type="number" min={1} {...text("participantCount")} className={inputClass} />
-          </Field>
-          <div>
-            <Field label="Valor da taxa (R$)">
-              <input
-                required={!values.free}
-                disabled={values.free === true}
-                type="number"
-                min={0.01}
-                step={0.01}
-                {...text("fee")}
-                className={inputClass}
-              />
-            </Field>
-            <label className="mt-1 flex items-center gap-1.5 text-sm">
-              <input
-                type="checkbox"
-                checked={values.free === true}
-                onChange={(e) => {
-                  onChange("free", e.target.checked);
-                  if (e.target.checked) onChange("fee", "");
-                }}
-              />
-              Atividade gratuita
-            </label>
           </div>
-          <fieldset>
-            <legend className="text-sm font-medium text-slate-700">Vinculada à CCEx</legend>
-            <div className="mt-2 flex gap-4">
-              <label className="flex items-center gap-1.5 text-sm">
-                <input type="radio" name="linkedToCcex" checked={values.linkedToCcex === true} onChange={() => onChange("linkedToCcex", true)} />
-                Sim
-              </label>
-              <label className="flex items-center gap-1.5 text-sm">
-                <input type="radio" name="linkedToCcex" checked={values.linkedToCcex === false} onChange={() => onChange("linkedToCcex", false)} />
-                Não
-              </label>
-            </div>
-          </fieldset>
-          <Field label="Responsável">
-            <input required {...text("responsible")} className={inputClass} />
-          </Field>
+          <Input label="Título da atividade" required {...text("activityTitle")} containerClassName="sm:col-span-2" />
+          <Input label="Nº de participantes" required type="number" inputMode="numeric" min={1} {...text("participantCount")} />
+          <Input
+            label="Valor da taxa (R$)"
+            required={!values.free}
+            disabled={values.free === true}
+            type="number"
+            inputMode="decimal"
+            min={0.01}
+            step={0.01}
+            placeholder={values.free ? "Gratuita" : "0,00"}
+            {...text("fee")}
+          />
+          <div className="rounded-xl border border-border p-4 sm:col-span-2">
+            <Switch
+              checked={values.free === true}
+              onChange={(checked) => {
+                onChange("free", checked);
+                if (checked) onChange("fee", "");
+              }}
+              label="Atividade gratuita"
+              description="Sem taxa de inscrição para os participantes."
+            />
+          </div>
+          <ChoicePills
+            legend="Vinculada à CCEx"
+            name="linkedToCcex"
+            value={values.linkedToCcex === true ? "yes" : "no"}
+            onChange={(value) => onChange("linkedToCcex", value === "yes")}
+            options={[
+              ["yes", "Sim"],
+              ["no", "Não"],
+            ]}
+          />
+          <Input label="Responsável" required {...text("responsible")} />
           {department}
         </>
       );
@@ -186,45 +205,51 @@ export function ActivityFields({ type, values, onChange }: Props) {
     case "PUBLIC_EXAM":
       return (
         <>
-          <Field label="Título" wide>
-            <input required {...text("examTitle")} className={inputClass} />
-          </Field>
-          <Field label="Público previsto">
-            <input required type="number" min={1} {...text("audience")} className={inputClass} />
-          </Field>
-          <Field label="Nº de candidatos">
-            <input required type="number" min={1} {...text("candidateCount")} className={inputClass} />
-          </Field>
-          <Field label="Responsável pelo concurso">
-            <input required {...text("responsible")} className={inputClass} />
-          </Field>
+          <Input label="Título" required {...text("examTitle")} containerClassName="sm:col-span-2" />
+          <Input
+            label="Público previsto"
+            required
+            type="number"
+            inputMode="numeric"
+            min={1}
+            hint="Total de pessoas na sala, candidatos inclusos."
+            {...text("audience")}
+          />
+          <Input label="Nº de candidatos" required type="number" inputMode="numeric" min={1} {...text("candidateCount")} />
+          <Input label="Responsável pelo concurso" required {...text("responsible")} />
           {department}
-          <Field label="Nomes dos candidatos" wide>
-            <textarea required rows={2} {...text("candidateNames")} className={inputClass} />
-          </Field>
+          <Textarea
+            label="Nomes dos candidatos"
+            required
+            rows={3}
+            hint="Um por linha."
+            {...text("candidateNames")}
+            containerClassName="sm:col-span-2"
+          />
         </>
       );
 
     case "DEFENSE":
       return (
         <>
-          <Field label="Trabalho" wide>
-            <input required {...text("work")} placeholder="Título da dissertação ou tese" className={inputClass} />
-          </Field>
-          <Field label="Candidato">
-            <input required {...text("candidate")} className={inputClass} />
-          </Field>
-          <Field label="Orientador">
-            <input required {...text("advisor")} className={inputClass} />
-          </Field>
-          <Field label="Nível">
-            <select required {...text("level")} className={inputClass}>
-              <Options labels={DEFENSE_LEVEL_LABELS} />
-            </select>
-          </Field>
-          <Field label="Público previsto">
-            <input required type="number" min={1} {...text("audience")} className={inputClass} />
-          </Field>
+          <Input
+            label="Trabalho"
+            required
+            placeholder="Título da dissertação ou tese"
+            {...text("work")}
+            containerClassName="sm:col-span-2"
+          />
+          <Input label="Candidato" required {...text("candidate")} />
+          <Input label="Orientador" required {...text("advisor")} />
+          <Select label="Nível" required {...text("level")}>
+            <option value="">Selecione</option>
+            {Object.entries(DEFENSE_LEVEL_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+          <Input label="Público previsto" required type="number" inputMode="numeric" min={1} {...text("audience")} />
           {department}
         </>
       );

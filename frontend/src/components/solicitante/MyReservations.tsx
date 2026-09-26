@@ -1,172 +1,324 @@
+import {
+  CalendarBlankIcon,
+  CalendarCheckIcon,
+  CalendarPlusIcon,
+  CalendarXIcon,
+  CaretDownIcon,
+  CheckCircleIcon,
+  ClockCounterClockwiseIcon,
+  ClockIcon,
+  HourglassMediumIcon,
+  MapPinIcon,
+  RepeatIcon,
+  XIcon,
+} from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import { ACTIVITY_TYPE_LABELS } from "../../lib/activities";
 import { api } from "../../lib/api";
-import { formatDateTimeRange } from "../../lib/format";
+import { cn } from "../../lib/cn";
+import { useConfirm } from "../../lib/confirm";
+import { dateTile, formatDateTimeRange, formatTimeRange, plural, relativeDays } from "../../lib/format";
+import { ACTIVITY_ICONS } from "../../lib/icons";
 import { groupBySeries, isCancellable } from "../../lib/reservations";
+import { useToast } from "../../lib/toast";
 import type { Reservation, ReviewScope } from "../../lib/types";
 import { StatusBadge } from "../StatusBadge";
+import { Button } from "../ui/Button";
+import { CardListSkeleton, EmptyState } from "../ui/Feedback";
+import { SegmentedControl } from "../ui/SegmentedControl";
+import { Card, IconTile, PageHeader, StatCard } from "../ui/Surface";
 
 type View = "upcoming" | "past";
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+const COLLAPSED_ROWS = 4;
+
+const roomLabel = (r: Reservation) => (r.room ? `${r.room.name} — ${r.room.building}, ${r.room.floor}` : null);
 
 /** O que o solicitante precisa saber sobre cada data, conforme o status. */
-function situation(r: Reservation): string {
-  const room = r.room ? `${r.room.name} — ${r.room.building}, ${r.room.floor}` : null;
+function Situation({ reservation: r }: { reservation: Reservation }) {
+  const room = roomLabel(r);
   switch (r.status) {
     case "APPROVED":
-      return `Sala: ${room}`;
+      return (
+        <span className="flex items-center gap-1.5 text-foreground">
+          <MapPinIcon size={16} weight="fill" className="shrink-0 text-primary" aria-hidden />
+          {room}
+        </span>
+      );
     case "PENDING":
       // Com sala = pedido anterior à correção pós-Fase 5, quando o solicitante indicava a sala.
-      return room ? `Sala indicada: ${room} · aguardando aprovação` : "Aguardando a Secretaria alocar uma sala";
+      return <span className="text-muted">{room ? `Sala indicada: ${room} · aguardando aprovação` : "Aguardando a Secretaria alocar uma sala"}</span>;
     case "REJECTED":
-      return `Justificativa: ${r.rejectionReason}`;
+      return (
+        <span className="text-danger-foreground">
+          <span className="font-medium">Justificativa:</span> {r.rejectionReason}
+        </span>
+      );
     case "CANCELLED":
-      return r.cancelledAt ? `Cancelada em ${new Date(r.cancelledAt).toLocaleDateString("pt-BR")}` : "Cancelada";
+      return <span className="text-muted">{r.cancelledAt ? `Cancelada em ${new Date(r.cancelledAt).toLocaleDateString("pt-BR")}` : "Cancelada"}</span>;
   }
 }
 
-interface Props {
-  onNewRequest: () => void;
+function DateTile({ iso, muted }: { iso: string; muted?: boolean }) {
+  const { day, month, weekday } = dateTile(iso);
+  return (
+    <div
+      className={cn(
+        "flex w-14 shrink-0 flex-col items-center rounded-xl border py-1.5 leading-none",
+        muted ? "border-border bg-surface-muted text-muted" : "border-primary/20 bg-primary-soft text-primary-soft-foreground",
+      )}
+    >
+      <span className="text-[10px] font-semibold tracking-wide uppercase">{weekday}</span>
+      <span className="mt-1 text-xl font-bold tabular-nums">{day}</span>
+      <span className="mt-0.5 text-[10px] font-medium uppercase">{month}</span>
+    </div>
+  );
 }
 
 // "Minhas Reservas" (Fase 8): acompanhar o status de cada data e cancelar o
 // que ainda não começou — uma data ou todas as próximas de uma série.
-export function MyReservations({ onNewRequest }: Props) {
-  const [reservations, setReservations] = useState<Reservation[]>([]);
+export function MyReservations() {
+  const navigate = useNavigate();
+  const confirm = useConfirm();
+  const toast = useToast();
+  const [reservations, setReservations] = useState<Reservation[] | null>(null);
   const [view, setView] = useState<View>("upcoming");
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   async function load() {
-    setLoading(true);
     try {
       const { reservations: list } = await api<{ reservations: Reservation[] }>("/reservations");
       setReservations(list);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Falha ao carregar suas reservas.");
-    } finally {
-      setLoading(false);
+      toast.error("Não foi possível carregar suas reservas.", e instanceof Error ? e.message : undefined);
+      setReservations([]);
     }
   }
 
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function cancel(target: Reservation, scope: ReviewScope, count: number) {
-    const question =
-      scope === "series"
-        ? `Cancelar as ${count} próximas datas desta série?`
-        : `Cancelar a reserva de ${formatDateTimeRange(target.startTime, target.endTime)}?`;
-    if (!confirm(`${question} O horário volta a ficar livre para outras pessoas.`)) return;
+    const ok = await confirm({
+      tone: "danger",
+      title: scope === "series" ? `Cancelar as ${count} próximas datas?` : "Cancelar esta reserva?",
+      description:
+        scope === "series"
+          ? `Todas as próximas datas de "${target.title}" serão canceladas e os horários ficarão livres para outras pessoas.`
+          : `${formatDateTimeRange(target.startTime, target.endTime)} — o horário ficará livre para outras pessoas.`,
+      confirmLabel: scope === "series" ? "Cancelar todas" : "Cancelar reserva",
+      cancelLabel: "Manter",
+    });
+    if (!ok) return;
 
-    setBusy(true);
-    setError(null);
-    setNotice(null);
+    setBusyId(target.id);
     try {
       const res = await api<{ cancelledIds: string[] }>(`/reservations/${target.id}/cancel`, {
         method: "POST",
         body: JSON.stringify({ scope }),
       });
-      setNotice(`${plural(res.cancelledIds.length, "data cancelada", "datas canceladas")}.`);
+      toast.success(plural(res.cancelledIds.length, "data cancelada", "datas canceladas"), "A Secretaria foi avisada por e-mail.");
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Falha ao cancelar.");
+      toast.error("Não foi possível cancelar.", e instanceof Error ? e.message : undefined);
     } finally {
-      setBusy(false);
+      setBusyId(null);
     }
   }
 
   const now = Date.now();
-  const visible = reservations.filter((r) =>
-    view === "upcoming" ? new Date(r.endTime).getTime() >= now : new Date(r.endTime).getTime() < now,
-  );
-  const groups = groupBySeries(visible);
+  const all = reservations ?? [];
+  const upcoming = all.filter((r) => new Date(r.endTime).getTime() >= now);
+  const past = all.filter((r) => new Date(r.endTime).getTime() < now);
+  const upcomingActive = upcoming.filter((r) => r.status === "PENDING" || r.status === "APPROVED");
+  const nextApproved = upcoming.find((r) => r.status === "APPROVED");
+
+  const groups = groupBySeries(view === "upcoming" ? upcoming : past);
   if (view === "past") groups.reverse(); // no histórico, as mais recentes primeiro
 
-  const viewClass = (v: View) =>
-    `rounded-md px-3 py-1 text-sm ${view === v ? "bg-slate-200 font-medium" : "text-slate-600 hover:bg-slate-100"}`;
-
   return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-medium">Minhas reservas</h2>
-        <div className="flex gap-1">
-          <button onClick={() => setView("upcoming")} className={viewClass("upcoming")}>
-            Próximas
-          </button>
-          <button onClick={() => setView("past")} className={viewClass("past")}>
-            Anteriores
-          </button>
+    <div className="space-y-6">
+      <PageHeader
+        title="Minhas reservas"
+        description="Acompanhe suas solicitações e cancele o que não for mais usar."
+        actions={
+          <Button icon={CalendarPlusIcon} onClick={() => navigate("/reservar")}>
+            Reservar uma sala
+          </Button>
+        }
+      />
+
+      {reservations !== null && all.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {nextApproved ? (
+            <div className="relative col-span-2 animate-fade-in-up overflow-hidden rounded-2xl bg-linear-to-br from-teal-700 to-emerald-800 p-4 text-white shadow-sm">
+              <div aria-hidden className="absolute -top-10 -right-10 size-40 rounded-full bg-white/10 blur-2xl" />
+              <p className="relative flex items-center gap-1.5 text-xs font-semibold tracking-wide text-teal-100 uppercase">
+                <CalendarCheckIcon size={16} weight="fill" aria-hidden /> Próxima reserva · {relativeDays(nextApproved.startTime)}
+              </p>
+              <p className="relative mt-2 truncate font-display text-lg font-bold">{nextApproved.title}</p>
+              <p className="relative mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-teal-50">
+                <span className="flex items-center gap-1.5">
+                  <ClockIcon size={16} aria-hidden /> {formatDateTimeRange(nextApproved.startTime, nextApproved.endTime)}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <MapPinIcon size={16} aria-hidden /> {nextApproved.room?.name}
+                </span>
+              </p>
+            </div>
+          ) : (
+            <div className="col-span-2">
+              <StatCard label="Próximas datas" value={upcomingActive.length} icon={CalendarBlankIcon} />
+            </div>
+          )}
+          <StatCard
+            label="Aguardando aprovação"
+            value={upcoming.filter((r) => r.status === "PENDING").length}
+            icon={HourglassMediumIcon}
+            tone="warning"
+          />
+          <StatCard label="Aprovadas" value={upcoming.filter((r) => r.status === "APPROVED").length} icon={CheckCircleIcon} tone="success" />
         </div>
-      </div>
+      )}
 
-      {notice && <p className="mt-3 rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+      <SegmentedControl
+        label="Período"
+        value={view}
+        onChange={setView}
+        options={[
+          { value: "upcoming", label: "Próximas", count: groupBySeries(upcoming).length, icon: CalendarBlankIcon },
+          { value: "past", label: "Anteriores", count: groupBySeries(past).length, icon: ClockCounterClockwiseIcon },
+        ]}
+      />
 
-      <ul className="mt-4 space-y-3">
-        {loading && <li className="text-sm text-slate-500">Carregando…</li>}
-        {!loading && groups.length === 0 && (
-          <li className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
-            {view === "upcoming" ? (
-              <>
-                Você não tem reservas futuras.{" "}
-                <button onClick={onNewRequest} className="text-slate-900 underline">
-                  Reservar uma sala
-                </button>
-              </>
-            ) : (
-              "Nenhuma reserva anterior."
-            )}
-          </li>
-        )}
-        {!loading &&
-          groups.map((group) => {
+      {reservations === null ? (
+        <CardListSkeleton />
+      ) : groups.length === 0 ? (
+        view === "upcoming" ? (
+          <EmptyState
+            icon={CalendarPlusIcon}
+            title="Nenhuma reserva por vir"
+            description="Quando você fizer uma solicitação, ela aparece aqui com o status de cada data."
+            action={
+              <Button icon={CalendarPlusIcon} onClick={() => navigate("/reservar")}>
+                Reservar uma sala
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState icon={CalendarXIcon} title="Nenhuma reserva anterior" description="Seu histórico aparece aqui depois que as datas passarem." />
+        )
+      ) : (
+        <ul className="space-y-4">
+          {groups.map((group, index) => {
             const first = group[0]!;
+            const key = first.seriesId ?? first.id;
             const cancellable = group.filter((r) => isCancellable(r, now));
+            const isExpanded = expanded.has(key);
+            const visibleRows = isExpanded ? group : group.slice(0, COLLAPSED_ROWS);
+            const ActivityIcon = first.activityType ? ACTIVITY_ICONS[first.activityType] : CalendarBlankIcon;
             return (
-              <li key={first.seriesId ?? first.id} className="rounded-lg border border-slate-200 p-4">
-                <div className="font-medium">{first.title}</div>
-                <div className="text-sm text-slate-500">
-                  {first.activityType ? ACTIVITY_TYPE_LABELS[first.activityType] : "Solicitação"}
-                  {group.length > 1 && ` · série com ${group.length} datas`}
-                </div>
+              <li key={key} className="animate-fade-in-up" style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}>
+                <Card className="overflow-hidden">
+                  <div className="flex items-start gap-4 p-4 sm:p-5">
+                    <IconTile icon={ActivityIcon} />
+                    <div className="min-w-0 flex-1">
+                      <h2 className="text-base font-semibold sm:text-lg">{first.title}</h2>
+                      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-muted">
+                        {first.activityType ? ACTIVITY_TYPE_LABELS[first.activityType] : "Solicitação"}
+                        {group.length > 1 && (
+                          <span className="flex items-center gap-1">
+                            · <RepeatIcon size={14} aria-hidden /> série com {group.length} datas
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
 
-                <ul className="mt-3 divide-y divide-slate-100">
-                  {group.map((r) => (
-                    <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
-                      <span className="w-60 shrink-0">{formatDateTimeRange(r.startTime, r.endTime)}</span>
-                      <StatusBadge status={r.status} />
-                      <span className="min-w-0 flex-1 text-slate-600">{situation(r)}</span>
-                      {isCancellable(r, now) && (
-                        <button
-                          disabled={busy}
+                  <ul className="divide-y divide-border border-t border-border">
+                    {visibleRows.map((r) => {
+                      const inactive = r.status === "CANCELLED" || r.status === "REJECTED";
+                      const cancelButton = isCancellable(r, now) && (
+                        <Button
+                          variant="danger-soft"
+                          size="sm"
+                          icon={XIcon}
+                          loading={busyId === r.id}
+                          disabled={busyId !== null}
                           onClick={() => void cancel(r, "single", 1)}
-                          className="text-sm text-red-600 hover:underline disabled:opacity-50"
                         >
                           Cancelar
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
+                        </Button>
+                      );
+                      return (
+                        <li key={r.id} className="flex items-start gap-3 px-4 py-3 sm:items-center sm:gap-4 sm:px-5">
+                          <DateTile iso={r.startTime} muted={inactive || view === "past"} />
+                          <div className="min-w-0 flex-1 space-y-1.5">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="flex items-center gap-1.5 text-sm font-medium tabular-nums">
+                                <ClockIcon size={16} className="text-muted" aria-hidden />
+                                {formatTimeRange(r.startTime, r.endTime)}
+                              </span>
+                              <StatusBadge status={r.status} />
+                            </div>
+                            <p className="text-sm">
+                              <Situation reservation={r} />
+                            </p>
+                            {/* Celular: o botão vai abaixo do texto, que fica com a largura toda. */}
+                            {cancelButton && <div className="-ml-3 sm:hidden">{cancelButton}</div>}
+                          </div>
+                          {cancelButton && <div className="hidden shrink-0 sm:block">{cancelButton}</div>}
+                        </li>
+                      );
+                    })}
+                  </ul>
 
-                {cancellable.length > 1 && (
-                  <button
-                    disabled={busy}
-                    onClick={() => void cancel(cancellable[0]!, "series", cancellable.length)}
-                    className="mt-2 rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50"
-                  >
-                    Cancelar as {cancellable.length} próximas datas
-                  </button>
-                )}
+                  {(group.length > COLLAPSED_ROWS || cancellable.length > 1) && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-surface-muted/50 px-4 py-2.5 sm:px-5">
+                      {group.length > COLLAPSED_ROWS ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          iconRight={CaretDownIcon}
+                          aria-expanded={isExpanded}
+                          className={cn("[&>svg]:transition-transform", isExpanded && "[&>svg]:rotate-180")}
+                          onClick={() =>
+                            setExpanded((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(key)) next.delete(key);
+                              else next.add(key);
+                              return next;
+                            })
+                          }
+                        >
+                          {isExpanded ? "Mostrar menos" : `Mostrar todas as ${group.length} datas`}
+                        </Button>
+                      ) : (
+                        <span />
+                      )}
+                      {cancellable.length > 1 && (
+                        <Button
+                          variant="danger-soft"
+                          size="sm"
+                          loading={busyId === cancellable[0]!.id}
+                          disabled={busyId !== null}
+                          onClick={() => void cancel(cancellable[0]!, "series", cancellable.length)}
+                        >
+                          Cancelar as {cancellable.length} próximas
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </Card>
               </li>
             );
           })}
-      </ul>
+        </ul>
+      )}
     </div>
   );
 }

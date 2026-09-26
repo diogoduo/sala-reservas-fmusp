@@ -1,42 +1,154 @@
-import { useEffect, useState } from "react";
+import {
+  CheckCircleIcon,
+  SealCheckIcon,
+  SparkleIcon,
+  WarningIcon,
+  XCircleIcon,
+  type Icon,
+} from "@phosphor-icons/react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { ACTIVITY_TYPE_LABELS, activityDetailRows } from "../../lib/activities";
 import { api, ApiError } from "../../lib/api";
-import { formatDateTimeRange, formatShortDate } from "../../lib/format";
+import { cn } from "../../lib/cn";
+import { formatDateTimeRange, formatShortDate, formatTimeRange, plural } from "../../lib/format";
+import { ROOM_TYPE_ICONS } from "../../lib/icons";
+import { useToast } from "../../lib/toast";
 import { ROOM_TYPE_LABELS } from "../../lib/types";
-import type { AdminReservation, Resource, ReviewScope, RoomOption } from "../../lib/types";
+import type { AdminReservation, RequestedResource, Resource, ReviewScope, RoomOption } from "../../lib/types";
+import { StatusBadge } from "../StatusBadge";
+import { Avatar } from "../ui/Avatar";
+import { Badge } from "../ui/Badge";
+import { Button } from "../ui/Button";
+import { Dialog } from "../ui/Dialog";
+import { Alert, Skeleton } from "../ui/Feedback";
+import { Select, Textarea } from "../ui/Field";
+import { IconTile } from "../ui/Surface";
 
 const ALL = "all";
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+/** "Computador de Apoio (2)", "Webconferência: Zoom" */
+export function describeResource(resources: Resource[], { resourceId, quantity, detail }: RequestedResource): string {
+  const name = resources.find((r) => r.id === resourceId)?.name ?? "recurso removido";
+  return `${name}${quantity ? ` (${quantity})` : ""}${detail ? `: ${detail}` : ""}`;
+}
 
-interface Props {
-  /** Ocorrências pendentes de uma mesma solicitação: uma se for avulsa, várias se for série. */
+function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <>
+      <dt className="text-muted">{label}</dt>
+      <dd className="min-w-0 break-words whitespace-pre-line">{children}</dd>
+    </>
+  );
+}
+
+/** Todos os dados do pedido, em lista rótulo/valor. */
+function RequestDetails({ group, resources }: { group: AdminReservation[]; resources: Resource[] }) {
+  const first = group[0]!;
+  const rooms = [...new Set(group.flatMap((r) => (r.room ? [`${r.room.name} — ${r.room.building}, ${r.room.floor}`] : [])))];
+  return (
+    <section aria-label="Dados da solicitação" className="space-y-4">
+      <div className="flex items-center gap-3 rounded-xl bg-surface-muted p-3">
+        <Avatar name={first.user.name} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-semibold">{first.user.name}</p>
+          <p className="truncate text-sm text-muted">{first.user.email}</p>
+        </div>
+        <StatusBadge status={first.status} />
+      </div>
+
+      <dl className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-sm">
+        {first.activityType && <DetailRow label="Atividade">{ACTIVITY_TYPE_LABELS[first.activityType]}</DetailRow>}
+        <DetailRow label="Participantes">{first.expectedAttendees}</DetailRow>
+        <DetailRow label={group.length > 1 ? `Datas (${group.length})` : "Data"}>
+          {group.length === 1 ? (
+            formatDateTimeRange(first.startTime, first.endTime)
+          ) : (
+            <>
+              <span className="tabular-nums">{formatTimeRange(first.startTime, first.endTime)}</span>
+              <ul className="mt-1.5 flex flex-wrap gap-1">
+                {group.map((r) => (
+                  <li key={r.id} className="rounded-md bg-surface-muted px-1.5 py-0.5 text-xs tabular-nums">
+                    {formatShortDate(r.startTime)}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </DetailRow>
+        <DetailRow label="Descrição">{first.description}</DetailRow>
+        {first.activityType &&
+          first.activityDetails &&
+          activityDetailRows(first.activityType, first.activityDetails).map((row) => (
+            <Fragment key={row.label}>
+              <DetailRow label={row.label}>{row.value}</DetailRow>
+            </Fragment>
+          ))}
+        {first.requestedResources.length > 0 && (
+          <DetailRow label="Recursos">{first.requestedResources.map((r) => describeResource(resources, r)).join("; ")}</DetailRow>
+        )}
+        {first.supportNotes && <DetailRow label="Obs. para TI">{first.supportNotes}</DetailRow>}
+        {rooms.length > 0 && (
+          <DetailRow label={first.status === "PENDING" ? "Sala indicada" : "Sala"}>{rooms.join("; ")}</DetailRow>
+        )}
+        {first.rejectionReason && <DetailRow label="Justificativa">{first.rejectionReason}</DetailRow>}
+        {first.reviewedBy && first.reviewedAt && (
+          <DetailRow label="Revisada por">
+            {first.reviewedBy.name} em {new Date(first.reviewedAt).toLocaleString("pt-BR")}
+          </DetailRow>
+        )}
+        {first.cancelledAt && <DetailRow label="Cancelada em">{new Date(first.cancelledAt).toLocaleString("pt-BR")}</DetailRow>}
+        <DetailRow label="Enviada em">{new Date(first.createdAt).toLocaleString("pt-BR")}</DetailRow>
+      </dl>
+    </section>
+  );
+}
+
+function Check({ state, children }: { state: "ok" | "warn" | "bad"; children: ReactNode }) {
+  const { icon: CheckIcon, className }: { icon: Icon; className: string } = {
+    ok: { icon: CheckCircleIcon, className: "text-success-foreground" },
+    warn: { icon: WarningIcon, className: "text-warning-foreground" },
+    bad: { icon: XCircleIcon, className: "text-danger-foreground" },
+  }[state];
+  return (
+    <li className={cn("flex items-center gap-1", className)}>
+      <CheckIcon size={14} weight="fill" aria-hidden />
+      {children}
+    </li>
+  );
+}
+
+interface ReviewDrawerProps {
   group: AdminReservation[];
   resources: Resource[];
+  onClose: () => void;
   onDone: (message: string) => void;
-  onCancel: () => void;
 }
 
 /**
- * Análise de uma solicitação pendente: lista as salas ativas já ordenadas da
- * mais para a menos adequada (GET .../room-options) e permite aprovar alocando
- * uma delas, ou rejeitar com justificativa. Numa série, dá para decidir todas
- * as datas de uma vez ou uma data específica.
+ * Painel de análise: dados do pedido + salas ativas já ordenadas da mais para
+ * a menos adequada (GET .../room-options). Aprovar aloca a sala; rejeitar pede
+ * justificativa. Numa série, dá para decidir todas as datas ou uma específica.
+ * Para pedidos já revisados, mostra só os dados.
  */
-export function ReviewPanel({ group, resources, onDone, onCancel }: Props) {
-  const [target, setTarget] = useState<string>(group.length > 1 ? ALL : group[0]!.id);
+export function ReviewDrawer({ group, resources, onClose, onDone }: ReviewDrawerProps) {
+  const toast = useToast();
+  const first = group[0]!;
+  const isPending = first.status === "PENDING";
+
+  const [target, setTarget] = useState<string>(group.length > 1 ? ALL : first.id);
   const [options, setOptions] = useState<RoomOption[] | null>(null);
   const [occurrenceCount, setOccurrenceCount] = useState(0);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [mode, setMode] = useState<"approve" | "reject">("approve");
   const [rejectReason, setRejectReason] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   const scope: ReviewScope = target === ALL ? "series" : "single";
-  const reservationId = target === ALL ? group[0]!.id : target;
-  const attendees = group[0]!.expectedAttendees;
+  const reservationId = target === ALL ? first.id : target;
 
   useEffect(() => {
+    if (!isPending) return;
     setOptions(null);
     setSelectedRoomId(null);
     api<{ occurrences: unknown[]; options: RoomOption[] }>(`/admin/reservations/${reservationId}/room-options?scope=${scope}`)
@@ -45,22 +157,24 @@ export function ReviewPanel({ group, resources, onDone, onCancel }: Props) {
         setOccurrenceCount(res.occurrences.length);
         // A API já devolve a mais adequada primeiro; só pré-seleciona se ela for utilizável.
         const best = res.options[0];
-        if (best && best.fitsCapacity && best.conflictingDates.length < res.occurrences.length) {
-          setSelectedRoomId(best.room.id);
-        }
+        if (best && best.fitsCapacity && best.conflictingDates.length < res.occurrences.length) setSelectedRoomId(best.room.id);
       })
-      .catch((e: Error) => setError(e.message));
-  }, [reservationId, scope, reloadKey]);
+      .catch((e: Error) => {
+        toast.error("Não foi possível carregar as salas.", e.message);
+        setOptions([]);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPending, reservationId, scope, reloadKey]);
 
   const selected = options?.find((o) => o.room.id === selectedRoomId) ?? null;
   const partial = selected !== null && selected.conflictingDates.length > 0;
   const freeCount = selected ? occurrenceCount - selected.conflictingDates.length : 0;
+  const recommendedId = options?.find((o) => o.fitsCapacity && o.conflictingDates.length < occurrenceCount)?.room.id;
   const resourceName = (id: string) => resources.find((r) => r.id === id)?.name ?? "recurso removido";
 
   async function approve() {
     if (!selected) return;
     setBusy(true);
-    setError(null);
     try {
       const res = await api<{ approved: AdminReservation[]; skipped: unknown[] }>(`/admin/reservations/${reservationId}/approve`, {
         method: "POST",
@@ -68,10 +182,10 @@ export function ReviewPanel({ group, resources, onDone, onCancel }: Props) {
       });
       onDone(
         `${plural(res.approved.length, "data aprovada", "datas aprovadas")} em ${selected.room.name}` +
-          (res.skipped.length > 0 ? `; ${plural(res.skipped.length, "data continua pendente", "datas continuam pendentes")}.` : "."),
+          (res.skipped.length > 0 ? ` · ${plural(res.skipped.length, "continua pendente", "continuam pendentes")}` : ""),
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Falha ao aprovar.");
+      toast.error("Não foi possível aprovar.", e instanceof Error ? e.message : undefined);
       // Conflito ou revisão simultânea: a ocupação das salas mudou, então recarrega as opções.
       if (e instanceof ApiError && e.status === 409) setReloadKey((k) => k + 1);
     } finally {
@@ -80,17 +194,15 @@ export function ReviewPanel({ group, resources, onDone, onCancel }: Props) {
   }
 
   async function reject() {
-    if (!confirm(`Rejeitar ${plural(occurrenceCount, "data", "datas")}? O solicitante verá a justificativa.`)) return;
     setBusy(true);
-    setError(null);
     try {
       const res = await api<{ rejectedIds: string[] }>(`/admin/reservations/${reservationId}/reject`, {
         method: "POST",
         body: JSON.stringify({ reason: rejectReason, scope }),
       });
-      onDone(`${plural(res.rejectedIds.length, "data rejeitada", "datas rejeitadas")}.`);
+      onDone(plural(res.rejectedIds.length, "data rejeitada", "datas rejeitadas"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Falha ao rejeitar.");
+      toast.error("Não foi possível rejeitar.", e instanceof Error ? e.message : undefined);
     } finally {
       setBusy(false);
     }
@@ -98,138 +210,171 @@ export function ReviewPanel({ group, resources, onDone, onCancel }: Props) {
 
   let approveLabel = "Aprovar";
   if (selected) {
-    approveLabel =
-      occurrenceCount > 1
-        ? `Aprovar ${plural(freeCount, "data", "datas")} em ${selected.room.name}`
-        : `Aprovar em ${selected.room.name}`;
+    approveLabel = occurrenceCount > 1 ? `Aprovar ${plural(freeCount, "data", "datas")}` : "Aprovar";
   }
 
-  return (
-    <div className="mt-3 space-y-4 rounded-lg bg-slate-50 p-4">
-      {group.length > 1 && (
-        <div>
-          <label className="block text-sm font-medium text-slate-700">Aplicar a</label>
-          <select
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-            className="mt-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-          >
-            <option value={ALL}>Todas as datas pendentes da série</option>
-            {group.map((r) => (
-              <option key={r.id} value={r.id}>
-                Só {formatDateTimeRange(r.startTime, r.endTime)}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      <div>
-        <h4 className="text-sm font-medium text-slate-700">Sala (da mais para a menos adequada)</h4>
-        {!options && !error && <p className="mt-2 text-sm text-slate-500">Buscando salas…</p>}
-        {options?.length === 0 && <p className="mt-2 text-sm text-slate-500">Nenhuma sala ativa cadastrada.</p>}
-        <ul className="mt-2 space-y-2">
-          {options?.map((option) => {
-            const conflicts = option.conflictingDates.length;
-            const allBusy = conflicts >= occurrenceCount;
-            const disabled = !option.fitsCapacity || allBusy;
-            return (
-              <li key={option.room.id}>
-                <label
-                  className={`flex gap-3 rounded-md border bg-white p-3 text-sm ${
-                    selectedRoomId === option.room.id ? "border-slate-900" : "border-slate-200"
-                  } ${disabled ? "opacity-50" : "cursor-pointer"}`}
-                >
-                  <input
-                    type="radio"
-                    name={`room-${group[0]!.id}`}
-                    disabled={disabled}
-                    checked={selectedRoomId === option.room.id}
-                    onChange={() => setSelectedRoomId(option.room.id)}
-                    className="mt-1"
-                  />
-                  <div>
-                    <div className="font-medium">
-                      {option.room.name}{" "}
-                      <span className="font-normal text-slate-500">
-                        — {option.room.building}, {option.room.floor} · {ROOM_TYPE_LABELS[option.room.roomType]} · cap.{" "}
-                        {option.room.capacity}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
-                      {option.fitsCapacity ? (
-                        <span className="text-emerald-700">✓ comporta {attendees} pessoas</span>
-                      ) : (
-                        <span className="text-red-600">
-                          ✗ comporta só {option.room.capacity} (pedido: {attendees})
-                        </span>
-                      )}
-                      {conflicts === 0 && (
-                        <span className="text-emerald-700">✓ livre {occurrenceCount > 1 ? "em todas as datas" : "no horário"}</span>
-                      )}
-                      {conflicts > 0 && occurrenceCount === 1 && <span className="text-red-600">✗ ocupada no horário</span>}
-                      {conflicts > 0 && occurrenceCount > 1 && (
-                        <span className={allBusy ? "text-red-600" : "text-amber-700"}>
-                          {allBusy ? "✗" : "⚠"} ocupada em {conflicts} de {occurrenceCount} datas (
-                          {option.conflictingDates.map(formatShortDate).join(", ")})
-                        </span>
-                      )}
-                      {option.missingResources.map((m) => (
-                        <span key={m.resourceId} className="text-amber-700">
-                          ⚠{" "}
-                          {m.available === 0
-                            ? `sem ${resourceName(m.resourceId)}`
-                            : `${resourceName(m.resourceId)}: só ${m.available} (pedido: ${m.requested})`}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </label>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-
-      {partial && (
-        <p className="text-sm text-amber-800">
-          {plural(selected.conflictingDates.length, "data já está ocupada", "datas já estão ocupadas")} nesta sala e vai
-          continuar pendente — dá para alocá-la em outra sala depois.
-        </p>
-      )}
-
-      {error && <p className="text-sm text-red-600">{error}</p>}
-
-      <div className="flex gap-2">
-        <button
-          onClick={() => void approve()}
-          disabled={busy || !selected}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
-        >
+  const footer = !isPending ? (
+    <Button variant="secondary" onClick={onClose}>
+      Fechar
+    </Button>
+  ) : mode === "reject" ? (
+    <>
+      <Button variant="secondary" onClick={() => setMode("approve")} disabled={busy}>
+        Voltar
+      </Button>
+      <Button variant="danger" icon={XCircleIcon} loading={busy} disabled={!rejectReason.trim()} onClick={() => void reject()}>
+        Confirmar rejeição
+      </Button>
+    </>
+  ) : (
+    <>
+      <Button variant="danger-soft" icon={XCircleIcon} onClick={() => setMode("reject")} disabled={busy} className="sm:mr-auto">
+        Rejeitar
+      </Button>
+      <Button icon={SealCheckIcon} loading={busy} disabled={!selected} onClick={() => void approve()}>
+        {/* Um só nó de texto: o gap do botão não entra entre "Aprovar" e "em …". */}
+        <span>
           {approveLabel}
-        </button>
-        <button onClick={onCancel} className="rounded-md border border-slate-300 px-4 py-2 text-sm">
-          Fechar
-        </button>
-      </div>
+          {selected && <span className="hidden sm:inline"> em {selected.room.name}</span>}
+        </span>
+      </Button>
+    </>
+  );
 
-      <div className="border-t border-slate-200 pt-4">
-        <label className="block text-sm font-medium text-slate-700">Justificativa da rejeição</label>
-        <textarea
-          rows={2}
-          value={rejectReason}
-          onChange={(e) => setRejectReason(e.target.value)}
-          placeholder="Obrigatória — o solicitante verá este texto."
-          className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-        />
-        <button
-          onClick={() => void reject()}
-          disabled={busy || !rejectReason.trim() || occurrenceCount === 0}
-          className="mt-2 rounded-md border border-red-300 px-4 py-2 text-sm text-red-700 disabled:opacity-50"
-        >
-          {occurrenceCount > 1 ? `Rejeitar ${occurrenceCount} datas` : "Rejeitar"}
-        </button>
+  return (
+    <Dialog open variant="drawer" onClose={onClose} title={first.title} description={isPending ? "Escolha a sala e aprove, ou rejeite com uma justificativa." : "Solicitação já revisada."} footer={footer}>
+      <div className="space-y-8">
+        <RequestDetails group={group} resources={resources} />
+
+        {isPending && mode === "reject" && (
+          <section className="animate-fade-in space-y-3" aria-label="Rejeitar">
+            <Alert tone="warning">
+              {occurrenceCount > 1 ? `As ${occurrenceCount} datas selecionadas serão rejeitadas.` : "A solicitação será rejeitada."} O
+              solicitante recebe a justificativa por e-mail.
+            </Alert>
+            <Textarea
+              label="Justificativa"
+              required
+              autoFocus
+              rows={4}
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Ex.: não há sala com essa capacidade disponível nesse horário."
+            />
+          </section>
+        )}
+
+        {isPending && mode === "approve" && (
+          <section className="space-y-4" aria-label="Alocar sala">
+            {group.length > 1 && (
+              <Select label="Aplicar a" value={target} onChange={(e) => setTarget(e.target.value)}>
+                <option value={ALL}>Todas as {group.length} datas pendentes da série</option>
+                {group.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    Só {formatDateTimeRange(r.startTime, r.endTime)}
+                  </option>
+                ))}
+              </Select>
+            )}
+
+            <div>
+              <h3 className="text-base font-semibold">Escolha a sala</h3>
+              <p className="text-sm text-muted">Ordenadas da mais para a menos adequada.</p>
+            </div>
+
+            {options === null ? (
+              <div className="space-y-2" role="status" aria-label="Carregando salas">
+                {Array.from({ length: 3 }, (_, i) => (
+                  <Skeleton key={i} className="h-24 rounded-xl" />
+                ))}
+              </div>
+            ) : options.length === 0 ? (
+              <Alert tone="warning">Nenhuma sala ativa cadastrada.</Alert>
+            ) : (
+              <div role="radiogroup" aria-label="Sala" className="space-y-2">
+                {options.map((option) => {
+                  const conflicts = option.conflictingDates.length;
+                  const allBusy = conflicts >= occurrenceCount;
+                  const disabled = !option.fitsCapacity || allBusy;
+                  const isSelected = selectedRoomId === option.room.id;
+                  return (
+                    <label
+                      key={option.room.id}
+                      className={cn(
+                        "flex gap-3 rounded-xl border p-3.5 transition-[border-color,background-color] duration-150 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
+                        isSelected ? "border-primary bg-primary-soft/50" : "border-border",
+                        disabled ? "cursor-not-allowed opacity-55" : !isSelected && "hover:border-border-strong",
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name={`sala-${first.id}`}
+                        className="sr-only"
+                        disabled={disabled}
+                        checked={isSelected}
+                        onChange={() => setSelectedRoomId(option.room.id)}
+                      />
+                      <IconTile icon={ROOM_TYPE_ICONS[option.room.roomType]} size="sm" tone={isSelected ? "primary" : "neutral"} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold">{option.room.name}</p>
+                          {option.room.id === recommendedId && (
+                            <Badge tone="primary" icon={SparkleIcon}>
+                              Recomendada
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted">
+                          {option.room.building}, {option.room.floor} · {ROOM_TYPE_LABELS[option.room.roomType]} · até {option.room.capacity}
+                        </p>
+                        <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium">
+                          {option.fitsCapacity ? (
+                            <Check state="ok">Comporta {first.expectedAttendees}</Check>
+                          ) : (
+                            <Check state="bad">
+                              Comporta só {option.room.capacity} (pedido: {first.expectedAttendees})
+                            </Check>
+                          )}
+                          {conflicts === 0 ? (
+                            <Check state="ok">{occurrenceCount > 1 ? "Livre em todas as datas" : "Livre no horário"}</Check>
+                          ) : occurrenceCount === 1 ? (
+                            <Check state="bad">Ocupada no horário</Check>
+                          ) : (
+                            <Check state={allBusy ? "bad" : "warn"}>
+                              Ocupada em {conflicts} de {occurrenceCount} ({option.conflictingDates.map(formatShortDate).join(", ")})
+                            </Check>
+                          )}
+                          {option.missingResources.map((m) => (
+                            <Check key={m.resourceId} state="warn">
+                              {m.available === 0
+                                ? `Sem ${resourceName(m.resourceId)}`
+                                : `${resourceName(m.resourceId)}: só ${m.available} (pedido: ${m.requested})`}
+                            </Check>
+                          ))}
+                        </ul>
+                      </div>
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "mt-1 size-5 shrink-0 rounded-full border-2 transition-colors",
+                          isSelected ? "border-primary bg-primary shadow-[inset_0_0_0_3px_var(--surface)]" : "border-border-strong",
+                        )}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+
+            {partial && (
+              <Alert tone="warning">
+                {plural(selected.conflictingDates.length, "data já está ocupada", "datas já estão ocupadas")} nesta sala e vai continuar
+                pendente — dá para alocar em outra sala depois.
+              </Alert>
+            )}
+          </section>
+        )}
       </div>
-    </div>
+    </Dialog>
   );
 }

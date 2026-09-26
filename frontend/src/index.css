@@ -1,1 +1,207 @@
 @import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Tokens semânticos. Os componentes usam só estes nomes (bg-surface, text-muted,
+ * bg-primary…); o tema escuro troca os valores aqui, sem `dark:` espalhado pelo código.
+ * Pares de texto/fundo conferidos para contraste ≥ 4,5:1 nos dois temas.
+ */
+:root {
+  --background: #f8fafc;
+  --surface: #ffffff;
+  --surface-muted: #f1f5f9;
+  --foreground: #0f172a;
+  --muted-foreground: #475569;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  --primary: #0f766e;
+  --primary-hover: #115e59;
+  --primary-foreground: #ffffff;
+  --primary-soft: #f0fdfa;
+  --primary-soft-foreground: #115e59;
+  --ring: #0d9488;
+
+  --success-soft: #ecfdf5;
+  --success-foreground: #065f46;
+  --warning-soft: #fffbeb;
+  --warning-foreground: #92400e;
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --danger-soft: #fef2f2;
+  --danger-foreground: #b91c1c;
+  --info-soft: #f0f9ff;
+  --info-foreground: #075985;
+  --neutral-soft: #f1f5f9;
+  --neutral-foreground: #475569;
+}
+
+.dark {
+  --background: #020617;
+  --surface: #0f172a;
+  --surface-muted: #1e293b;
+  --foreground: #f8fafc;
+  --muted-foreground: #94a3b8;
+  --border: #1e293b;
+  --border-strong: #334155;
+
+  --primary: #2dd4bf;
+  --primary-hover: #5eead4;
+  --primary-foreground: #020617;
+  --primary-soft: color-mix(in oklab, #2dd4bf 14%, transparent);
+  --primary-soft-foreground: #5eead4;
+  --ring: #2dd4bf;
+
+  --success-soft: color-mix(in oklab, #34d399 14%, transparent);
+  --success-foreground: #6ee7b7;
+  --warning-soft: color-mix(in oklab, #fbbf24 14%, transparent);
+  --warning-foreground: #fcd34d;
+  --danger: #dc2626;
+  --danger-hover: #ef4444;
+  --danger-soft: color-mix(in oklab, #f87171 14%, transparent);
+  --danger-foreground: #fca5a5;
+  --info-soft: color-mix(in oklab, #38bdf8 14%, transparent);
+  --info-foreground: #7dd3fc;
+  --neutral-soft: #1e293b;
+  --neutral-foreground: #cbd5e1;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-soft-foreground: var(--primary-soft-foreground);
+  --color-ring: var(--ring);
+
+  --color-success-soft: var(--success-soft);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-info-soft: var(--info-soft);
+  --color-info-foreground: var(--info-foreground);
+  --color-neutral-soft: var(--neutral-soft);
+  --color-neutral-foreground: var(--neutral-foreground);
+}
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Plus Jakarta Sans Variable", "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+
+  /* Entradas desaceleram ao chegar; tudo curto para não atrasar quem usa. */
+  --animate-fade-in: fade-in 200ms ease-out both;
+  --animate-fade-in-up: fade-in-up 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-scale-in: scale-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-slide-in-right: slide-in-right 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-pop: pop 450ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes fade-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+  }
+  @keyframes slide-in-right {
+    from {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: scale(0.5);
+    }
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+    -webkit-tap-highlight-color: transparent;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  /* Rolagem da página travada enquanto um diálogo/painel está aberto. */
+  html:has(dialog[open]) {
+    overflow: hidden;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  button:not(:disabled),
+  [role="button"],
+  select:not(:disabled),
+  label:has(input:not(:disabled)) {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--primary);
+  }
+  dialog::backdrop {
+    background: rgb(2 6 23 / 0.55);
+    backdrop-filter: blur(3px);
+  }
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -79,6 +79,7 @@ export interface Reservation {
   status: ReservationStatus;
   rejectionReason: string | null;
   cancelledAt: string | null;
+  createdAt: string;
   room: Room | null;
 }
 

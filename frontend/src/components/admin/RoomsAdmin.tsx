@@ -1,20 +1,57 @@
+import {
+  CheckCircleIcon,
+  DoorOpenIcon,
+  FloppyDiskIcon,
+  MagnifyingGlassIcon,
+  MapPinIcon,
+  PauseCircleIcon,
+  PencilSimpleIcon,
+  PlusIcon,
+  ProhibitIcon,
+  TrashIcon,
+  UsersIcon,
+  WrenchIcon,
+  type Icon,
+} from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../../lib/api";
+import { useConfirm } from "../../lib/confirm";
+import { plural } from "../../lib/format";
+import { ROOM_TYPE_ICONS } from "../../lib/icons";
+import { useToast } from "../../lib/toast";
 import { ROOM_STATUS_LABELS, ROOM_TYPE_LABELS } from "../../lib/types";
-import type { Resource, Room } from "../../lib/types";
+import type { Resource, Room, RoomStatus } from "../../lib/types";
+import { RoomResourceChips } from "../solicitante/RoomSearch";
+import { Badge, type Tone } from "../ui/Badge";
+import { Button, IconButton } from "../ui/Button";
+import { Dialog } from "../ui/Dialog";
+import { EmptyState, Skeleton } from "../ui/Feedback";
+import { Input } from "../ui/Field";
+import { SegmentedControl } from "../ui/SegmentedControl";
+import { Card, IconTile, PageHeader, StatCard } from "../ui/Surface";
 import { RoomForm, type RoomFormValues } from "./RoomForm";
 
-export function RoomsAdmin() {
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+const STATUS_STYLE: Record<RoomStatus, { tone: Tone; icon: Icon }> = {
+  ACTIVE: { tone: "success", icon: CheckCircleIcon },
+  MAINTENANCE: { tone: "warning", icon: WrenchIcon },
+  INACTIVE: { tone: "neutral", icon: ProhibitIcon },
+};
 
-  const [editing, setEditing] = useState<Room | null | "new">(null);
+const FORM_ID = "formulario-sala";
+
+type Filter = "ALL" | RoomStatus;
+
+export function RoomsAdmin() {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [rooms, setRooms] = useState<Room[] | null>(null);
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [filter, setFilter] = useState<Filter>("ALL");
+  const [query, setQuery] = useState("");
+  const [editing, setEditing] = useState<Room | "new" | null>(null);
+  const [saving, setSaving] = useState(false);
 
   async function load() {
-    setLoading(true);
     try {
       const [{ rooms: roomList }, { resources: resourceList }] = await Promise.all([
         api<{ rooms: Room[] }>("/rooms"),
@@ -23,108 +60,186 @@ export function RoomsAdmin() {
       setRooms(roomList);
       setResources(resourceList);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Falha ao carregar salas.");
-    } finally {
-      setLoading(false);
+      toast.error("Não foi possível carregar as salas.", e instanceof Error ? e.message : undefined);
+      setRooms([]);
     }
   }
 
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function submit(values: RoomFormValues) {
-    setBusy(true);
-    setError(null);
+    setSaving(true);
     try {
       const body = JSON.stringify(values);
       if (editing && editing !== "new") {
         await api(`/rooms/${editing.id}`, { method: "PATCH", body });
+        toast.success("Sala atualizada", values.name);
       } else {
         await api("/rooms", { method: "POST", body });
+        toast.success("Sala criada", values.name);
       }
       setEditing(null);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Falha ao salvar sala.");
+      toast.error("Não foi possível salvar a sala.", e instanceof ApiError ? e.message : undefined);
     } finally {
-      setBusy(false);
+      setSaving(false);
     }
   }
 
   async function remove(room: Room) {
-    if (!confirm(`Excluir a sala "${room.name}"? Se ela já tiver reservas vinculadas, prefira marcá-la como Inativa.`)) return;
-    setBusy(true);
-    setError(null);
+    const ok = await confirm({
+      tone: "danger",
+      title: `Excluir "${room.name}"?`,
+      description: "A exclusão é definitiva. Se a sala já tiver reservas, prefira marcá-la como Inativa.",
+      confirmLabel: "Excluir sala",
+    });
+    if (!ok) return;
     try {
       await api(`/rooms/${room.id}`, { method: "DELETE" });
+      toast.success("Sala excluída", room.name);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Falha ao excluir sala.");
-    } finally {
-      setBusy(false);
+      toast.error("Não foi possível excluir.", e instanceof ApiError ? e.message : undefined);
     }
   }
 
-  const formRoom = editing === "new" ? null : editing;
+  const all = rooms ?? [];
+  const buildings = [...new Set(all.map((r) => r.building))].sort();
+  const needle = query.trim().toLowerCase();
+  const visible = all.filter(
+    (room) =>
+      (filter === "ALL" || room.status === filter) &&
+      (!needle || `${room.name} ${room.building} ${room.floor}`.toLowerCase().includes(needle)),
+  );
+  const active = all.filter((r) => r.status === "ACTIVE");
+  const editingRoom = editing === "new" ? null : editing;
 
   return (
-    <div>
-      <div className="flex items-center justify-between">
-        <h2 className="font-medium">Salas cadastradas</h2>
-        {editing === null && (
-          <button onClick={() => setEditing("new")} className="rounded-md bg-slate-900 px-4 py-2 text-sm text-white">
+    <div className="space-y-6">
+      <PageHeader
+        title="Salas"
+        description="Cadastre os espaços, a capacidade e os recursos de cada um."
+        actions={
+          <Button icon={PlusIcon} onClick={() => setEditing("new")}>
             Nova sala
-          </button>
-        )}
-      </div>
+          </Button>
+        }
+      />
 
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-
-      {editing !== null && (
-        <div className="mt-4">
-          <RoomForm room={formRoom} resources={resources} busy={busy} onSubmit={submit} onCancel={() => setEditing(null)} />
+      {rooms !== null && all.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard label="Salas cadastradas" value={all.length} icon={DoorOpenIcon} />
+          <StatCard label="Ativas" value={active.length} icon={CheckCircleIcon} tone="success" />
+          <StatCard label="Em manutenção" value={all.filter((r) => r.status === "MAINTENANCE").length} icon={PauseCircleIcon} tone="warning" />
+          <StatCard label="Lugares nas ativas" value={active.reduce((sum, r) => sum + r.capacity, 0)} icon={UsersIcon} tone="info" />
         </div>
       )}
 
-      <ul className="mt-4 divide-y divide-slate-200 rounded-lg border border-slate-200">
-        {loading && <li className="p-4 text-sm text-slate-500">Carregando…</li>}
-        {!loading && rooms.length === 0 && <li className="p-4 text-sm text-slate-500">Nenhuma sala cadastrada.</li>}
-        {rooms.map((room) => (
-          <li key={room.id} className="flex items-center justify-between p-3">
-            <div>
-              <div className="font-medium">
-                {room.name} <span className="font-normal text-slate-500">— {room.building}, {room.floor}</span>
-              </div>
-              <div className="text-sm text-slate-500">
-                {ROOM_TYPE_LABELS[room.roomType]} · Capacidade {room.capacity} ·{" "}
-                <span
-                  className={
-                    room.status === "ACTIVE"
-                      ? "text-emerald-600"
-                      : room.status === "MAINTENANCE"
-                        ? "text-amber-600"
-                        : "text-slate-400"
-                  }
-                >
-                  {ROOM_STATUS_LABELS[room.status]}
-                </span>
-                {room.resources.length > 0 && (
-                  <> · {room.resources.map((r) => r.resource.name).join(", ")}</>
-                )}
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => setEditing(room)} className="text-sm text-slate-600 hover:underline">
-                Editar
-              </button>
-              <button onClick={() => void remove(room)} className="text-sm text-red-600 hover:underline">
-                Excluir
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <SegmentedControl
+          label="Status"
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: "ALL", label: "Todas", count: all.length },
+            { value: "ACTIVE", label: "Ativas", count: active.length },
+            { value: "MAINTENANCE", label: "Manutenção", count: all.filter((r) => r.status === "MAINTENANCE").length },
+            { value: "INACTIVE", label: "Inativas", count: all.filter((r) => r.status === "INACTIVE").length },
+          ]}
+        />
+        <div className="relative lg:w-72">
+          <Input type="search" aria-label="Buscar sala" placeholder="Buscar por nome ou prédio" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-10" />
+          <MagnifyingGlassIcon size={18} aria-hidden className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted" />
+        </div>
+      </div>
+
+      {rooms === null ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 3 }, (_, i) => (
+            <Skeleton key={i} className="h-60 rounded-2xl" />
+          ))}
+        </div>
+      ) : visible.length === 0 ? (
+        <EmptyState
+          icon={DoorOpenIcon}
+          title={all.length === 0 ? "Nenhuma sala cadastrada" : "Nenhuma sala com esse filtro"}
+          description={all.length === 0 ? "Cadastre o primeiro espaço para começar a receber solicitações." : undefined}
+          action={
+            all.length === 0 && (
+              <Button icon={PlusIcon} onClick={() => setEditing("new")}>
+                Nova sala
+              </Button>
+            )
+          }
+        />
+      ) : (
+        <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {visible.map((room, index) => {
+            const { tone, icon: StatusIcon } = STATUS_STYLE[room.status];
+            return (
+              <li key={room.id} className="min-w-0 animate-fade-in-up" style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}>
+                <Card className="flex h-full flex-col p-5">
+                  <div className="flex items-start gap-3">
+                    <IconTile icon={ROOM_TYPE_ICONS[room.roomType]} tone={room.status === "ACTIVE" ? "primary" : "neutral"} />
+                    <div className="min-w-0 flex-1">
+                      <h2 className="text-base font-semibold break-words">{room.name}</h2>
+                      <p className="text-sm text-muted">{ROOM_TYPE_LABELS[room.roomType]}</p>
+                    </div>
+                    <Badge tone={tone} icon={StatusIcon}>
+                      {ROOM_STATUS_LABELS[room.status]}
+                    </Badge>
+                  </div>
+                  <div className="mt-4 space-y-1.5 text-sm text-muted">
+                    <p className="flex items-center gap-2">
+                      <MapPinIcon size={16} aria-hidden /> {room.building} · {room.floor}
+                    </p>
+                    <p className="flex items-center gap-2">
+                      <UsersIcon size={16} aria-hidden /> {plural(room.capacity, "lugar", "lugares")}
+                    </p>
+                  </div>
+                  {room.resources.length > 0 && (
+                    <div className="mt-4">
+                      <RoomResourceChips room={room} />
+                    </div>
+                  )}
+                  <div className="mt-auto flex gap-2 pt-5">
+                    <Button variant="secondary" size="sm" icon={PencilSimpleIcon} className="flex-1" onClick={() => setEditing(room)}>
+                      Editar
+                    </Button>
+                    <IconButton icon={TrashIcon} label={`Excluir ${room.name}`} variant="danger-soft" size="sm" onClick={() => void remove(room)} />
+                  </div>
+                </Card>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {editing !== null && (
+        <Dialog
+          open
+          variant="drawer"
+          onClose={() => setEditing(null)}
+          title={editingRoom ? `Editar ${editingRoom.name}` : "Nova sala"}
+          description={editingRoom ? `${editingRoom.building}, ${editingRoom.floor}` : "Preencha os dados do espaço."}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setEditing(null)}>
+                Cancelar
+              </Button>
+              <Button type="submit" form={FORM_ID} icon={FloppyDiskIcon} loading={saving}>
+                {editingRoom ? "Salvar alterações" : "Criar sala"}
+              </Button>
+            </>
+          }
+        >
+          <RoomForm room={editingRoom} resources={resources} buildings={buildings} formId={FORM_ID} onSubmit={(values) => void submit(values)} />
+        </Dialog>
+      )}
     </div>
   );
 }

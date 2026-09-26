@@ -320,6 +320,45 @@ do `docker-compose` e aparecem em http://localhost:8025 — nada sai de verdade.
   virar erro para quem clicou. Em produção, o próximo passo seria uma tabela de
   *outbox* com novas tentativas.
 
+## Interface
+
+Redesign completo do front-end, responsivo do celular ao computador, com tema
+claro e escuro.
+
+- **Tokens de cor semânticos** em `frontend/src/index.css` (`bg-surface`,
+  `text-muted`, `bg-primary`…): o tema escuro troca os valores num lugar só,
+  sem `dark:` espalhado pelos componentes. Os pares de texto e fundo têm
+  contraste de pelo menos 4,5:1 nos dois temas. O tema pode ser claro, escuro
+  ou seguir o sistema, e é aplicado antes de o React montar (sem "piscar").
+- **Componentes próprios** em `components/ui/`: botão, campos com rótulo,
+  dica e erro, selos, cards, controle segmentado, avatar e o diálogo/painel
+  lateral sobre o `<dialog>` nativo (Esc fecha, o foco fica preso, o fundo
+  fica inerte).
+- **Navegação com URL por tela** (react-router 7): `/minhas-reservas`,
+  `/reservar`, `/salas`; `/admin/solicitacoes`, `/admin/salas`,
+  `/admin/recursos`. Barra lateral a partir de 1024 px, barra inferior no
+  celular. O Admin vê na navegação quantas solicitações estão pendentes.
+  ⚠️ Em produção, o servidor estático precisa devolver o `index.html` para
+  qualquer caminho desconhecido (fallback de SPA).
+- **Interações:**
+  - toasts para o resultado das ações;
+  - diálogo de confirmação próprio no lugar do `window.confirm`;
+  - painel lateral de análise com a sala "Recomendada";
+  - escolha da atividade em cards;
+  - prévia das datas de uma série e checklist do que falta, no formulário;
+  - recursos em cards com ícone e quantidade;
+  - calendário que mostra os horários ocupados do dia clicado;
+  - esqueletos de carregamento.
+- **Acessibilidade:**
+  - foco sempre visível e alvos de toque de 44 px;
+  - rótulos em todos os campos e ícones decorativos escondidos dos leitores
+    de tela;
+  - toasts anunciados via `aria-live`;
+  - foco levado ao conteúdo a cada troca de página;
+  - respeito ao "reduzir movimento" do sistema.
+- **Ícones:** Phosphor. **Fontes:** Inter e Plus Jakarta Sans, servidas pelo
+  próprio app (Fontsource), sem chamadas a serviços externos.
+
 ## Decisões de modelagem (Fase 1)
 
 - **Reservas recorrentes** ficam em `reservation_series` (regra RRule) e cada

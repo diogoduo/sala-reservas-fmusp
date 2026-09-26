@@ -1,187 +1,243 @@
+import { FloppyDiskIcon, HashIcon, ListBulletsIcon, PencilSimpleIcon, PlusIcon, TextTIcon, TrashIcon, WrenchIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../../lib/api";
+import { useConfirm } from "../../lib/confirm";
+import { resourceIcon } from "../../lib/icons";
+import { useToast } from "../../lib/toast";
 import type { Resource } from "../../lib/types";
+import { Badge } from "../ui/Badge";
+import { Button, IconButton } from "../ui/Button";
+import { Dialog } from "../ui/Dialog";
+import { EmptyState, Skeleton } from "../ui/Feedback";
+import { Input, Switch } from "../ui/Field";
+import { Card, IconTile, PageHeader } from "../ui/Surface";
+
+const FORM_ID = "formulario-recurso";
+
+const splitOptions = (value: string) =>
+  value
+    .split(",")
+    .map((option) => option.trim())
+    .filter(Boolean);
+
+interface ResourceFormProps {
+  resource: Resource | null;
+  onSubmit: (body: Record<string, unknown>) => void;
+}
+
+function ResourceForm({ resource, onSubmit }: ResourceFormProps) {
+  const [name, setName] = useState(resource?.name ?? "");
+  const [description, setDescription] = useState(resource?.description ?? "");
+  const [requestsQuantity, setRequestsQuantity] = useState(resource?.requestsQuantity ?? false);
+  const [detailPrompt, setDetailPrompt] = useState(resource?.detailPrompt ?? "");
+  const [detailOptions, setDetailOptions] = useState(resource?.detailOptions.join(", ") ?? "");
+  const options = splitOptions(detailOptions);
+  const PreviewIcon = resourceIcon(name);
+
+  return (
+    <form
+      id={FORM_ID}
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit({ name, description: description || undefined, requestsQuantity, detailPrompt: detailPrompt || null, detailOptions: options });
+      }}
+      className="space-y-6"
+    >
+      <div className="flex items-center gap-3 rounded-xl bg-surface-muted p-3">
+        <IconTile icon={PreviewIcon} />
+        <div className="min-w-0">
+          <p className="truncate font-semibold">{name || "Novo recurso"}</p>
+          <p className="text-xs text-muted">O ícone é escolhido pelo nome.</p>
+        </div>
+      </div>
+      <Input label="Nome do recurso" required placeholder="Ex.: Datashow/Projetor" value={name} onChange={(e) => setName(e.target.value)} />
+      <Input label="Descrição" placeholder="Opcional" value={description} onChange={(e) => setDescription(e.target.value)} />
+
+      <div className="space-y-4 rounded-xl border border-border p-4">
+        <p className="text-sm font-semibold">No formulário de reserva</p>
+        <Switch
+          checked={requestsQuantity}
+          onChange={setRequestsQuantity}
+          label="Pedir quantidade"
+          description="Ex.: quantos computadores ou Chromebooks."
+        />
+        <Input
+          label="Pedir um detalhe (texto de exemplo)"
+          placeholder="Ex.: Zoom, Teams, Google Meet"
+          hint="Deixe vazio para não pedir detalhe."
+          value={detailPrompt}
+          onChange={(e) => setDetailPrompt(e.target.value)}
+        />
+        <Input
+          label="Opções fixas do detalhe"
+          placeholder="Separadas por vírgula"
+          hint="Se preencher, o detalhe vira uma lista de escolha obrigatória."
+          value={detailOptions}
+          onChange={(e) => setDetailOptions(e.target.value)}
+        />
+        {options.length > 0 && (
+          <ul className="flex flex-wrap gap-1.5" aria-label="Prévia das opções">
+            {options.map((option) => (
+              <li key={option}>
+                <Badge tone="primary">{option}</Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </form>
+  );
+}
 
 export function ResourcesAdmin() {
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [requestsQuantity, setRequestsQuantity] = useState(false);
-  const [detailPrompt, setDetailPrompt] = useState("");
-  const [detailOptions, setDetailOptions] = useState(""); // separadas por vírgula
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [resources, setResources] = useState<Resource[] | null>(null);
+  const [editing, setEditing] = useState<Resource | "new" | null>(null);
+  const [saving, setSaving] = useState(false);
 
   async function load() {
-    setLoading(true);
     try {
       const { resources: list } = await api<{ resources: Resource[] }>("/resources");
       setResources(list);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Falha ao carregar recursos.");
-    } finally {
-      setLoading(false);
+      toast.error("Não foi possível carregar os recursos.", e instanceof Error ? e.message : undefined);
+      setResources([]);
     }
   }
 
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function startEdit(resource: Resource) {
-    setEditingId(resource.id);
-    setName(resource.name);
-    setDescription(resource.description ?? "");
-    setRequestsQuantity(resource.requestsQuantity);
-    setDetailPrompt(resource.detailPrompt ?? "");
-    setDetailOptions(resource.detailOptions.join(", "));
-  }
-
-  function resetForm() {
-    setEditingId(null);
-    setName("");
-    setDescription("");
-    setRequestsQuantity(false);
-    setDetailPrompt("");
-    setDetailOptions("");
-  }
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
+  async function submit(body: Record<string, unknown>) {
+    setSaving(true);
     try {
-      const body = JSON.stringify({
-        name,
-        description: description || undefined,
-        requestsQuantity,
-        detailPrompt: detailPrompt || null,
-        detailOptions: detailOptions
-          .split(",")
-          .map((option) => option.trim())
-          .filter(Boolean),
-      });
-      if (editingId) {
-        await api(`/resources/${editingId}`, { method: "PATCH", body });
+      if (editing && editing !== "new") {
+        await api(`/resources/${editing.id}`, { method: "PATCH", body: JSON.stringify(body) });
+        toast.success("Recurso atualizado", String(body.name));
       } else {
-        await api("/resources", { method: "POST", body });
+        await api("/resources", { method: "POST", body: JSON.stringify(body) });
+        toast.success("Recurso criado", String(body.name));
       }
-      resetForm();
+      setEditing(null);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Falha ao salvar recurso.");
+      toast.error("Não foi possível salvar o recurso.", e instanceof ApiError ? e.message : undefined);
     } finally {
-      setBusy(false);
+      setSaving(false);
     }
   }
 
-  async function remove(id: string) {
-    if (!confirm("Excluir este recurso? Ele será removido de todas as salas vinculadas.")) return;
-    setBusy(true);
-    setError(null);
+  async function remove(resource: Resource) {
+    const ok = await confirm({
+      tone: "danger",
+      title: `Excluir "${resource.name}"?`,
+      description: "Ele sai de todas as salas vinculadas e do formulário de reserva.",
+      confirmLabel: "Excluir recurso",
+    });
+    if (!ok) return;
     try {
-      await api(`/resources/${id}`, { method: "DELETE" });
+      await api(`/resources/${resource.id}`, { method: "DELETE" });
+      toast.success("Recurso excluído", resource.name);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Falha ao excluir recurso.");
-    } finally {
-      setBusy(false);
+      toast.error("Não foi possível excluir.", e instanceof ApiError ? e.message : undefined);
     }
   }
+
+  const editingResource = editing === "new" ? null : editing;
 
   return (
-    <div>
-      <form onSubmit={submit} className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 p-4">
-        <div className="flex-1 min-w-[180px]">
-          <label className="block text-sm font-medium text-slate-700">Nome do recurso</label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            placeholder="Ex.: Datashow/Projetor"
-          />
-        </div>
-        <div className="flex-1 min-w-[220px]">
-          <label className="block text-sm font-medium text-slate-700">Descrição (opcional)</label>
-          <input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
-        </div>
-        <div className="flex-1 min-w-[220px]">
-          <label className="block text-sm font-medium text-slate-700">Pedir detalhe (texto de exemplo)</label>
-          <input
-            value={detailPrompt}
-            onChange={(e) => setDetailPrompt(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            placeholder="Vazio = não pede. Ex.: Zoom, Teams…"
-          />
-        </div>
-        <div className="flex-1 min-w-[220px]">
-          <label className="block text-sm font-medium text-slate-700">Opções do detalhe (opcional)</label>
-          <input
-            value={detailOptions}
-            onChange={(e) => setDetailOptions(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            placeholder="Separadas por vírgula; vira uma lista de escolha"
-          />
-        </div>
-        <label className="flex items-center gap-2 pb-2 text-sm">
-          <input type="checkbox" checked={requestsQuantity} onChange={(e) => setRequestsQuantity(e.target.checked)} />
-          Pedir quantidade
-        </label>
-        <div className="flex gap-2">
-          <button disabled={busy} type="submit" className="rounded-md bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50">
-            {editingId ? "Salvar" : "Adicionar"}
-          </button>
-          {editingId && (
-            <button type="button" onClick={resetForm} className="rounded-md border border-slate-300 px-4 py-2 text-sm">
-              Cancelar
-            </button>
-          )}
-        </div>
-      </form>
+    <div className="space-y-6">
+      <PageHeader
+        title="Recursos"
+        description="Equipamentos e serviços que aparecem no formulário de reserva e nas salas."
+        actions={
+          <Button icon={PlusIcon} onClick={() => setEditing("new")}>
+            Novo recurso
+          </Button>
+        }
+      />
 
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-
-      <ul className="mt-4 divide-y divide-slate-200 rounded-lg border border-slate-200">
-        {loading && <li className="p-4 text-sm text-slate-500">Carregando…</li>}
-        {!loading && resources.length === 0 && <li className="p-4 text-sm text-slate-500">Nenhum recurso cadastrado.</li>}
-        {resources.map((r) => (
-          <li key={r.id} className="flex items-center justify-between p-3">
-            <div>
-              <div className="font-medium">{r.name}</div>
-              {r.description && <div className="text-sm text-slate-500">{r.description}</div>}
-              {(r.requestsQuantity || r.detailPrompt || r.detailOptions.length > 0) && (
-                <div className="text-xs text-slate-500">
-                  No formulário:{" "}
-                  {[
-                    r.requestsQuantity && "pede quantidade",
-                    r.detailOptions.length > 0
-                      ? `escolha entre ${r.detailOptions.join(", ")}`
-                      : r.detailPrompt && `pede detalhe ("${r.detailPrompt}")`,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
+      {resources === null ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {Array.from({ length: 4 }, (_, i) => (
+            <Skeleton key={i} className="h-24 rounded-2xl" />
+          ))}
+        </div>
+      ) : resources.length === 0 ? (
+        <EmptyState
+          icon={WrenchIcon}
+          title="Nenhum recurso cadastrado"
+          description="Cadastre projetores, microfones, webconferência e o que mais as salas oferecem."
+          action={
+            <Button icon={PlusIcon} onClick={() => setEditing("new")}>
+              Novo recurso
+            </Button>
+          }
+        />
+      ) : (
+        <ul className="grid gap-3 sm:grid-cols-2">
+          {resources.map((resource, index) => (
+            <li key={resource.id} className="min-w-0 animate-fade-in-up" style={{ animationDelay: `${Math.min(index, 10) * 30}ms` }}>
+              <Card className="flex h-full items-start gap-4 p-4">
+                <IconTile icon={resourceIcon(resource.name)} />
+                <div className="min-w-0 flex-1">
+                  <h2 className="font-semibold">{resource.name}</h2>
+                  {resource.description && <p className="text-sm text-muted">{resource.description}</p>}
+                  {(resource.requestsQuantity || resource.detailPrompt || resource.detailOptions.length > 0) && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {resource.requestsQuantity && (
+                        <Badge tone="info" icon={HashIcon}>
+                          Pede quantidade
+                        </Badge>
+                      )}
+                      {resource.detailOptions.length > 0 ? (
+                        <Badge tone="info" icon={ListBulletsIcon}>
+                          {resource.detailOptions.join(" · ")}
+                        </Badge>
+                      ) : (
+                        resource.detailPrompt && (
+                          <Badge tone="info" icon={TextTIcon}>
+                            Pede detalhe
+                          </Badge>
+                        )
+                      )}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => startEdit(r)} className="text-sm text-slate-600 hover:underline">
-                Editar
-              </button>
-              <button onClick={() => void remove(r.id)} className="text-sm text-red-600 hover:underline">
-                Excluir
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
+                <div className="flex shrink-0 gap-1">
+                  <IconButton icon={PencilSimpleIcon} label={`Editar ${resource.name}`} size="sm" onClick={() => setEditing(resource)} />
+                  <IconButton icon={TrashIcon} label={`Excluir ${resource.name}`} size="sm" variant="danger-soft" onClick={() => void remove(resource)} />
+                </div>
+              </Card>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {editing !== null && (
+        <Dialog
+          open
+          variant="drawer"
+          onClose={() => setEditing(null)}
+          title={editingResource ? `Editar ${editingResource.name}` : "Novo recurso"}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setEditing(null)}>
+                Cancelar
+              </Button>
+              <Button type="submit" form={FORM_ID} icon={FloppyDiskIcon} loading={saving}>
+                {editingResource ? "Salvar alterações" : "Criar recurso"}
+              </Button>
+            </>
+          }
+        >
+          <ResourceForm resource={editingResource} onSubmit={(body) => void submit(body)} />
+        </Dialog>
+      )}
     </div>
   );
 }

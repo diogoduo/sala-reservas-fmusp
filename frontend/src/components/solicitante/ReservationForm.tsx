@@ -1,24 +1,60 @@
+import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ArrowsLeftRightIcon,
+  CalendarBlankIcon,
+  CalendarCheckIcon,
+  CheckCircleIcon,
+  CheckIcon,
+  CircleIcon,
+  PaperPlaneTiltIcon,
+  PlusIcon,
+  UsersIcon,
+  WrenchIcon,
+} from "@phosphor-icons/react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router";
 import { ACTIVITY_TYPE_LABELS, ACTIVITY_TYPES } from "../../lib/activities";
 import { api, ApiError } from "../../lib/api";
+import { cn } from "../../lib/cn";
+import { capitalizeFirst, formatShortDate, plural } from "../../lib/format";
+import { ACTIVITY_ICONS, resourceIcon } from "../../lib/icons";
+import { previewWeeklyDates } from "../../lib/recurrence";
 import { validateReservationTimes } from "../../lib/reservationValidation";
+import { useToast } from "../../lib/toast";
 import type { ActivityType, Reservation, Resource } from "../../lib/types";
-import { ActivityFields, INITIAL_DETAIL_VALUES, type DetailValues } from "./ActivityFields";
+import { Button } from "../ui/Button";
+import { Alert } from "../ui/Feedback";
+import { Input, Select, Switch, Textarea } from "../ui/Field";
+import { QuantityStepper } from "../ui/QuantityStepper";
+import { SegmentedControl } from "../ui/SegmentedControl";
+import { Card, IconTile, PageHeader } from "../ui/Surface";
+import { ActivityFields, attendeesOf, INITIAL_DETAIL_VALUES, type DetailValues } from "./ActivityFields";
 
-const WEEKDAYS: { code: string; label: string }[] = [
-  { code: "MO", label: "Seg" },
-  { code: "TU", label: "Ter" },
-  { code: "WE", label: "Qua" },
-  { code: "TH", label: "Qui" },
-  { code: "FR", label: "Sex" },
-  { code: "SA", label: "Sáb" },
-  { code: "SU", label: "Dom" },
+const WEEKDAYS: { code: string; label: string; full: string }[] = [
+  { code: "MO", label: "Seg", full: "Segunda" },
+  { code: "TU", label: "Ter", full: "Terça" },
+  { code: "WE", label: "Qua", full: "Quarta" },
+  { code: "TH", label: "Qui", full: "Quinta" },
+  { code: "FR", label: "Sex", full: "Sexta" },
+  { code: "SA", label: "Sáb", full: "Sábado" },
+  { code: "SU", label: "Dom", full: "Domingo" },
 ];
+
+const ACTIVITY_DESCRIPTIONS: Record<ActivityType, string> = {
+  UNDERGRADUATE: "Aulas, provas e atividades das disciplinas de graduação.",
+  GRADUATE: "Disciplinas e seminários dos programas de pós-graduação.",
+  CULTURE_EXTENSION: "Congressos, cursos, palestras, ligas e eventos.",
+  PUBLIC_EXAM: "Concursos docentes e processos seletivos.",
+  DEFENSE: "Defesas de mestrado e doutorado.",
+};
+
+const FORM_ID = "formulario-reserva";
 
 function todayPlus(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 /** Mensagens do VALIDATION_ERROR da API ({ formErrors, fieldErrors } do zod `flatten()`). */
@@ -27,26 +63,86 @@ function validationMessages(details: unknown): string[] {
   return [...new Set([...(flat?.formErrors ?? []), ...Object.values(flat?.fieldErrors ?? {}).flat()])];
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+/** Envolve o formulário com uma `key`: "Nova solicitação" remonta tudo do zero. */
+export function ReservationPage() {
+  const [formKey, setFormKey] = useState(0);
+  return <ReservationForm key={formKey} onReset={() => setFormKey((k) => k + 1)} />;
+}
+
+function ActivityPicker({ onPick }: { onPick: (type: ActivityType) => void }) {
   return (
-    <section>
-      <h3 className="rounded-md bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700">{title}</h3>
-      <div className="mt-3 px-1">{children}</div>
-    </section>
+    <div className="space-y-6">
+      <PageHeader title="Reservar uma sala" description="Comece pelo tipo de atividade — cada uma tem um formulário próprio." />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {ACTIVITY_TYPES.map((type, index) => (
+          <button
+            key={type}
+            type="button"
+            onClick={() => onPick(type)}
+            style={{ animationDelay: `${index * 50}ms` }}
+            className="group flex animate-fade-in-up flex-col gap-4 rounded-2xl border border-border bg-surface p-5 text-left shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+          >
+            <div className="flex items-start justify-between">
+              <IconTile icon={ACTIVITY_ICONS[type]} size="lg" />
+              <ArrowRightIcon
+                size={20}
+                aria-hidden
+                className="text-muted transition-transform duration-200 group-hover:translate-x-1 group-hover:text-primary"
+              />
+            </div>
+            <div>
+              <p className="font-display text-lg font-semibold">{ACTIVITY_TYPE_LABELS[type]}</p>
+              <p className="mt-1 text-sm text-muted">{ACTIVITY_DESCRIPTIONS[type]}</p>
+            </div>
+          </button>
+        ))}
+      </div>
+      <Alert tone="info" title="Como funciona">
+        Você descreve o que precisa; a Secretaria escolhe a sala disponível mais adequada ao aprovar, e você recebe a resposta por
+        e-mail.
+      </Alert>
+    </div>
   );
 }
 
-interface Props {
-  onDone: () => void;
+function FormSection({ step, title, description, children }: { step: number; title: string; description?: string; children: ReactNode }) {
+  return (
+    <Card className="p-5 sm:p-6">
+      <div className="flex items-start gap-3">
+        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
+          {step}
+        </span>
+        <div className="pt-0.5">
+          <h2 className="text-lg leading-tight font-semibold">{title}</h2>
+          {description && <p className="mt-1 text-sm text-muted">{description}</p>}
+        </div>
+      </div>
+      <div className="mt-5">{children}</div>
+    </Card>
+  );
+}
+
+function ChecklistItem({ ok, children }: { ok: boolean; children: ReactNode }) {
+  return (
+    <li className={cn("flex items-center gap-2 text-sm", ok ? "text-success-foreground" : "text-muted")}>
+      {ok ? <CheckCircleIcon size={18} weight="fill" aria-hidden /> : <CircleIcon size={18} aria-hidden />}
+      <span>
+        {children}
+        <span className="sr-only">{ok ? " — ok" : " — pendente"}</span>
+      </span>
+    </li>
+  );
 }
 
 /**
  * Formulário de solicitação de reserva. Começa pela escolha do tipo de
  * atividade (Graduação, Pós, Cultura e Extensão, Concurso, Defesa): cada tipo
- * tem seus próprios campos em "Informações da reserva"; datas e recursos são
- * iguais para todos. Não pede sala — o Admin aloca a mais adequada ao aprovar.
+ * tem seus próprios campos; datas e recursos são iguais para todos. Não pede
+ * sala — o Admin aloca a mais adequada ao aprovar.
  */
-export function ReservationForm({ onDone }: Props) {
+function ReservationForm({ onReset }: { onReset: () => void }) {
+  const navigate = useNavigate();
+  const toast = useToast();
   const [resources, setResources] = useState<Resource[]>([]);
 
   const [activityType, setActivityType] = useState<ActivityType | null>(null);
@@ -59,12 +155,12 @@ export function ReservationForm({ onDone }: Props) {
 
   const [date, setDate] = useState(todayPlus(4));
   const [startTimeStr, setStartTimeStr] = useState("14:00");
-  const [endTimeStr, setEndTimeStr] = useState("15:00");
+  const [endTimeStr, setEndTimeStr] = useState("16:00");
 
   const [recurrenceEnabled, setRecurrenceEnabled] = useState(false);
-  const [interval, setInterval_] = useState<1 | 2>(1);
+  const [interval, setInterval_] = useState<"1" | "2">("1");
   const [weekdays, setWeekdays] = useState<Set<string>>(new Set());
-  const [until, setUntil] = useState(todayPlus(30));
+  const [until, setUntil] = useState(todayPlus(60));
 
   const [submitting, setSubmitting] = useState(false);
   const [submitErrors, setSubmitErrors] = useState<string[]>([]);
@@ -76,8 +172,21 @@ export function ReservationForm({ onDone }: Props) {
 
   const startDate = useMemo(() => (date && startTimeStr ? new Date(`${date}T${startTimeStr}:00`) : null), [date, startTimeStr]);
   const endDate = useMemo(() => (date && endTimeStr ? new Date(`${date}T${endTimeStr}:00`) : null), [date, endTimeStr]);
-
   const clientErrors = useMemo(() => validateReservationTimes(startDate, endDate), [startDate, endDate]);
+
+  const previewDates = useMemo(
+    () => (recurrenceEnabled ? previewWeeklyDates(date, until, weekdays, Number(interval)) : []),
+    [recurrenceEnabled, date, until, weekdays, interval],
+  );
+
+  // Ao ligar a recorrência, já marca o dia da semana da data escolhida.
+  function toggleRecurrence(enabled: boolean) {
+    setRecurrenceEnabled(enabled);
+    if (enabled && weekdays.size === 0 && date) {
+      const code = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"][new Date(`${date}T12:00:00`).getDay()]!;
+      setWeekdays(new Set([code]));
+    }
+  }
 
   function toggleWeekday(code: string) {
     setWeekdays((prev) => {
@@ -101,14 +210,18 @@ export function ReservationForm({ onDone }: Props) {
     setSelectedResources((prev) => ({ ...prev, [id]: { ...prev[id]!, ...patch } }));
   }
 
+  const recurrenceOk = !recurrenceEnabled || (weekdays.size > 0 && previewDates.length > 0);
+  const canSubmit = clientErrors.length === 0 && recurrenceOk && termsAccepted && !submitting;
+
   async function submit() {
     setSubmitting(true);
     setSubmitErrors([]);
     try {
-      const rrule =
-        recurrenceEnabled && weekdays.size > 0
-          ? `FREQ=WEEKLY;INTERVAL=${interval};BYDAY=${Array.from(weekdays).join(",")}`
-          : null;
+      const rrule = recurrenceEnabled
+        ? `FREQ=WEEKLY;INTERVAL=${interval};BYDAY=${WEEKDAYS.filter((w) => weekdays.has(w.code))
+            .map((w) => w.code)
+            .join(",")}`
+        : null;
 
       const res = await api<{ reservations: Reservation[] }>("/reservations", {
         method: "POST",
@@ -132,9 +245,12 @@ export function ReservationForm({ onDone }: Props) {
         }),
       });
       setResult(res.reservations);
+      window.scrollTo({ top: 0 });
     } catch (e) {
       const messages = e instanceof ApiError && e.code === "VALIDATION_ERROR" ? validationMessages(e.details) : [];
-      setSubmitErrors(messages.length > 0 ? messages : [e instanceof Error ? e.message : "Falha ao enviar a solicitação."]);
+      const list = messages.length > 0 ? messages : [e instanceof Error ? e.message : "Falha ao enviar a solicitação."];
+      setSubmitErrors(list);
+      toast.error("Não foi possível enviar a solicitação.", list[0]);
     } finally {
       setSubmitting(false);
     }
@@ -142,239 +258,356 @@ export function ReservationForm({ onDone }: Props) {
 
   if (result) {
     return (
-      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
-        <h3 className="font-medium text-emerald-800">Solicitação enviada!</h3>
-        <p className="mt-1 text-sm text-emerald-700">
-          {result.length === 1 ? "1 solicitação foi registrada" : `${result.length} solicitações foram registradas`} com status{" "}
-          <strong>Pendente</strong>. A Secretaria/TI vai alocar uma sala e aprovar ou rejeitar em breve.
+      <Card className="mx-auto max-w-lg animate-fade-in-up p-8 text-center">
+        <span className="mx-auto grid size-16 animate-pop place-items-center rounded-full bg-success-soft text-success-foreground">
+          <CheckCircleIcon size={40} weight="fill" aria-hidden />
+        </span>
+        <h1 className="mt-5 text-2xl font-bold tracking-tight">Solicitação enviada!</h1>
+        <p className="mt-2 text-muted">
+          {result.length === 1 ? "Sua solicitação foi registrada" : `${result.length} datas foram registradas`} como{" "}
+          <strong className="text-foreground">pendente</strong>. Você recebe um e-mail quando a Secretaria aprovar ou rejeitar.
         </p>
-        <ul className="mt-2 text-sm text-emerald-700">
-          {result.map((r) => (
-            <li key={r.id}>
-              {new Date(r.startTime).toLocaleString("pt-BR")} – {new Date(r.endTime).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+        <ul className="mt-5 flex flex-wrap justify-center gap-2">
+          {result.slice(0, 12).map((r) => (
+            <li key={r.id} className="rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-primary-soft-foreground tabular-nums">
+              {formatShortDate(r.startTime)}
             </li>
           ))}
+          {result.length > 12 && <li className="px-2 py-1 text-xs text-muted">+{result.length - 12}</li>}
         </ul>
-        <button onClick={onDone} className="mt-4 rounded-md bg-slate-900 px-4 py-2 text-sm text-white">
-          Ver minhas reservas
-        </button>
-      </div>
+        <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:justify-center">
+          <Button icon={CalendarCheckIcon} onClick={() => navigate("/minhas-reservas")}>
+            Ver minhas reservas
+          </Button>
+          <Button variant="secondary" icon={PlusIcon} onClick={onReset}>
+            Nova solicitação
+          </Button>
+        </div>
+      </Card>
     );
   }
-
-  const activitySelect = (
-    <select
-      required
-      value={activityType ?? ""}
-      onChange={(e) => setActivityType(e.target.value as ActivityType)}
-      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-    >
-      <option value="" disabled>
-        Clique para selecionar…
-      </option>
-      {ACTIVITY_TYPES.map((t) => (
-        <option key={t} value={t}>
-          {ACTIVITY_TYPE_LABELS[t]}
-        </option>
-      ))}
-    </select>
-  );
 
   // 1º passo: escolher o tipo de atividade, que define o formulário.
-  if (!activityType) {
-    return (
-      <div className="mx-auto max-w-md rounded-lg border border-slate-200 p-8">
-        <h3 className="text-center text-lg font-semibold">Reservar uma sala</h3>
-        <p className="text-center text-sm text-slate-500">Faculdade de Medicina da USP</p>
-        <label className="mt-6 block">
-          <span className="text-sm font-medium text-slate-700">Selecione a atividade</span>
-          {activitySelect}
-        </label>
-      </div>
-    );
-  }
+  if (!activityType) return <ActivityPicker onPick={setActivityType} />;
+
+  const ActivityIcon = ACTIVITY_ICONS[activityType];
+  const attendees = attendeesOf(activityType, details);
+  const chosenResources = resources.filter((r) => selectedResources[r.id]);
+  const dateLabel =
+    startDate && !Number.isNaN(startDate.getTime())
+      ? capitalizeFirst(startDate.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" }))
+      : "—";
 
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        void submit();
-      }}
-      className="space-y-6"
-    >
-      <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-600">
-        Você descreve o que precisa; a Secretaria/TI escolhe a sala disponível mais adequada ao aprovar.
-      </p>
+    <div className="space-y-6">
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="sm" icon={ArrowLeftIcon} onClick={() => setActivityType(null)} className="-ml-3">
+          Tipos de atividade
+        </Button>
+      </div>
+      <PageHeader title="Reservar uma sala" description={`${ACTIVITY_TYPE_LABELS[activityType]} — preencha os dados e envie para a Secretaria.`} />
 
-      <Section title="Agendamento de datas">
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Data</label>
-            <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Início</label>
-            <input type="time" required value={startTimeStr} onChange={(e) => setStartTimeStr(e.target.value)} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Término</label>
-            <input type="time" required value={endTimeStr} onChange={(e) => setEndTimeStr(e.target.value)} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
-          </div>
-        </div>
-
-        <div className="mt-3 rounded-lg border border-slate-200 p-3">
-          <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-            <input type="checkbox" checked={recurrenceEnabled} onChange={(e) => setRecurrenceEnabled(e.target.checked)} />
-            Repetir esta reserva
-          </label>
-          {recurrenceEnabled && (
-            <div className="mt-3 space-y-3">
-              <div className="flex flex-wrap gap-2">
-                {WEEKDAYS.map((w) => (
-                  <button
-                    type="button"
-                    key={w.code}
-                    onClick={() => toggleWeekday(w.code)}
-                    className={`rounded-md border px-3 py-1 text-sm ${weekdays.has(w.code) ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300"}`}
-                  >
-                    {w.label}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-1 text-sm">
-                  <input type="radio" checked={interval === 1} onChange={() => setInterval_(1)} /> Semanal
-                </label>
-                <label className="flex items-center gap-1 text-sm">
-                  <input type="radio" checked={interval === 2} onChange={() => setInterval_(2)} /> Quinzenal
-                </label>
-                <label className="ml-auto flex items-center gap-2 text-sm">
-                  Até <input type="date" value={until} onChange={(e) => setUntil(e.target.value)} className="rounded-md border border-slate-300 px-2 py-1 text-sm" />
-                </label>
-              </div>
-              {weekdays.size === 0 && <p className="text-xs text-amber-600">Selecione ao menos um dia da semana.</p>}
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <form
+          id={FORM_ID}
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (canSubmit) void submit();
+          }}
+          className="space-y-6"
+        >
+          <FormSection step={1} title="Quando" description="Funcionamento das 07:30 às 22:30, com no mínimo 3 dias de antecedência.">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Input label="Data" type="date" required value={date} min={todayPlus(3)} onChange={(e) => setDate(e.target.value)} />
+              <Input label="Início" type="time" required step={300} value={startTimeStr} onChange={(e) => setStartTimeStr(e.target.value)} />
+              <Input label="Término" type="time" required step={300} value={endTimeStr} onChange={(e) => setEndTimeStr(e.target.value)} />
             </div>
-          )}
-        </div>
-      </Section>
 
-      <Section title="Informações da reserva">
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block">
-            <span className="text-sm font-medium text-slate-700">Atividade</span>
-            {activitySelect}
-          </label>
-          <label className="col-span-2 block">
-            <span className="text-sm font-medium text-slate-700">Descrição</span>
-            <textarea
-              required
-              rows={3}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Descrição completa da sua atividade. Se precisar de um tipo específico de espaço (ex.: auditório, laboratório), mencione aqui."
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            />
-          </label>
-          <ActivityFields
-            type={activityType}
-            values={details}
-            onChange={(name, value) => setDetails((prev) => ({ ...prev, [name]: value }))}
-          />
-        </div>
-      </Section>
+            {clientErrors.length > 0 && (
+              <Alert tone="warning" className="mt-4">
+                <ul className="space-y-0.5">
+                  {clientErrors.map((err) => (
+                    <li key={err}>{err}</li>
+                  ))}
+                </ul>
+              </Alert>
+            )}
 
-      <Section title="Recursos para reserva">
-        <div className="grid grid-cols-2 gap-2">
-          {resources.map((r) => {
-            const selected = selectedResources[r.id];
-            return (
-              <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 p-2 text-sm">
-                <label className="flex flex-1 items-center gap-2" title={r.description ?? undefined}>
-                  <input type="checkbox" checked={!!selected} onChange={() => toggleResource(r.id)} />
-                  {r.name}
-                </label>
-                {r.requestsQuantity && (
-                  <input
-                    type="number"
-                    min={1}
-                    required={!!selected}
-                    disabled={!selected}
-                    aria-label={`Quantidade de ${r.name}`}
-                    value={selected?.quantity ?? "1"}
-                    onChange={(e) => updateResource(r.id, { quantity: e.target.value })}
-                    className="w-16 rounded-md border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
-                  />
-                )}
-                {r.detailOptions.length > 0 ? (
-                  <select
-                    required={!!selected}
-                    disabled={!selected}
-                    aria-label={`Detalhe de ${r.name}`}
-                    value={selected?.detail ?? ""}
-                    onChange={(e) => updateResource(r.id, { detail: e.target.value })}
-                    className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
-                  >
-                    <option value="" disabled>
-                      {r.detailPrompt ?? "Selecione"}
-                    </option>
-                    {r.detailOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  r.detailPrompt && (
-                    <input
-                      disabled={!selected}
-                      aria-label={`Detalhe de ${r.name}`}
-                      placeholder={r.detailPrompt}
-                      maxLength={200}
-                      value={selected?.detail ?? ""}
-                      onChange={(e) => updateResource(r.id, { detail: e.target.value })}
-                      className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
-                    />
-                  )
-                )}
+            <div className="mt-5 rounded-xl border border-border p-4">
+              <Switch
+                checked={recurrenceEnabled}
+                onChange={toggleRecurrence}
+                label="Repetir esta reserva"
+                description="Para aulas e encontros que se repetem toda semana ou a cada 15 dias."
+              />
+              {recurrenceEnabled && (
+                <div className="mt-5 animate-fade-in space-y-5 border-t border-border pt-5">
+                  <fieldset>
+                    <legend className="text-sm font-medium">Dias da semana</legend>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {WEEKDAYS.map((w) => {
+                        const on = weekdays.has(w.code);
+                        return (
+                          <button
+                            key={w.code}
+                            type="button"
+                            aria-pressed={on}
+                            aria-label={w.full}
+                            onClick={() => toggleWeekday(w.code)}
+                            className={cn(
+                              "h-11 min-w-12 rounded-lg border px-3 text-sm font-semibold transition-colors",
+                              on
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-border-strong text-muted hover:border-primary/50 hover:text-foreground",
+                            )}
+                          >
+                            {w.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-sm font-medium">Frequência</span>
+                      <SegmentedControl
+                        label="Frequência"
+                        value={interval}
+                        onChange={setInterval_}
+                        options={[
+                          { value: "1", label: "Semanal" },
+                          { value: "2", label: "Quinzenal" },
+                        ]}
+                      />
+                    </div>
+                    <Input label="Repetir até" type="date" value={until} min={date} onChange={(e) => setUntil(e.target.value)} />
+                  </div>
+                  {weekdays.size === 0 ? (
+                    <Alert tone="warning">Escolha ao menos um dia da semana.</Alert>
+                  ) : previewDates.length === 0 ? (
+                    <Alert tone="warning">Nenhuma data cai nesse período. Ajuste o "Repetir até" ou os dias.</Alert>
+                  ) : (
+                    <div>
+                      <p className="text-sm font-medium">{plural(previewDates.length, "data", "datas")} nesta série</p>
+                      <ul className="mt-2 flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
+                        {previewDates.map((d) => (
+                          <li
+                            key={d}
+                            className="rounded-md bg-primary-soft px-2 py-1 text-xs font-medium text-primary-soft-foreground tabular-nums"
+                          >
+                            {formatShortDate(`${d}T12:00:00`)}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </FormSection>
+
+          <FormSection step={2} title="Sobre a atividade">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-primary-soft p-3">
+              <div className="flex items-center gap-3">
+                <IconTile icon={ActivityIcon} size="sm" />
+                <div className="leading-tight">
+                  <p className="text-xs text-primary-soft-foreground/80">Atividade</p>
+                  <p className="font-semibold text-primary-soft-foreground">{ACTIVITY_TYPE_LABELS[activityType]}</p>
+                </div>
               </div>
-            );
-          })}
-        </div>
-        <p className="mt-2 text-xs text-slate-500">Não precisa de nenhum equipamento? É só não marcar nada.</p>
-        <label className="mt-3 block">
-          <span className="text-sm font-medium text-slate-700">Observações para TI/infraestrutura (opcional)</span>
-          <textarea rows={2} value={supportNotes} onChange={(e) => setSupportNotes(e.target.value)} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
-        </label>
-      </Section>
+              <Button variant="ghost" size="sm" icon={ArrowsLeftRightIcon} onClick={() => setActivityType(null)}>
+                Trocar
+              </Button>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Textarea
+                label="Descrição"
+                required
+                rows={3}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Descreva a atividade. Se precisar de um tipo específico de espaço (auditório, laboratório…), mencione aqui."
+                containerClassName="sm:col-span-2"
+              />
+              <ActivityFields type={activityType} values={details} onChange={(name, value) => setDetails((prev) => ({ ...prev, [name]: value }))} />
+            </div>
+          </FormSection>
 
-      <label className="flex items-start gap-2 text-sm">
-        <input type="checkbox" required checked={termsAccepted} onChange={(e) => setTermsAccepted(e.target.checked)} className="mt-0.5" />
-        Li e concordo com o Regulamento de Uso dos Espaços da FMUSP.
-      </label>
+          <FormSection step={3} title="Recursos" description="Marque o que vai precisar. Não precisa de nada? É só seguir em frente.">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {resources.map((r) => {
+                const selected = selectedResources[r.id];
+                const ResourceIcon = resourceIcon(r.name);
+                const hasExtra = r.requestsQuantity || r.detailPrompt || r.detailOptions.length > 0;
+                return (
+                  <div
+                    key={r.id}
+                    className={cn(
+                      "min-w-0 rounded-xl border p-3 transition-[border-color,background-color] duration-150 has-[input[type=checkbox]:focus-visible]:ring-2 has-[input[type=checkbox]:focus-visible]:ring-ring",
+                      selected ? "border-primary bg-primary-soft/50" : "border-border hover:border-border-strong",
+                    )}
+                  >
+                    <label className="flex items-center gap-3">
+                      <input type="checkbox" className="sr-only" checked={!!selected} onChange={() => toggleResource(r.id)} />
+                      <span
+                        className={cn(
+                          "grid size-10 shrink-0 place-items-center rounded-lg transition-colors",
+                          selected ? "bg-primary text-primary-foreground" : "bg-surface-muted text-muted",
+                        )}
+                      >
+                        <ResourceIcon size={20} weight={selected ? "fill" : "duotone"} aria-hidden />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium">{r.name}</span>
+                        {r.description && <span className="block truncate text-xs text-muted">{r.description}</span>}
+                      </span>
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "grid size-5 shrink-0 place-items-center rounded-md border transition-colors",
+                          selected ? "border-primary bg-primary text-primary-foreground" : "border-border-strong",
+                        )}
+                      >
+                        {selected && <CheckIcon size={14} weight="bold" />}
+                      </span>
+                    </label>
+                    {selected && hasExtra && (
+                      <div className="mt-3 flex animate-fade-in flex-wrap items-center gap-2">
+                        {r.requestsQuantity && (
+                          <QuantityStepper
+                            label={`Quantidade de ${r.name}`}
+                            value={selected.quantity}
+                            onChange={(quantity) => updateResource(r.id, { quantity })}
+                          />
+                        )}
+                        {r.detailOptions.length > 0 ? (
+                          <Select
+                            aria-label={`${r.detailPrompt ?? "Detalhe"} (${r.name})`}
+                            required
+                            value={selected.detail}
+                            onChange={(e) => updateResource(r.id, { detail: e.target.value })}
+                            containerClassName="min-w-0 flex-1"
+                          >
+                            <option value="" disabled>
+                              {r.detailPrompt ?? "Selecione"}
+                            </option>
+                            {r.detailOptions.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </Select>
+                        ) : (
+                          r.detailPrompt && (
+                            <Input
+                              aria-label={`Detalhe de ${r.name}`}
+                              placeholder={r.detailPrompt}
+                              maxLength={200}
+                              value={selected.detail}
+                              onChange={(e) => updateResource(r.id, { detail: e.target.value })}
+                              containerClassName="min-w-0 flex-1"
+                            />
+                          )
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <Textarea
+              label="Observações para TI/infraestrutura"
+              rows={2}
+              value={supportNotes}
+              onChange={(e) => setSupportNotes(e.target.value)}
+              hint="Opcional. Ex.: chegar 15 minutos antes para testar a transmissão."
+              containerClassName="mt-5"
+            />
+          </FormSection>
+        </form>
 
-      {clientErrors.length > 0 && (
-        <ul className="rounded-md bg-amber-50 p-3 text-sm text-amber-800">
-          {clientErrors.map((err) => (
-            <li key={err}>• {err}</li>
-          ))}
-        </ul>
-      )}
+        {/* Resumo (fica fixo ao rolar no computador) */}
+        <aside className="lg:sticky lg:top-10 lg:row-span-2">
+          <Card className="p-5">
+            <h2 className="text-base font-semibold">Resumo</h2>
+            <dl className="mt-4 space-y-3 text-sm">
+              <div className="flex gap-3">
+                <dt className="sr-only">Atividade</dt>
+                <ActivityIcon size={20} className="shrink-0 text-muted" aria-hidden />
+                <dd className="font-medium">{ACTIVITY_TYPE_LABELS[activityType]}</dd>
+              </div>
+              <div className="flex gap-3">
+                <dt className="sr-only">Quando</dt>
+                <CalendarBlankIcon size={20} className="shrink-0 text-muted" aria-hidden />
+                <dd>
+                  <span>{dateLabel}</span>
+                  <span className="block text-muted tabular-nums">
+                    {startTimeStr}–{endTimeStr}
+                    {recurrenceEnabled && previewDates.length > 0 && ` · ${plural(previewDates.length, "data", "datas")}`}
+                  </span>
+                </dd>
+              </div>
+              <div className="flex gap-3">
+                <dt className="sr-only">Pessoas</dt>
+                <UsersIcon size={20} className="shrink-0 text-muted" aria-hidden />
+                <dd>{attendees ? plural(Number(attendees), "pessoa", "pessoas") : <span className="text-muted">Nº de pessoas a informar</span>}</dd>
+              </div>
+              <div className="flex gap-3">
+                <dt className="sr-only">Recursos</dt>
+                <WrenchIcon size={20} className="shrink-0 text-muted" aria-hidden />
+                <dd className={chosenResources.length === 0 ? "text-muted" : undefined}>
+                  {chosenResources.length === 0
+                    ? "Nenhum recurso"
+                    : chosenResources
+                        .map((r) => `${r.name}${r.requestsQuantity ? ` (${selectedResources[r.id]!.quantity})` : ""}`)
+                        .join(", ")}
+                </dd>
+              </div>
+            </dl>
+            <ul className="mt-5 space-y-2 border-t border-border pt-4">
+              <ChecklistItem ok={clientErrors.length === 0}>Data e horário dentro das regras</ChecklistItem>
+              {recurrenceEnabled && <ChecklistItem ok={recurrenceOk}>Datas da série definidas</ChecklistItem>}
+              <ChecklistItem ok={termsAccepted}>Regulamento aceito</ChecklistItem>
+            </ul>
+            {/* No celular o botão fica no fim do formulário; aqui só no computador. */}
+            <div className="mt-5 hidden lg:block">
+              <Button type="submit" form={FORM_ID} size="lg" icon={PaperPlaneTiltIcon} loading={submitting} disabled={!canSubmit} className="w-full">
+                Enviar solicitação
+              </Button>
+            </div>
+          </Card>
+        </aside>
 
-      {submitErrors.length > 0 && (
-        <ul className="rounded-md bg-red-50 p-3 text-sm text-red-700">
-          {submitErrors.map((err) => (
-            <li key={err}>• {err}</li>
-          ))}
-        </ul>
-      )}
-
-      <button
-        type="submit"
-        disabled={submitting || clientErrors.length > 0 || !termsAccepted || (recurrenceEnabled && weekdays.size === 0)}
-        className="rounded-md bg-slate-900 px-6 py-2 text-sm text-white disabled:opacity-50"
-      >
-        {submitting ? "Enviando…" : "Enviar solicitação"}
-      </button>
-    </form>
+        <Card className="space-y-4 p-5 sm:p-6 lg:col-start-1">
+          <label className="flex items-start gap-3 text-sm">
+            <input
+              type="checkbox"
+              form={FORM_ID}
+              required
+              checked={termsAccepted}
+              onChange={(e) => setTermsAccepted(e.target.checked)}
+              className="mt-0.5 size-5 shrink-0"
+            />
+            <span>
+              Li e concordo com o <strong>Regulamento de Uso dos Espaços da FMUSP</strong>.
+            </span>
+          </label>
+          {submitErrors.length > 0 && (
+            <Alert tone="danger" title="Revise a solicitação">
+              <ul className="list-disc space-y-0.5 pl-4">
+                {submitErrors.map((err) => (
+                  <li key={err}>{err}</li>
+                ))}
+              </ul>
+            </Alert>
+          )}
+          <div className="lg:hidden">
+            <Button type="submit" form={FORM_ID} size="lg" icon={PaperPlaneTiltIcon} loading={submitting} disabled={!canSubmit} className="w-full">
+              Enviar solicitação
+            </Button>
+          </div>
+        </Card>
+      </div>
+    </div>
   );
 }
