@@ -98,8 +98,8 @@ function ActivityPicker({ onPick }: { onPick: (type: ActivityType) => void }) {
         ))}
       </div>
       <Alert tone="info" title="Como funciona">
-        Você descreve o que precisa; a Secretaria escolhe a sala disponível mais adequada ao aprovar, e você recebe a resposta por
-        e-mail.
+        Você descreve o que precisa; o SAD (Serviço de Apoio Didático) escolhe a sala disponível mais adequada ao aprovar, e você
+        recebe a resposta por e-mail.
       </Alert>
     </div>
   );
@@ -265,7 +265,7 @@ function ReservationForm({ onReset }: { onReset: () => void }) {
         <h1 className="mt-5 text-2xl font-bold tracking-tight">Solicitação enviada!</h1>
         <p className="mt-2 text-muted">
           {result.length === 1 ? "Sua solicitação foi registrada" : `${result.length} datas foram registradas`} como{" "}
-          <strong className="text-foreground">pendente</strong>. Você recebe um e-mail quando a Secretaria aprovar ou rejeitar.
+          <strong className="text-foreground">pendente</strong>. Você recebe um e-mail quando o SAD aprovar ou rejeitar.
         </p>
         <ul className="mt-5 flex flex-wrap justify-center gap-2">
           {result.slice(0, 12).map((r) => (
@@ -305,7 +305,7 @@ function ReservationForm({ onReset }: { onReset: () => void }) {
           Tipos de atividade
         </Button>
       </div>
-      <PageHeader title="Reservar uma sala" description={`${ACTIVITY_TYPE_LABELS[activityType]} — preencha os dados e envie para a Secretaria.`} />
+      <PageHeader title="Reservar uma sala" description={`${ACTIVITY_TYPE_LABELS[activityType]} — preencha os dados e envie para o SAD.`} />
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <form

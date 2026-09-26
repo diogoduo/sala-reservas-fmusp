@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router";
+import { FreeRooms } from "./components/admin/FreeRooms";
 import { RequestsAdmin } from "./components/admin/RequestsAdmin";
 import { ResourcesAdmin } from "./components/admin/ResourcesAdmin";
 import { RoomsAdmin } from "./components/admin/RoomsAdmin";
@@ -29,6 +30,7 @@ export default function App() {
         {user.role === "ADMIN" ? (
           <>
             <Route path="/admin/solicitacoes" element={<RequestsAdmin />} />
+            <Route path="/admin/salas-livres" element={<FreeRooms />} />
             <Route path="/admin/salas" element={<RoomsAdmin />} />
             <Route path="/admin/recursos" element={<ResourcesAdmin />} />
             <Route path="*" element={<Navigate to="/admin/solicitacoes" replace />} />

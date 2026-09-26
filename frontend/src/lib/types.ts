@@ -103,6 +103,16 @@ export interface RoomOption {
   conflictingDates: string[];
 }
 
+/** Uma sala na consulta de "Salas livres" do SAD (GET /api/admin/availability). */
+export interface RoomAvailability {
+  room: Room;
+  free: boolean;
+  busy: (
+    | { type: "reservation"; start: string; end: string; title: string; status: ReservationStatus; requester: string }
+    | { type: "block"; start: string; end: string; reason: string }
+  )[];
+}
+
 export interface BusyInterval {
   start: string;
   end: string;

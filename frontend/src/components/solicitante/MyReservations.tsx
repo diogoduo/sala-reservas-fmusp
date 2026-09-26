@@ -48,7 +48,7 @@ function Situation({ reservation: r }: { reservation: Reservation }) {
       );
     case "PENDING":
       // Com sala = pedido anterior à correção pós-Fase 5, quando o solicitante indicava a sala.
-      return <span className="text-muted">{room ? `Sala indicada: ${room} · aguardando aprovação` : "Aguardando a Secretaria alocar uma sala"}</span>;
+      return <span className="text-muted">{room ? `Sala indicada: ${room} · aguardando aprovação` : "Aguardando o SAD alocar uma sala"}</span>;
     case "REJECTED":
       return (
         <span className="text-danger-foreground">
@@ -121,7 +121,7 @@ export function MyReservations() {
         method: "POST",
         body: JSON.stringify({ scope }),
       });
-      toast.success(plural(res.cancelledIds.length, "data cancelada", "datas canceladas"), "A Secretaria foi avisada por e-mail.");
+      toast.success(plural(res.cancelledIds.length, "data cancelada", "datas canceladas"), "O SAD foi avisado por e-mail.");
       await load();
     } catch (e) {
       toast.error("Não foi possível cancelar.", e instanceof Error ? e.message : undefined);

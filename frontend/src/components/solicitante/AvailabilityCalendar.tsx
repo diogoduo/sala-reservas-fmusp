@@ -16,10 +16,14 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
  * com algum horário ocupado e, ao clicar num dia, lista os horários ocupados.
  * Só orienta a consulta — quem garante que não há conflito é o back-end ao aprovar.
  */
-export function AvailabilityCalendar({ roomId }: { roomId: string }) {
-  const [monthOffset, setMonthOffset] = useState(0);
+export function AvailabilityCalendar({ roomId, initialDate }: { roomId: string; /** Abre já neste dia. */ initialDate?: Date }) {
+  const [monthOffset, setMonthOffset] = useState(() => {
+    if (!initialDate) return 0;
+    const now = new Date();
+    return (initialDate.getFullYear() - now.getFullYear()) * 12 + initialDate.getMonth() - now.getMonth();
+  });
   const [busy, setBusy] = useState<BusyInterval[] | null>(null);
-  const [selected, setSelected] = useState<Date>(() => new Date());
+  const [selected, setSelected] = useState<Date>(() => initialDate ?? new Date());
 
   const viewDate = useMemo(() => {
     const d = new Date();

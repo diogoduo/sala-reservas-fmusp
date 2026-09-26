@@ -83,7 +83,7 @@ const ROOMS: {
 
 // Contas usadas pelo Mock USP (Fase 2): um e-mail de cada domínio autorizado.
 const DEV_USERS = [
-  { uspNumber: "1000001", name: "Admin Secretaria", email: "admin@fm.usp.br", role: UserRole.ADMIN },
+  { uspNumber: "1000001", name: "SAD — Serviço de Apoio Didático", email: "admin@fm.usp.br", role: UserRole.ADMIN },
   { uspNumber: "1000002", name: "Aluno Teste", email: "aluno@usp.br", role: UserRole.USER },
   { uspNumber: "1000003", name: "Docente Teste", email: "docente@fm.usp.br", role: UserRole.USER },
   { uspNumber: "1000004", name: "Funcionário HC Teste", email: "funcionario@hc.fm.usp.br", role: UserRole.USER },

@@ -85,6 +85,54 @@ adminRouter.get(
 );
 
 // ----------------------------------------------------------------------------
+// Salas livres — consulta rápida do SAD ("qual sala está livre dia 30, das 10
+// às 11?"). Para cada sala ativa, diz se está livre no intervalo e, se não
+// estiver, o que a ocupa. Mesma semântica [início, fim) da exclusion constraint:
+// um evento pode começar exatamente quando outro termina.
+// ----------------------------------------------------------------------------
+
+const availabilityQuerySchema = z
+  .object({ start: z.coerce.date(), end: z.coerce.date() })
+  .refine((q) => q.end > q.start, { message: "O término deve ser depois do início.", path: ["end"] });
+
+adminRouter.get(
+  "/availability",
+  asyncHandler(async (req, res) => {
+    const { start, end } = availabilityQuerySchema.parse(req.query);
+
+    const rooms = await prisma.room.findMany({ where: { status: "ACTIVE" }, include: roomWithResourcesInclude });
+    const roomIds = rooms.map((r) => r.id);
+    const overlapping = { roomId: { in: roomIds }, startTime: { lt: end }, endTime: { gt: start } };
+
+    const reservations = await prisma.reservation.findMany({
+      where: { ...overlapping, status: { in: ["PENDING", "APPROVED"] } },
+      select: { roomId: true, title: true, status: true, startTime: true, endTime: true, user: { select: { name: true } } },
+    });
+    const blocks = await prisma.roomBlock.findMany({
+      where: overlapping,
+      select: { roomId: true, reason: true, startTime: true, endTime: true },
+    });
+
+    const result = rooms
+      .map((room) => {
+        const busy = [
+          ...reservations
+            .filter((r) => r.roomId === room.id)
+            .map((r) => ({ type: "reservation" as const, start: r.startTime, end: r.endTime, title: r.title, status: r.status, requester: r.user.name })),
+          ...blocks
+            .filter((b) => b.roomId === room.id)
+            .map((b) => ({ type: "block" as const, start: b.startTime, end: b.endTime, reason: b.reason })),
+        ].sort((a, b) => a.start.getTime() - b.start.getTime());
+        return { room, free: busy.length === 0, busy };
+      })
+      // Livres primeiro; dentro de cada grupo, da menor para a maior capacidade.
+      .sort((a, b) => Number(b.free) - Number(a.free) || a.room.capacity - b.room.capacity);
+
+    res.json({ rooms: result });
+  }),
+);
+
+// ----------------------------------------------------------------------------
 // Salas candidatas — só leitura, para orientar a escolha. A checagem que vale
 // é a de POST .../approve, feita dentro da transação com lock na sala.
 // ----------------------------------------------------------------------------

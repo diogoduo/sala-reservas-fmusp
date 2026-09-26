@@ -1,7 +1,7 @@
 # Sistema de Reserva de Salas — FMUSP
 
 Sistema para alunos, docentes e funcionários da Faculdade de Medicina da USP
-solicitarem salas, e para a Secretaria analisar cada pedido, alocar a sala mais
+solicitarem salas, e para o SAD (Serviço de Apoio Didático) analisar cada pedido, alocar a sala mais
 adequada e aprovar ou rejeitar — com avisos por e-mail em cada etapa.
 
 **React · TypeScript · Tailwind CSS v4 · Node.js/Express · Prisma · PostgreSQL**
@@ -307,6 +307,20 @@ curl.exe -b cookies.txt -H "Content-Type: application/json" --data-binary "@reco
 Os `resourceId` dos exemplos são do banco local em que foram escritos. Em
 outro banco, pegue os seus em `GET /api/resources`.
 
+### Mostrar o app rodando localmente (sem deploy)
+
+Com o back-end e o front no ar, um túnel temporário da Cloudflare gera um link
+público `https://….trycloudflare.com` que aponta para o seu computador. Não
+precisa de conta, e o link dura enquanto o comando estiver rodando:
+
+```powershell
+cloudflared tunnel --url http://localhost:5173
+```
+
+O `vite.config.ts` libera só os domínios de túnel (`.trycloudflare.com` e
+`.devtunnels.ms`, do VS Code); qualquer outro host continua bloqueado. Quem
+tiver o link usa o Dev Mode e os dados do banco local, inclusive como Admin.
+
 ## Fase 8 — Minhas Reservas
 
 A aba **Minhas reservas** passou a ser a tela inicial do solicitante
@@ -325,7 +339,25 @@ A aba **Minhas reservas** passou a ser a tela inicial do solicitante
   - Cancelar **libera o horário da sala** na hora: a exclusion constraint só
     considera PENDING/APPROVED.
 - Na fila do Admin, a aba **Canceladas** mostra quando o solicitante cancelou.
-- Cancelar avisa a Secretaria por e-mail (ver Fase 7).
+- Cancelar avisa o SAD por e-mail (ver Fase 7).
+
+## Salas livres (SAD)
+
+Consulta rápida para o SAD responder na hora "qual sala está livre no dia 30,
+das 10 às 11?".
+
+- `GET /api/admin/availability?start=&end=` (só Admin): cada sala ativa, livre
+  ou ocupada no intervalo. Se estiver ocupada, diz por quê: reserva pendente ou
+  aprovada, com título e solicitante, ou bloqueio. Um evento pode começar
+  exatamente quando outro termina.
+- Tela `/admin/salas-livres`:
+  - dia e horário com atalhos (hoje, amanhã, 30 min / 1 h / 2 h,
+    manhã / tarde / noite) e filtros de capacidade e tipo;
+  - resultado atualizado enquanto se digita;
+  - **Copiar resposta**, com uma frase pronta para mandar a quem perguntou;
+  - agenda da sala aberta já no dia pesquisado.
+
+  A pesquisa fica na URL, então dá para voltar a ela ou compartilhar o link.
 
 ## Fase 7 — Avisos por e-mail
 
@@ -335,11 +367,11 @@ do `docker-compose` e aparecem em http://localhost:8025 — nada sai de verdade.
 | Quando | Para quem | O quê |
 |---|---|---|
 | Solicitação enviada | solicitante | confirmação, com as datas |
-| Solicitação enviada | Secretaria (todos os Admins) | nova solicitação para analisar |
+| Solicitação enviada | SAD (todos os Admins) | nova solicitação para analisar |
 | Aprovada | solicitante | sala e datas (e quantas datas da série seguem em análise) |
 | Aprovada, com recursos pedidos | TI (`TI_EMAIL_ADDRESS`) | o que preparar, onde e quando |
 | Rejeitada | solicitante | justificativa |
-| Cancelada pelo solicitante | Secretaria | horário liberado |
+| Cancelada pelo solicitante | SAD | horário liberado |
 | Cancelada, e já estava aprovada com recursos | TI | recursos dispensados |
 
 - **Um e-mail por ação, não por data:** aprovar uma série de 10 datas gera um

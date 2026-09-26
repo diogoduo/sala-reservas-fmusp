@@ -2,6 +2,7 @@ import {
   CalendarCheckIcon,
   CalendarPlusIcon,
   DoorOpenIcon,
+  MagnifyingGlassIcon,
   SignOutIcon,
   TrayIcon,
   WrenchIcon,
@@ -68,7 +69,7 @@ function HealthDot() {
   );
 }
 
-const ROLE_LABELS: Record<AuthUser["role"], string> = { ADMIN: "Secretaria · Admin", USER: "Solicitante" };
+const ROLE_LABELS: Record<AuthUser["role"], string> = { ADMIN: "Admin", USER: "Solicitante" };
 
 export function AppShell() {
   const { user, logout } = useAuth();
@@ -88,6 +89,7 @@ export function AppShell() {
   const items: NavItem[] = isAdmin
     ? [
         { to: "/admin/solicitacoes", label: "Solicitações", shortLabel: "Solicitações", icon: TrayIcon, badge: pendingCount },
+        { to: "/admin/salas-livres", label: "Salas livres", shortLabel: "Livres", icon: MagnifyingGlassIcon },
         { to: "/admin/salas", label: "Salas", shortLabel: "Salas", icon: DoorOpenIcon },
         { to: "/admin/recursos", label: "Recursos", shortLabel: "Recursos", icon: WrenchIcon },
       ]
@@ -142,7 +144,7 @@ export function AppShell() {
           <div className="flex items-center gap-3">
             <Avatar name={user.name} />
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">{user.name}</p>
+              <p className="text-sm leading-tight font-semibold">{user.name}</p>
               <p className="truncate text-xs text-muted">{ROLE_LABELS[user.role]}</p>
             </div>
           </div>

@@ -28,7 +28,7 @@ interface MockUser {
 
 const HIGHLIGHTS: { icon: Icon; title: string; text: string }[] = [
   { icon: ListChecksIcon, title: "Formulário certo para cada atividade", text: "Graduação, pós, extensão, concursos e defesas." },
-  { icon: SparkleIcon, title: "A sala mais adequada", text: "A Secretaria aloca pela capacidade, agenda e recursos." },
+  { icon: SparkleIcon, title: "A sala mais adequada", text: "O SAD aloca pela capacidade, agenda e recursos." },
   { icon: BellRingingIcon, title: "Avisos por e-mail", text: "Você sabe na hora quando o pedido é aprovado." },
 ];
 

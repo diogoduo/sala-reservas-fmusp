@@ -12,6 +12,8 @@ const PALETTE = [
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
+  // Nome que começa com sigla ("SAD — Serviço de Apoio Didático") mostra a sigla.
+  if (/^[A-Z]{2,4}$/.test(parts[0] ?? "")) return parts[0]!;
   return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "")).toUpperCase() || "?";
 }
 

@@ -42,7 +42,7 @@ const mail = (to: string[], subject: string, content: MailContent): Mail => ({
   ...renderMail(content),
 });
 
-/** A "Secretaria" são todos os usuários Admin. */
+/** O SAD (Serviço de Apoio Didático) são todos os usuários Admin. */
 async function adminEmails(): Promise<string[]> {
   const admins = await prisma.user.findMany({ where: { role: "ADMIN" }, select: { email: true } });
   return admins.map((a) => a.email);
@@ -59,7 +59,7 @@ async function describeResources(json: Prisma.JsonValue): Promise<string | null>
     .join("; ");
 }
 
-/** Nova solicitação: confirmação para o solicitante e aviso para a Secretaria. */
+/** Nova solicitação: confirmação para o solicitante e aviso para o SAD. */
 export async function requestReceivedMails(ids: string[]): Promise<Mail[]> {
   const list = await load(ids);
   const first = list[0];
@@ -71,7 +71,7 @@ export async function requestReceivedMails(ids: string[]): Promise<Mail[]> {
       heading: "Recebemos sua solicitação de reserva",
       paragraphs: [
         `Olá, ${first.user.name}. A solicitação "${first.title}" foi registrada e está pendente.`,
-        "A Secretaria vai escolher a sala mais adequada, e você recebe outro e-mail quando ela for aprovada ou rejeitada.",
+        "O SAD (Serviço de Apoio Didático) vai escolher a sala mais adequada, e você recebe outro e-mail quando ela for aprovada ou rejeitada.",
       ],
       dates,
     }),
@@ -153,7 +153,7 @@ export async function rejectedMails(ids: string[]): Promise<Mail[]> {
 }
 
 /**
- * Cancelamento pelo solicitante: aviso para a Secretaria e, se alguma data já
+ * Cancelamento pelo solicitante: aviso para o SAD e, se alguma data já
  * estava aprovada com equipamentos, para a TI não preparar à toa.
  */
 export async function cancelledMails(ids: string[]): Promise<Mail[]> {
