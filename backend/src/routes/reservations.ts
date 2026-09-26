@@ -4,6 +4,8 @@ import { z } from "zod";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
 import { prisma } from "../lib/prisma";
+import { sendInBackground } from "../mail/mailer";
+import { cancelledMails, requestReceivedMails } from "../mail/notifications";
 import { requireAuth } from "../middleware/auth";
 import { summarizeActivity } from "../reservations/activities";
 import { expandRecurrence, type Occurrence } from "../reservations/recurrence";
@@ -86,6 +88,8 @@ reservationsRouter.post(
       ),
     );
 
+    const createdIds = reservations.map((r) => r.id);
+    sendInBackground("solicitação recebida", () => requestReceivedMails(createdIds));
     res.status(201).json({ series, reservations });
   }),
 );
@@ -180,7 +184,7 @@ reservationsRouter.post(
       return ids;
     });
 
-    // Fase 7: avisar a Secretaria (e a TI, se havia recursos técnicos) por e-mail.
+    sendInBackground("reserva cancelada", () => cancelledMails(cancelledIds));
     res.json({ cancelledIds });
   }),
 );

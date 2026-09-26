@@ -1,7 +1,17 @@
+import type { ActivityType } from "@prisma/client";
 import type { CreateReservationInput } from "../schemas/reservation";
 
 // Opções fixas dos formulários por tipo de atividade. Os rótulos em português
 // ficam no front (frontend/src/lib/activities.ts) — mantenha os códigos iguais nos dois.
+
+/** Usado nos e-mails (Fase 7); o front tem a mesma lista para as telas. */
+export const ACTIVITY_TYPE_LABELS: Record<ActivityType, string> = {
+  UNDERGRADUATE: "Graduação",
+  GRADUATE: "Pós-Graduação",
+  CULTURE_EXTENSION: "Cultura e Extensão",
+  PUBLIC_EXAM: "Concurso",
+  DEFENSE: "Defesa/Dissertação",
+};
 
 export const UNDERGRADUATE_CLASS_TYPES = ["LECTURE", "PRACTICAL", "EXAM", "MAKEUP", "OTHER"] as const;
 

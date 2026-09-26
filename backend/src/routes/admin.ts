@@ -4,6 +4,8 @@ import { z } from "zod";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
 import { prisma } from "../lib/prisma";
+import { sendInBackground } from "../mail/mailer";
+import { approvedMails, rejectedMails } from "../mail/notifications";
 import { requireAdmin } from "../middleware/auth";
 import { rankRoomOptions } from "../reservations/allocation";
 import { findConflictingOccurrences, isOverlapViolation, loadBusyIntervals, lockRoomForUpdate } from "../reservations/conflicts";
@@ -190,7 +192,8 @@ adminRouter.post(
       return { approved, skipped: conflicting.map((c) => ({ id: c.id, startTime: c.start })) };
     });
 
-    // Fase 7: notificar o solicitante por e-mail.
+    const approvedIds = result.approved.map((r) => r.id);
+    sendInBackground("reserva aprovada", () => approvedMails(approvedIds));
     res.json(result);
   }),
 );
@@ -219,7 +222,7 @@ adminRouter.post(
       return ids;
     });
 
-    // Fase 7: notificar o solicitante por e-mail.
+    sendInBackground("solicitação rejeitada", () => rejectedMails(rejectedIds));
     res.json({ rejectedIds });
   }),
 );

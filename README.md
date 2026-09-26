@@ -198,8 +198,7 @@ front-end na nova aba **Solicitações** do painel do Admin
   solicitação antiga que já nasceu com sala (de antes da correção pós-Fase 5)
   não conflita consigo mesma ao ser aprovada naquela sala. Na fila, essas
   aparecem com "Sala indicada".
-- O envio de e-mail ao solicitante (Fase 7) está marcado com comentário nas
-  rotas de aprovar e rejeitar.
+- Aprovar e rejeitar avisam o solicitante por e-mail (ver Fase 7).
 
 ## Formulários por tipo de atividade
 
@@ -293,8 +292,33 @@ A aba **Minhas reservas** passou a ser a tela inicial do solicitante
   - Cancelar **libera o horário da sala** na hora: a exclusion constraint só
     considera PENDING/APPROVED.
 - Na fila do Admin, a aba **Canceladas** mostra quando o solicitante cancelou.
-- O aviso por e-mail à Secretaria (Fase 7) está marcado com comentário na
-  rota de cancelamento.
+- Cancelar avisa a Secretaria por e-mail (ver Fase 7).
+
+## Fase 7 — Avisos por e-mail
+
+Nodemailer em `backend/src/mail/`. Em dev, os e-mails vão para o **Mailpit**
+do `docker-compose` e aparecem em http://localhost:8025 — nada sai de verdade.
+
+| Quando | Para quem | O quê |
+|---|---|---|
+| Solicitação enviada | solicitante | confirmação, com as datas |
+| Solicitação enviada | Secretaria (todos os Admins) | nova solicitação para analisar |
+| Aprovada | solicitante | sala e datas (e quantas datas da série seguem em análise) |
+| Aprovada, com recursos pedidos | TI (`TI_EMAIL_ADDRESS`) | o que preparar, onde e quando |
+| Rejeitada | solicitante | justificativa |
+| Cancelada pelo solicitante | Secretaria | horário liberado |
+| Cancelada, e já estava aprovada com recursos | TI | recursos dispensados |
+
+- **Um e-mail por ação, não por data:** aprovar uma série de 10 datas gera um
+  e-mail com as 10 datas.
+- Datas formatadas no fuso `APP_TIMEZONE`, não no do servidor.
+- Cada e-mail tem versão em texto e em HTML, geradas do mesmo conteúdo
+  (`layout.ts`). O que o usuário digita (título, justificativa, observações) é
+  escapado no HTML.
+- **Envio fora da transação e sem bloquear a resposta** (`sendInBackground`):
+  a reserva já foi gravada, então uma falha de SMTP só vai para o log, sem
+  virar erro para quem clicou. Em produção, o próximo passo seria uma tabela de
+  *outbox* com novas tentativas.
 
 ## Decisões de modelagem (Fase 1)
 
