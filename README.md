@@ -275,6 +275,27 @@ curl.exe -b cookies.txt -H "Content-Type: application/json" --data-binary "@reco
 Os `resourceId` dos exemplos são do banco local em que foram escritos. Em
 outro banco, pegue os seus em `GET /api/resources`.
 
+## Fase 8 — Minhas Reservas
+
+A aba **Minhas reservas** passou a ser a tela inicial do solicitante
+(`frontend/src/components/solicitante/MyReservations.tsx`).
+
+- Lista as próprias solicitações em **Próximas** e **Anteriores**. As datas de
+  uma série ficam num card só, e cada data mostra o próprio status: sala
+  alocada (aprovada), "aguardando alocação" (pendente), justificativa
+  (rejeitada) ou data do cancelamento.
+- `POST /api/reservations/:id/cancel` `{ scope }`: o solicitante cancela uma
+  data (`single`) ou todas as próximas datas ativas da série (`series`).
+  - Vale só para reservas **pendentes ou aprovadas que ainda não começaram**
+    (`RESERVATION_IN_PAST` / `RESERVATION_NOT_CANCELLABLE` nos outros casos).
+  - Só o dono pode cancelar: para outras pessoas, a API responde 404, sem
+    revelar que a reserva existe.
+  - Cancelar **libera o horário da sala** na hora: a exclusion constraint só
+    considera PENDING/APPROVED.
+- Na fila do Admin, a aba **Canceladas** mostra quando o solicitante cancelou.
+- O aviso por e-mail à Secretaria (Fase 7) está marcado com comentário na
+  rota de cancelamento.
+
 ## Decisões de modelagem (Fase 1)
 
 - **Reservas recorrentes** ficam em `reservation_series` (regra RRule) e cada

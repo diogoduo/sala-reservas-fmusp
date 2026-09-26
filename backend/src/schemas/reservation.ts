@@ -1,6 +1,7 @@
 import { ActivityType } from "@prisma/client";
 import { z } from "zod";
 import { CULTURE_KINDS, DEFENSE_LEVELS, UNDERGRADUATE_CLASS_TYPES } from "../reservations/activities";
+import { reviewScopeSchema } from "./review";
 
 const recurrenceSchema = z.object({
   // Regra RFC 5545 sem "DTSTART:" (ex.: "FREQ=WEEKLY;BYDAY=MO,WE"). Validada de
@@ -129,3 +130,7 @@ export const createReservationSchema = z.discriminatedUnion(
 );
 
 export type CreateReservationInput = z.infer<typeof createReservationSchema>;
+
+// Mesmo escopo da revisão do Admin: "single" = só esta data; "series" = todas
+// as próximas datas ainda ativas da mesma série.
+export const cancelReservationSchema = z.object({ scope: reviewScopeSchema });

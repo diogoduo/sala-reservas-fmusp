@@ -2,8 +2,9 @@ import { Fragment, useEffect, useState } from "react";
 import { ACTIVITY_TYPE_LABELS, activityDetailRows } from "../../lib/activities";
 import { api } from "../../lib/api";
 import { formatDateTimeRange, formatShortDate, formatTimeRange } from "../../lib/format";
-import { RESERVATION_STATUS_LABELS } from "../../lib/types";
+import { groupBySeries } from "../../lib/reservations";
 import type { AdminReservation, RequestedResource, ReservationStatus, Resource } from "../../lib/types";
+import { StatusBadge } from "../StatusBadge";
 import { ReviewPanel } from "./ReviewPanel";
 
 const STATUS_FILTERS: { status: ReservationStatus; label: string }[] = [
@@ -12,23 +13,6 @@ const STATUS_FILTERS: { status: ReservationStatus; label: string }[] = [
   { status: "REJECTED", label: "Rejeitadas" },
   { status: "CANCELLED", label: "Canceladas" },
 ];
-
-const STATUS_BADGE: Record<ReservationStatus, string> = {
-  PENDING: "bg-amber-100 text-amber-800",
-  APPROVED: "bg-emerald-100 text-emerald-800",
-  REJECTED: "bg-red-100 text-red-700",
-  CANCELLED: "bg-slate-100 text-slate-500",
-};
-
-/** Junta as ocorrências de uma mesma série num card só (a API já devolve em ordem de início). */
-function groupBySeries(list: AdminReservation[]): AdminReservation[][] {
-  const groups = new Map<string, AdminReservation[]>();
-  for (const r of list) {
-    const key = r.seriesId ?? r.id;
-    groups.set(key, [...(groups.get(key) ?? []), r]);
-  }
-  return [...groups.values()];
-}
 
 // Fila de aprovação (Fase 6): o Admin analisa cada solicitação, aloca a sala
 // mais adequada e aprova, ou rejeita com justificativa.
@@ -119,9 +103,7 @@ export function RequestsAdmin() {
                       {first.user.name} · {first.user.email}
                     </div>
                   </div>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${STATUS_BADGE[first.status]}`}>
-                    {RESERVATION_STATUS_LABELS[first.status]}
-                  </span>
+                  <StatusBadge status={first.status} />
                 </div>
 
                 <div className="mt-2 text-sm">
@@ -191,6 +173,12 @@ export function RequestsAdmin() {
                       <dd>
                         {first.reviewedBy.name} em {new Date(first.reviewedAt).toLocaleString("pt-BR")}
                       </dd>
+                    </>
+                  )}
+                  {first.cancelledAt && (
+                    <>
+                      <dt className="text-slate-500">Cancelada pelo solicitante</dt>
+                      <dd>{new Date(first.cancelledAt).toLocaleString("pt-BR")}</dd>
                     </>
                   )}
                 </dl>

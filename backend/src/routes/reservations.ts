@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, ReservationStatus } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../lib/async-handler";
@@ -9,7 +9,7 @@ import { summarizeActivity } from "../reservations/activities";
 import { expandRecurrence, type Occurrence } from "../reservations/recurrence";
 import { normalizeRequestedResources } from "../reservations/requested-resources";
 import { assertMinAdvance, assertValidDuration, assertWithinBusinessHours } from "../reservations/rules";
-import { createReservationSchema } from "../schemas/reservation";
+import { cancelReservationSchema, createReservationSchema } from "../schemas/reservation";
 
 export const reservationsRouter = Router();
 
@@ -91,8 +91,8 @@ reservationsRouter.post(
 );
 
 // ----------------------------------------------------------------------------
-// Consulta — suficiente para validar a Fase 4/5; a tela "Minhas Reservas" (com
-// cancelamento) é a Fase 8, e o painel de aprovação/alocação do Admin é a Fase 6.
+// Consulta das próprias reservas — alimenta a tela "Minhas Reservas" (Fase 8).
+// A fila de todas as solicitações, para o Admin, fica em /api/admin (Fase 6).
 // ----------------------------------------------------------------------------
 
 const listQuerySchema = z.object({
@@ -126,5 +126,61 @@ reservationsRouter.get(
       throw new AppError(404, "RESERVATION_NOT_FOUND", "Reserva não encontrada.");
     }
     res.json({ reservation });
+  }),
+);
+
+// ----------------------------------------------------------------------------
+// Cancelamento pelo próprio solicitante (Fase 8). Vale para reservas pendentes
+// ou aprovadas que ainda não começaram. Cancelar libera o horário da sala: a
+// exclusion constraint só considera PENDING/APPROVED.
+// ----------------------------------------------------------------------------
+
+const CANCELLABLE_STATUSES: ReservationStatus[] = ["PENDING", "APPROVED"];
+
+reservationsRouter.post(
+  "/:id/cancel",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { scope } = cancelReservationSchema.parse(req.body ?? {});
+    const userId = req.user!.id;
+
+    const cancelledIds = await prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const reservation = await tx.reservation.findUnique({ where: { id: req.params.id } });
+      // 404 (não 403) pelo mesmo motivo do GET /:id. Nem o Admin cancela por aqui.
+      if (!reservation || reservation.userId !== userId) {
+        throw new AppError(404, "RESERVATION_NOT_FOUND", "Reserva não encontrada.");
+      }
+      if (!CANCELLABLE_STATUSES.includes(reservation.status)) {
+        throw new AppError(409, "RESERVATION_NOT_CANCELLABLE", "Esta reserva já foi rejeitada ou cancelada.");
+      }
+
+      // "series": todas as próximas datas ainda ativas da série (sem série, vale só esta).
+      const targets =
+        scope === "series" && reservation.seriesId
+          ? await tx.reservation.findMany({
+              where: { seriesId: reservation.seriesId, userId, status: { in: CANCELLABLE_STATUSES }, startTime: { gt: now } },
+              select: { id: true },
+            })
+          : reservation.startTime > now
+            ? [{ id: reservation.id }]
+            : [];
+      if (targets.length === 0) {
+        throw new AppError(400, "RESERVATION_IN_PAST", "Não é possível cancelar uma reserva que já começou ou terminou.");
+      }
+
+      const ids = targets.map((t) => t.id);
+      const updated = await tx.reservation.updateMany({
+        where: { id: { in: ids }, status: { in: CANCELLABLE_STATUSES } },
+        data: { status: "CANCELLED", cancelledAt: now },
+      });
+      if (updated.count !== ids.length) {
+        throw new AppError(409, "RESERVATION_NOT_CANCELLABLE", "A situação desta reserva mudou enquanto você cancelava. Recarregue a lista.");
+      }
+      return ids;
+    });
+
+    // Fase 7: avisar a Secretaria (e a TI, se havia recursos técnicos) por e-mail.
+    res.json({ cancelledIds });
   }),
 );

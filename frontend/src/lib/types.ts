@@ -78,6 +78,7 @@ export interface Reservation {
   endTime: string;
   status: ReservationStatus;
   rejectionReason: string | null;
+  cancelledAt: string | null;
   room: Room | null;
 }
 
