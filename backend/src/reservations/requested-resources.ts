@@ -33,7 +33,8 @@ export function parseRequestedResources(json: Prisma.JsonValue): RequestedResour
 /**
  * Confere que os recursos pedidos existem e não se repetem, e guarda só o que
  * se aplica a cada um: quantidade (padrão 1) se o recurso pede quantidade,
- * detalhe se o recurso pede detalhe.
+ * detalhe se o recurso pede detalhe. Recurso com opções fixas exige que o
+ * detalhe seja uma delas.
  */
 export async function normalizeRequestedResources(
   db: Prisma.TransactionClient,
@@ -54,10 +55,17 @@ export async function normalizeRequestedResources(
 
   return requested.map(({ resourceId, quantity, detail }) => {
     const resource = byId.get(resourceId)!;
+    if (resource.detailOptions.length > 0 && !resource.detailOptions.includes(detail ?? "")) {
+      throw new AppError(
+        400,
+        "INVALID_RESOURCE_DETAIL",
+        `Escolha uma opção para "${resource.name}": ${resource.detailOptions.join(", ")}.`,
+      );
+    }
     return {
       resourceId,
       ...(resource.requestsQuantity ? { quantity: quantity ?? 1 } : {}),
-      ...(resource.detailPrompt && detail ? { detail } : {}),
+      ...((resource.detailPrompt || resource.detailOptions.length > 0) && detail ? { detail } : {}),
     };
   });
 }

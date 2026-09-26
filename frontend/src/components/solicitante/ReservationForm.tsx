@@ -121,7 +121,8 @@ export function ReservationForm({ onDone }: Props) {
             .map((r) => ({
               resourceId: r.id,
               quantity: r.requestsQuantity ? Number(selectedResources[r.id]!.quantity) : undefined,
-              detail: r.detailPrompt ? selectedResources[r.id]!.detail.trim() || undefined : undefined,
+              detail:
+                r.detailPrompt || r.detailOptions.length > 0 ? selectedResources[r.id]!.detail.trim() || undefined : undefined,
             })),
           supportNotes: supportNotes || undefined,
           termsAccepted: true,
@@ -304,16 +305,36 @@ export function ReservationForm({ onDone }: Props) {
                     className="w-16 rounded-md border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
                   />
                 )}
-                {r.detailPrompt && (
-                  <input
+                {r.detailOptions.length > 0 ? (
+                  <select
+                    required={!!selected}
                     disabled={!selected}
                     aria-label={`Detalhe de ${r.name}`}
-                    placeholder={r.detailPrompt}
-                    maxLength={200}
                     value={selected?.detail ?? ""}
                     onChange={(e) => updateResource(r.id, { detail: e.target.value })}
                     className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
-                  />
+                  >
+                    <option value="" disabled>
+                      {r.detailPrompt ?? "Selecione"}
+                    </option>
+                    {r.detailOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  r.detailPrompt && (
+                    <input
+                      disabled={!selected}
+                      aria-label={`Detalhe de ${r.name}`}
+                      placeholder={r.detailPrompt}
+                      maxLength={200}
+                      value={selected?.detail ?? ""}
+                      onChange={(e) => updateResource(r.id, { detail: e.target.value })}
+                      className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
+                    />
+                  )
                 )}
               </div>
             );

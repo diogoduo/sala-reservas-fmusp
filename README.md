@@ -253,8 +253,10 @@ do formulário antigo não virou recurso: basta não marcar nada.
   recursos que alguma sala tem cadastrado; os demais (Chromebook,
   Webconferência, Equipamento pessoal…) são itens avulsos que a TI
   providencia e não dependem da sala.
-- ⚠️ No sistema antigo, "Bloqueio de internet para prova" tinha um select
-  cujas opções não temos. Por enquanto é só marcar.
+- Recurso com **opções fixas** (`detail_options`) mostra um select em vez de
+  texto livre, e a escolha é obrigatória: é o caso do "Bloqueio de internet
+  para prova", em que se escolhe a plataforma liberada (Canvas, e-Disciplinas
+  ou TestPortal).
 
 ### Testar a API pelo terminal
 

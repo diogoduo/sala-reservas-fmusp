@@ -11,6 +11,7 @@ export function ResourcesAdmin() {
   const [description, setDescription] = useState("");
   const [requestsQuantity, setRequestsQuantity] = useState(false);
   const [detailPrompt, setDetailPrompt] = useState("");
+  const [detailOptions, setDetailOptions] = useState(""); // separadas por vírgula
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -36,6 +37,7 @@ export function ResourcesAdmin() {
     setDescription(resource.description ?? "");
     setRequestsQuantity(resource.requestsQuantity);
     setDetailPrompt(resource.detailPrompt ?? "");
+    setDetailOptions(resource.detailOptions.join(", "));
   }
 
   function resetForm() {
@@ -44,6 +46,7 @@ export function ResourcesAdmin() {
     setDescription("");
     setRequestsQuantity(false);
     setDetailPrompt("");
+    setDetailOptions("");
   }
 
   async function submit(e: React.FormEvent) {
@@ -56,6 +59,10 @@ export function ResourcesAdmin() {
         description: description || undefined,
         requestsQuantity,
         detailPrompt: detailPrompt || null,
+        detailOptions: detailOptions
+          .split(",")
+          .map((option) => option.trim())
+          .filter(Boolean),
       });
       if (editingId) {
         await api(`/resources/${editingId}`, { method: "PATCH", body });
@@ -115,6 +122,15 @@ export function ResourcesAdmin() {
             placeholder="Vazio = não pede. Ex.: Zoom, Teams…"
           />
         </div>
+        <div className="flex-1 min-w-[220px]">
+          <label className="block text-sm font-medium text-slate-700">Opções do detalhe (opcional)</label>
+          <input
+            value={detailOptions}
+            onChange={(e) => setDetailOptions(e.target.value)}
+            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            placeholder="Separadas por vírgula; vira uma lista de escolha"
+          />
+        </div>
         <label className="flex items-center gap-2 pb-2 text-sm">
           <input type="checkbox" checked={requestsQuantity} onChange={(e) => setRequestsQuantity(e.target.checked)} />
           Pedir quantidade
@@ -141,9 +157,17 @@ export function ResourcesAdmin() {
             <div>
               <div className="font-medium">{r.name}</div>
               {r.description && <div className="text-sm text-slate-500">{r.description}</div>}
-              {(r.requestsQuantity || r.detailPrompt) && (
+              {(r.requestsQuantity || r.detailPrompt || r.detailOptions.length > 0) && (
                 <div className="text-xs text-slate-500">
-                  No formulário: {[r.requestsQuantity && "pede quantidade", r.detailPrompt && `pede detalhe ("${r.detailPrompt}")`].filter(Boolean).join(" · ")}
+                  No formulário:{" "}
+                  {[
+                    r.requestsQuantity && "pede quantidade",
+                    r.detailOptions.length > 0
+                      ? `escolha entre ${r.detailOptions.join(", ")}`
+                      : r.detailPrompt && `pede detalhe ("${r.detailPrompt}")`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </div>
               )}
             </div>

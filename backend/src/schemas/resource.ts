@@ -13,6 +13,8 @@ export const createResourceSchema = z.object({
     .nullable()
     .optional()
     .transform((v) => (v ? v : null)),
+  // Opções fixas do detalhe (vira um select); vazio = detalhe livre ou nenhum.
+  detailOptions: z.array(z.string().trim().min(1).max(60)).max(20).default([]),
 });
 
 export const updateResourceSchema = createResourceSchema.partial();

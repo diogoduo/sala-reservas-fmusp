@@ -14,6 +14,7 @@ const RESOURCES: {
   description: string | null;
   requestsQuantity?: boolean;
   detailPrompt?: string;
+  detailOptions?: string[];
 }[] = [
   { name: "Datashow/Projetor", description: "Projetor multimídia" },
   { name: "Lousa Interativa", description: "Lousa digital interativa" },
@@ -28,7 +29,12 @@ const RESOURCES: {
   { name: "Computador de Apoio", description: "Computador fixo na sala", requestsQuantity: true },
   { name: "Chromebook", description: "Chromebooks para uso dos participantes", requestsQuantity: true },
   { name: "Webconferência", description: "Transmissão ou reunião online", detailPrompt: "Ex.: Zoom, Teams, Google Meet" },
-  { name: "Bloqueio de internet para prova", description: "Bloqueio do acesso à internet durante avaliações" },
+  {
+    name: "Bloqueio de internet para prova",
+    description: "Bloqueia a internet durante a avaliação, liberando só a plataforma da prova",
+    detailPrompt: "Plataforma da prova",
+    detailOptions: ["Canvas", "e-Disciplinas", "TestPortal"],
+  },
   { name: "Equipamento pessoal", description: "O solicitante traz o próprio notebook/equipamento" },
   { name: "Outro equipamento", description: null, detailPrompt: "Qual?" },
 ];
@@ -90,6 +96,7 @@ async function main() {
       description: resource.description,
       requestsQuantity: resource.requestsQuantity ?? false,
       detailPrompt: resource.detailPrompt ?? null,
+      detailOptions: resource.detailOptions ?? [],
     };
     const row = await prisma.resource.upsert({
       where: { name: resource.name },

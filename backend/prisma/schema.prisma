@@ -116,7 +116,10 @@ model Resource {
   requestsQuantity Boolean @default(false) @map("requests_quantity")
   /// Quando preenchido, o formulário pede um detalhe usando este texto de
   /// exemplo (ex.: "Ex.: Zoom, Teams, Google Meet" na Webconferência).
-  detailPrompt     String? @map("detail_prompt")
+  detailPrompt     String?  @map("detail_prompt")
+  /// Se não estiver vazia, o detalhe vira uma escolha entre estas opções, e
+  /// passa a ser obrigatório (ex.: plataforma liberada no Bloqueio de internet).
+  detailOptions    String[] @default([]) @map("detail_options")
 
   rooms RoomResource[]
 

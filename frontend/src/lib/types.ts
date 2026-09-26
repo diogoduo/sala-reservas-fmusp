@@ -24,6 +24,8 @@ export interface Resource {
   requestsQuantity: boolean;
   /** Texto de exemplo do campo de detalhe; null = não pede detalhe. */
   detailPrompt: string | null;
+  /** Se não vazia, o detalhe é um select com estas opções (e é obrigatório). */
+  detailOptions: string[];
 }
 
 /** Recurso pedido numa solicitação (quantidade/detalhe só nos recursos que pedem isso). */
