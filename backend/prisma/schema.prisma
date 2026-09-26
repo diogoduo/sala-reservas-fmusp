@@ -1,0 +1,220 @@
+// =============================================================================
+// Sistema de Reserva de Salas — FMUSP
+// Nomes no banco em snake_case (via @map/@@map); no código, camelCase.
+//
+// Regras que o Prisma NÃO consegue expressar (CHECKs, exclusão de sobreposição
+// via btree_gist) ficam em migrations/20260921000100_db_constraints.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
+
+enum UserRole {
+  USER
+  ADMIN
+
+  @@map("user_role")
+}
+
+enum RoomType {
+  AUDITORIUM // Auditório
+  LABORATORY // Laboratório
+  CLASSROOM // Sala de Aula
+  MEETING_ROOM // Sala de Reunião
+  MULTIPURPOSE // Espaço Multiuso
+
+  @@map("room_type")
+}
+
+enum RoomStatus {
+  ACTIVE // Ativa
+  MAINTENANCE // Em Manutenção
+  INACTIVE // Inativa
+
+  @@map("room_status")
+}
+
+enum ReservationStatus {
+  PENDING // Pendente (já pré-bloqueia o horário)
+  APPROVED // Aprovada
+  REJECTED // Rejeitada (exige justificativa)
+  CANCELLED // Cancelada
+
+  @@map("reservation_status")
+}
+
+enum ActivityType {
+  UNDERGRADUATE // Graduação
+  GRADUATE // Pós-Graduação
+  CULTURE_EXTENSION // Cultura e Extensão
+  PUBLIC_EXAM // Concurso
+  DEFENSE // Defesa/Dissertação
+
+  @@map("activity_type")
+}
+
+// ----------------------------------------------------------------------------
+// Usuários
+// ----------------------------------------------------------------------------
+
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  uspNumber String?  @unique @map("usp_number") // nº USP (loginUsuario da Senha Única)
+  name      String
+  email     String   @unique // sempre minúsculo; domínio validado no app e no banco
+  role      UserRole @default(USER)
+  icalToken String?  @unique @map("ical_token") // segredo do feed .ics; gerado sob demanda
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  reservations         Reservation[]       @relation("ReservationRequester")
+  reviewedReservations Reservation[]       @relation("ReservationReviewer")
+  series               ReservationSeries[]
+  roomBlocks           RoomBlock[]
+
+  @@map("users")
+}
+
+// ----------------------------------------------------------------------------
+// Salas e recursos
+// ----------------------------------------------------------------------------
+
+model Room {
+  id        String     @id @default(uuid()) @db.Uuid
+  name      String // nome/número da sala
+  building  String // prédio/bloco
+  floor     String // andar/pavimento (texto: "Térreo", "2º andar"...)
+  capacity  Int
+  roomType  RoomType   @map("room_type")
+  status    RoomStatus @default(ACTIVE)
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  resources    RoomResource[]
+  reservations Reservation[]
+  series       ReservationSeries[]
+  blocks       RoomBlock[]
+
+  @@unique([building, floor, name])
+  @@index([status])
+  @@map("rooms")
+}
+
+model Resource {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique
+  description String?
+  /// O formulário de solicitação pede a quantidade (ex.: Computador, Chromebook).
+  requestsQuantity Boolean @default(false) @map("requests_quantity")
+  /// Quando preenchido, o formulário pede um detalhe usando este texto de
+  /// exemplo (ex.: "Ex.: Zoom, Teams, Google Meet" na Webconferência).
+  detailPrompt     String? @map("detail_prompt")
+
+  rooms RoomResource[]
+
+  @@map("resources")
+}
+
+model RoomResource {
+  roomId     String @map("room_id") @db.Uuid
+  resourceId String @map("resource_id") @db.Uuid
+  quantity   Int    @default(1)
+
+  room     Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, resourceId])
+  @@map("room_resources")
+}
+
+// ----------------------------------------------------------------------------
+// Reservas
+// ----------------------------------------------------------------------------
+
+/// Cabeçalho de uma reserva recorrente. As ocorrências são materializadas como
+/// linhas em `reservations` (com series_id), o que permite validar conflito,
+/// aprovar e cancelar data a data.
+model ReservationSeries {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  roomId      String?   @map("room_id") @db.Uuid
+  title       String
+  description String
+  rrule       String    @map("rrule_expression") // RFC 5545, sem DTSTART (ex.: FREQ=WEEKLY;BYDAY=MO)
+  startTime   DateTime  @map("start_time") @db.Timestamptz(3) // DTSTART: início da 1ª ocorrência
+  endTime     DateTime  @map("end_time") @db.Timestamptz(3) // fim da 1ª ocorrência (define a duração)
+  untilDate   DateTime? @map("until_date") @db.Date
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  room         Room?         @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  reservations Reservation[]
+
+  @@index([userId])
+  @@map("reservation_series")
+}
+
+model Reservation {
+  id                 String            @id @default(uuid()) @db.Uuid
+  seriesId           String?           @map("series_id") @db.Uuid
+  userId             String            @map("user_id") @db.Uuid
+  /// Sala pretendida/alocada. Nula quando o solicitante não indicou preferência;
+  /// nesse caso nada é pré-bloqueado e o Admin precisa alocar antes de aprovar.
+  roomId             String?           @map("room_id") @db.Uuid
+  title              String
+  description        String
+  /// Tipo de atividade e os campos específicos do formulário daquele tipo
+  /// (validados por zod em src/schemas/reservation.ts). Nulos nas solicitações
+  /// feitas antes dos formulários por tipo.
+  activityType       ActivityType?     @map("activity_type")
+  activityDetails    Json?             @map("activity_details")
+  expectedAttendees  Int               @map("expected_attendees")
+  requestedResources Json              @default("[]") @map("requested_resources") // [{ resourceId, quantity?, detail? }]
+  supportNotes       String?           @map("support_notes")
+  termsAccepted      Boolean           @map("terms_accepted")
+  startTime          DateTime          @map("start_time") @db.Timestamptz(3)
+  endTime            DateTime          @map("end_time") @db.Timestamptz(3)
+  status             ReservationStatus @default(PENDING)
+  rejectionReason    String?           @map("rejection_reason")
+  reviewedById       String?           @map("reviewed_by_id") @db.Uuid
+  reviewedAt         DateTime?         @map("reviewed_at") @db.Timestamptz(3)
+  cancelledAt        DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  series     ReservationSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  user       User               @relation("ReservationRequester", fields: [userId], references: [id], onDelete: Restrict)
+  room       Room?              @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  reviewedBy User?              @relation("ReservationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([roomId, startTime])
+  @@index([userId, startTime])
+  @@index([status])
+  @@index([seriesId])
+  @@map("reservations")
+}
+
+/// Bloqueio administrativo/manutenção de uma sala em um intervalo.
+model RoomBlock {
+  id          String   @id @default(uuid()) @db.Uuid
+  roomId      String   @map("room_id") @db.Uuid
+  createdById String   @map("created_by_id") @db.Uuid
+  reason      String
+  startTime   DateTime @map("start_time") @db.Timestamptz(3)
+  endTime     DateTime @map("end_time") @db.Timestamptz(3)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  room      Room @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([roomId, startTime])
+  @@map("room_blocks")
+}

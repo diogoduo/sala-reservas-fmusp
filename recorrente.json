@@ -1,0 +1,19 @@
+{
+  "activityType": "GRADUATE",
+  "description": "Seminários semanais da disciplina, com apresentação dos alunos.",
+  "details": {
+    "disciplineCode": "MCM5801",
+    "disciplineName": "Metodologia Científica",
+    "studentCount": 20,
+    "disciplineOwner": "Profa. Beltrana",
+    "department": "Clínica Médica"
+  },
+  "requestedResources": [
+    { "resourceId": "53c3c94f-a75c-4347-b019-7d774379693a", "quantity": 20 },
+    { "resourceId": "35e572fb-b609-4df5-8472-265ce8dc2eed" }
+  ],
+  "termsAccepted": true,
+  "startTime": "2026-10-15T10:00:00-03:00",
+  "endTime": "2026-10-15T12:00:00-03:00",
+  "recurrence": { "rrule": "FREQ=WEEKLY;BYDAY=TH", "until": "2026-11-26T23:59:59-03:00" }
+}

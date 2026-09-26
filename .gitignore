@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+.DS_Store
+coverage/
+# jar do curl com o cookie de sessão usado nos testes manuais da API
+cookies.txt

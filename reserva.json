@@ -1,0 +1,22 @@
+{
+  "activityType": "UNDERGRADUATE",
+  "description": "Aula prática de anatomia topográfica para o 1º ano.",
+  "details": {
+    "classType": "PRACTICAL",
+    "courseYear": 1,
+    "disciplineCode": "MCM0101",
+    "disciplineName": "Anatomia Topográfica",
+    "studentCount": 45,
+    "disciplineOwner": "Prof. Fulano de Tal",
+    "department": "Cirurgia"
+  },
+  "requestedResources": [
+    { "resourceId": "2a92deec-f9f5-451d-b364-079afd1cb170" },
+    { "resourceId": "2bb134c5-e9f5-4e77-981c-84af81ab06c1", "quantity": 2 },
+    { "resourceId": "41f46f79-42e3-48a9-bd74-4e95717e7e9c", "detail": "Zoom" }
+  ],
+  "supportNotes": "Transmitir para os alunos em estágio no HC.",
+  "termsAccepted": true,
+  "startTime": "2026-10-14T14:00:00-03:00",
+  "endTime": "2026-10-14T16:00:00-03:00"
+}

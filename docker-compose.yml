@@ -1,0 +1,33 @@
+# Serviços de apoio para desenvolvimento local.
+#   docker compose up -d
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: reservas-fmusp-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: reservas
+      POSTGRES_PASSWORD: reservas
+      POSTGRES_DB: reservas_fmusp
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reservas -d reservas_fmusp"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Servidor SMTP falso: captura os e-mails da Fase 7 sem enviá-los de verdade.
+  # Caixa de entrada em http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: reservas-fmusp-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  pgdata:
