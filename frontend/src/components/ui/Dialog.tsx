@@ -74,7 +74,9 @@ export function Dialog({ open, onClose, title, description, children, footer, va
             </div>
             <IconButton icon={XIcon} label="Fechar" onClick={onClose} className="-mt-1 -mr-2" />
           </header>
-          {children && <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">{children}</div>}
+          {/* `relative`: inputs `sr-only` (position: absolute) dentro do conteúdo ficam presos
+              aqui e não esticam o <dialog> — sem isso o painel inteiro rolava junto. */}
+          {children && <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">{children}</div>}
           {footer && (
             <footer className="flex flex-col-reverse gap-2 border-t border-border bg-surface px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:flex-row sm:items-center sm:justify-end sm:px-6">
               {footer}
