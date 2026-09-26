@@ -1,5 +1,38 @@
 # Sistema de Reserva de Salas — FMUSP
 
+Sistema para alunos, docentes e funcionários da Faculdade de Medicina da USP
+solicitarem salas, e para a Secretaria analisar cada pedido, alocar a sala mais
+adequada e aprovar ou rejeitar — com avisos por e-mail em cada etapa.
+
+**React · TypeScript · Tailwind CSS v4 · Node.js/Express · Prisma · PostgreSQL**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/admin-analise-escuro.png">
+  <img src="docs/screenshots/admin-analise-claro.png" alt="Painel do Admin analisando uma solicitação: as salas aparecem ordenadas da mais para a menos adequada, com a recomendada em destaque e o botão de aprovar as 8 datas da série">
+</picture>
+
+## Telas
+
+| | |
+|---|---|
+| ![Login do Dev Mode com as contas de teste](docs/screenshots/login.png) | ![Minhas reservas: próxima reserva em destaque, contagem de pendentes e aprovadas e as datas de cada pedido](docs/screenshots/minhas-reservas.png) |
+| **Login** (Dev Mode, simulando a Senha Única USP) | **Minhas reservas** — status de cada data e cancelamento |
+| ![Escolha do tipo de atividade em cards](docs/screenshots/escolher-atividade.png) | ![Formulário com recorrência semanal, prévia das datas da série e resumo lateral](docs/screenshots/formulario.png) |
+| **Reservar uma sala** — cada atividade tem seu formulário | **Formulário** — prévia das datas da série e checklist ao vivo |
+| ![Agenda do Auditório com o dia 15 selecionado mostrando o horário reservado](docs/screenshots/agenda.png) | ![Fila de solicitações do Admin com filtros por status](docs/screenshots/admin-solicitacoes.png) |
+| **Consultar salas** — agenda com os horários de cada dia | **Solicitações** — fila do Admin, com filtros e busca |
+
+<p align="center">
+  <img src="docs/screenshots/celular-minhas-reservas.png" width="260" alt="Minhas reservas no celular, com barra de navegação inferior">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/celular-analise-escuro.png" width="260" alt="Análise de solicitação no celular, no tema escuro">
+</p>
+<p align="center"><em>No celular, com tema claro e escuro.</em></p>
+
+<sub>Screenshots feitos com dados de demonstração.</sub>
+
+## Estrutura
+
 Monorepo simples com duas aplicações independentes:
 
 ```
