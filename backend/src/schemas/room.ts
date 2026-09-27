@@ -29,3 +29,11 @@ export const updateRoomSchema = createRoomSchema.partial();
 
 export type CreateRoomInput = z.infer<typeof createRoomSchema>;
 export type UpdateRoomInput = z.infer<typeof updateRoomSchema>;
+
+export const photoCaptionSchema = z.object({
+  caption: z.string().trim().max(120).nullish().transform((v) => v || null),
+});
+
+export const photoOrderSchema = z.object({
+  ids: z.array(z.string().uuid()).max(100),
+});

@@ -19,10 +19,11 @@ import { useSearchParams } from "react-router";
 import { api, ApiError } from "../../lib/api";
 import { useConfirm } from "../../lib/confirm";
 import { plural } from "../../lib/format";
-import { ROOM_TYPE_ICONS } from "../../lib/icons";
+import { sortRooms } from "../../lib/rooms";
 import { useToast } from "../../lib/toast";
 import { ROOM_STATUS_LABELS, ROOM_TYPE_LABELS } from "../../lib/types";
 import type { Resource, Room, RoomStatus } from "../../lib/types";
+import { RoomCover } from "../rooms/RoomPhotos";
 import { RoomResourceChips } from "../solicitante/RoomSearch";
 import { Badge, type Tone } from "../ui/Badge";
 import { Button, IconButton } from "../ui/Button";
@@ -30,7 +31,7 @@ import { Dialog } from "../ui/Dialog";
 import { EmptyState, Skeleton } from "../ui/Feedback";
 import { Input } from "../ui/Field";
 import { SegmentedControl } from "../ui/SegmentedControl";
-import { Card, IconTile, PageHeader, StatCard } from "../ui/Surface";
+import { Card, PageHeader, StatCard } from "../ui/Surface";
 import { RoomForm, type RoomFormValues } from "./RoomForm";
 
 const STATUS_STYLE: Record<RoomStatus, { tone: Tone; icon: Icon }> = {
@@ -123,7 +124,7 @@ export function RoomsAdmin() {
   const buildings = [...new Set(all.map((r) => r.building))].sort();
   const needle = query.trim().toLowerCase();
   // Inativas por último: são as que saíram de uso (ex.: as salas fictícias do seed).
-  const visible = [...all].sort((a, b) => Number(a.status === "INACTIVE") - Number(b.status === "INACTIVE")).filter(
+  const visible = sortRooms(all).sort((a, b) => Number(a.status === "INACTIVE") - Number(b.status === "INACTIVE")).filter(
     (room) =>
       (filter === "ALL" || room.status === filter) &&
       (!needle || `${room.name} ${room.building} ${room.floor}`.toLowerCase().includes(needle)),
@@ -195,41 +196,43 @@ export function RoomsAdmin() {
             const { tone, icon: StatusIcon } = STATUS_STYLE[room.status];
             return (
               <li key={room.id} className="min-w-0 animate-fade-in-up" style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}>
-                <Card className="flex h-full flex-col p-5">
-                  <div className="flex items-start gap-3">
-                    <IconTile icon={ROOM_TYPE_ICONS[room.roomType]} tone={room.status === "ACTIVE" ? "primary" : "neutral"} />
-                    <div className="min-w-0 flex-1">
-                      <h2 className="text-base font-semibold break-words">{room.name}</h2>
-                      <p className="text-sm text-muted">{ROOM_TYPE_LABELS[room.roomType]}</p>
+                <Card className="flex h-full flex-col overflow-hidden">
+                  <RoomCover room={room} className={room.status === "ACTIVE" ? undefined : "opacity-70 grayscale"} />
+                  <div className="flex flex-1 flex-col p-5">
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h2 className="text-base font-semibold break-words">{room.name}</h2>
+                        <p className="text-sm text-muted">{ROOM_TYPE_LABELS[room.roomType]}</p>
+                      </div>
+                      <Badge tone={tone} icon={StatusIcon}>
+                        {ROOM_STATUS_LABELS[room.status]}
+                      </Badge>
                     </div>
-                    <Badge tone={tone} icon={StatusIcon}>
-                      {ROOM_STATUS_LABELS[room.status]}
-                    </Badge>
-                  </div>
-                  <div className="mt-4 space-y-1.5 text-sm text-muted">
-                    <p className="flex items-center gap-2">
-                      <MapPinIcon size={16} aria-hidden /> {room.building} · {room.floor}
-                    </p>
-                    <p className="flex items-center gap-2">
-                      <UsersIcon size={16} aria-hidden /> {plural(room.capacity, "lugar", "lugares")}
-                      {room.extraSeats ? ` + ${plural(room.extraSeats, "extra", "extras")}` : ""}
-                    </p>
-                    {room.dimensions && (
+                    <div className="mt-4 space-y-1.5 text-sm text-muted">
                       <p className="flex items-center gap-2">
-                        <RulerIcon size={16} aria-hidden /> {room.dimensions}
+                        <MapPinIcon size={16} aria-hidden /> {room.building} · {room.floor}
                       </p>
-                    )}
-                  </div>
-                  {room.resources.length > 0 && (
-                    <div className="mt-4">
-                      <RoomResourceChips room={room} />
+                      <p className="flex items-center gap-2">
+                        <UsersIcon size={16} aria-hidden /> {plural(room.capacity, "lugar", "lugares")}
+                        {room.extraSeats ? ` + ${plural(room.extraSeats, "extra", "extras")}` : ""}
+                      </p>
+                      {room.dimensions && (
+                        <p className="flex items-center gap-2">
+                          <RulerIcon size={16} aria-hidden /> {room.dimensions}
+                        </p>
+                      )}
                     </div>
-                  )}
-                  <div className="mt-auto flex gap-2 pt-5">
-                    <Button variant="secondary" size="sm" icon={PencilSimpleIcon} className="flex-1" onClick={() => setEditing(room)}>
-                      Editar
-                    </Button>
-                    <IconButton icon={TrashIcon} label={`Excluir ${room.name}`} variant="danger-soft" size="sm" onClick={() => void remove(room)} />
+                    {room.resources.some((r) => r.resource.requestable) && (
+                      <div className="mt-4">
+                        <RoomResourceChips room={room} />
+                      </div>
+                    )}
+                    <div className="mt-auto flex gap-2 pt-5">
+                      <Button variant="secondary" size="sm" icon={PencilSimpleIcon} className="flex-1" onClick={() => setEditing(room)}>
+                        Editar
+                      </Button>
+                      <IconButton icon={TrashIcon} label={`Excluir ${room.name}`} variant="danger-soft" size="sm" onClick={() => void remove(room)} />
+                    </div>
                   </div>
                 </Card>
               </li>
@@ -256,7 +259,14 @@ export function RoomsAdmin() {
             </>
           }
         >
-          <RoomForm room={editingRoom} resources={resources} buildings={buildings} formId={FORM_ID} onSubmit={(values) => void submit(values)} />
+          <RoomForm
+            room={editingRoom}
+            resources={resources}
+            buildings={buildings}
+            formId={FORM_ID}
+            onSubmit={(values) => void submit(values)}
+            onPhotosChange={() => void load()}
+          />
         </Dialog>
       )}
     </div>

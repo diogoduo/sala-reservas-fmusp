@@ -46,6 +46,7 @@ sala-reservas-fmusp/
 │   │   ├── migrations/       # init + db_constraints (CHECKs e exclusão de sobreposição)
 │   │   ├── seed.ts           # salas, recursos e usuários fictícios
 │   │   └── import-fmusp.ts   # catálogo real da FMUSP (dados fora do git)
+│   ├── storage/              # fotos das salas geradas no upload (fora do git)
 │   └── src/                  # app, config/env (zod), rotas, middleware de erros
 └── frontend/                 # React + TypeScript + Vite + Tailwind v4
 ```
@@ -65,7 +66,7 @@ cp .env.example .env
 npm install
 npx prisma migrate dev      # aplica as duas migrations e gera o client
 npm run db:seed             # recursos, salas e usuários fictícios
-npm run db:import-fmusp     # opcional: salas reais (precisa de prisma/data/fmusp.json)
+npm run db:import-fmusp     # opcional: salas reais e fotos (precisa de prisma/data/fmusp.json e FM/)
 npm run dev                 # http://localhost:3333/api/health
 
 # 3. Front-end (outro terminal)
@@ -401,6 +402,49 @@ equipamentos de cada sala, com modelo e patrimônio.
   - filtros por recurso e por prédio;
   - **Exportar CSV**, que abre direto no Excel;
   - **Editar**, que abre o painel da sala.
+
+## Fotos das salas
+
+- Onde aparecem:
+  - **Consultar salas**: cada card tem a foto de capa, que abre a galeria.
+    **Ver sala e agenda** mostra um mosaico de fotos, a capacidade, as
+    cadeiras extras, as dimensões, os recursos e a agenda.
+  - **Formulário de reserva**: o bloco **Conheça as salas** mostra, com fotos,
+    as salas que comportam o número de pessoas informado, da menor para a
+    maior. Serve só para o solicitante ter uma ideia; quem define a sala
+    continua sendo o SAD.
+  - **Minhas reservas**: a sala de uma reserva aprovada tem o botão
+    "N fotos".
+  - Telas do SAD: miniatura da sala em Salas livres, na escolha da sala ao
+    analisar um pedido e no inventário.
+- **Galeria em tela cheia**: setas da tela ou do teclado, miniaturas e deslizar
+  no celular. O Esc fecha só a galeria, mesmo com um painel aberto por baixo.
+- API (só Admin):
+  - `POST /api/rooms/:id/photos`: o corpo é o próprio arquivo
+    (`Content-Type` `image/jpeg`, `image/png` ou `image/webp`, até 30 MB), com
+    legenda opcional em `?caption=`;
+  - `PATCH /api/rooms/:id/photos/:photoId` altera a legenda;
+  - `PUT /api/rooms/:id/photos/order` define a nova ordem (a primeira é a
+    capa);
+  - `DELETE /api/rooms/:id/photos/:photoId` remove a foto e os arquivos.
+- **Arquivos**: o back-end (sharp) gera duas versões WebP de cada foto,
+  `thumb` (720 px) e `large` (1920 px), respeita a orientação do EXIF e
+  descarta a original. As 113 fotos originais (667 MB) viraram 16 MB.
+  - Ficam em `PHOTO_STORAGE_DIR` (padrão `backend/storage/room-photos`, fora do
+    git).
+  - São servidas em `/api/fotos/<id>-thumb.webp` e `-large.webp`, só para
+    quem está logado.
+  - Foto nova ganha um id novo, então o navegador pode guardá-las em cache
+    para sempre (`immutable`).
+- No painel da sala (**Salas → Editar**), o SAD adiciona várias fotos de uma
+  vez, escolhe a capa, edita a legenda e remove fotos. Essas ações valem na
+  hora, sem depender do "Salvar alterações".
+- `npm run db:import-fmusp` também importa as fotos da pasta `FM/` (fora do
+  git):
+  - a legenda vem do nome do arquivo (`1104_PROJETOR_LONGE.JPG` →
+    "Projetor (de longe)");
+  - a foto das cadeiras vira a capa;
+  - rodar de novo não duplica as fotos.
 
 ## Salas livres (SAD)
 

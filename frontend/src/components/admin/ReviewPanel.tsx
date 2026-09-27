@@ -13,18 +13,17 @@ import { ACTIVITY_TYPE_LABELS, activityDetailRows } from "../../lib/activities";
 import { api, ApiError } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { formatDateTimeRange, formatShortDate, formatTimeRange, plural } from "../../lib/format";
-import { ROOM_TYPE_ICONS } from "../../lib/icons";
 import { useToast } from "../../lib/toast";
 import { RESERVATION_STATUS_LABELS, ROOM_TYPE_LABELS } from "../../lib/types";
 import type { AdminReservation, RequestedResource, Resource, ReviewScope, RoomOption } from "../../lib/types";
 import { StatusBadge } from "../StatusBadge";
 import { Avatar } from "../ui/Avatar";
 import { Badge } from "../ui/Badge";
+import { RoomThumb } from "../rooms/RoomPhotos";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Alert, Skeleton } from "../ui/Feedback";
 import { Select, Textarea } from "../ui/Field";
-import { IconTile } from "../ui/Surface";
 
 const ALL = "all";
 
@@ -373,7 +372,7 @@ export function ReviewDrawer({ group, resources, onClose, onDone }: ReviewDrawer
                         checked={isSelected}
                         onChange={() => setSelectedRoomId(option.room.id)}
                       />
-                      <IconTile icon={ROOM_TYPE_ICONS[option.room.roomType]} size="sm" tone={isSelected ? "primary" : "neutral"} />
+                      <RoomThumb room={option.room} size="sm" tone={isSelected ? "primary" : "neutral"} />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-semibold">{option.room.name}</p>

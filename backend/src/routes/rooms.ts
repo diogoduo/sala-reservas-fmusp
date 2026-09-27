@@ -1,16 +1,20 @@
+import { randomUUID } from "node:crypto";
 import { Prisma, RoomStatus, RoomType } from "@prisma/client";
-import { Router } from "express";
+import express, { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
 import { prisma } from "../lib/prisma";
 import { requireAdmin, requireAuth } from "../middleware/auth";
-import { createRoomSchema, updateRoomSchema } from "../schemas/room";
+import { roomPhotosInclude } from "../photos/include";
+import { removePhotoFiles, writePhotoFiles } from "../photos/storage";
+import { createRoomSchema, photoCaptionSchema, photoOrderSchema, updateRoomSchema } from "../schemas/room";
 
 export const roomsRouter = Router();
 
 const roomInclude = {
   resources: { include: { resource: true }, orderBy: { resource: { name: "asc" } } },
+  photos: roomPhotosInclude,
 } satisfies Prisma.RoomInclude;
 
 type RoomWithResources = Prisma.RoomGetPayload<{ include: typeof roomInclude }>;
@@ -193,12 +197,96 @@ roomsRouter.patch(
   }),
 );
 
+// ---------------------------------------------------------------------------
+// Fotos (só Admin). Os arquivos são servidos em /api/fotos/<id>-{thumb,large}.webp
+// ---------------------------------------------------------------------------
+
+async function findPhoto(roomId: string, photoId: string) {
+  const photo = await prisma.roomPhoto.findFirst({ where: { id: photoId, roomId } });
+  if (!photo) throw new AppError(404, "PHOTO_NOT_FOUND", "Foto não encontrada.");
+  return photo;
+}
+
+// Corpo = o arquivo da imagem (Content-Type image/*), sem multipart. Legenda opcional em ?caption=.
+roomsRouter.post(
+  "/:id/photos",
+  requireAdmin,
+  express.raw({ type: "image/*", limit: "30mb" }),
+  asyncHandler(async (req, res) => {
+    const roomId = req.params.id!;
+    const room = await prisma.room.findUnique({ where: { id: roomId }, select: { id: true } });
+    if (!room) throw new AppError(404, "ROOM_NOT_FOUND", "Sala não encontrada.");
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      throw new AppError(400, "INVALID_IMAGE", "Envie o arquivo da foto (JPG, PNG ou WebP).");
+    }
+    const { caption } = photoCaptionSchema.parse({ caption: req.query.caption });
+
+    const id = randomUUID();
+    const { width, height } = await writePhotoFiles(id, req.body);
+    try {
+      const last = await prisma.roomPhoto.aggregate({ where: { roomId }, _max: { position: true } });
+      const photo = await prisma.roomPhoto.create({
+        data: { id, roomId, caption, width, height, position: (last._max.position ?? -1) + 1 },
+        select: roomPhotosInclude.select,
+      });
+      res.status(201).json({ photo });
+    } catch (error) {
+      await removePhotoFiles(id);
+      throw error;
+    }
+  }),
+);
+
+roomsRouter.patch(
+  "/:id/photos/:photoId",
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const { caption } = photoCaptionSchema.parse(req.body);
+    await findPhoto(req.params.id!, req.params.photoId!);
+    const photo = await prisma.roomPhoto.update({
+      where: { id: req.params.photoId },
+      data: { caption },
+      select: roomPhotosInclude.select,
+    });
+    res.json({ photo });
+  }),
+);
+
+// Nova ordem da galeria: todos os ids da sala, a capa primeiro.
+roomsRouter.put(
+  "/:id/photos/order",
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const roomId = req.params.id!;
+    const { ids } = photoOrderSchema.parse(req.body);
+    const current = await prisma.roomPhoto.findMany({ where: { roomId }, select: { id: true } });
+    const sameSet = current.length === ids.length && current.every((p) => ids.includes(p.id));
+    if (!sameSet) throw new AppError(400, "INVALID_PHOTO_ORDER", "A nova ordem precisa ter todas as fotos da sala, uma vez cada.");
+
+    await prisma.$transaction(ids.map((id, position) => prisma.roomPhoto.update({ where: { id }, data: { position } })));
+    const photos = await prisma.roomPhoto.findMany({ where: { roomId }, ...roomPhotosInclude });
+    res.json({ photos });
+  }),
+);
+
+roomsRouter.delete(
+  "/:id/photos/:photoId",
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const photo = await findPhoto(req.params.id!, req.params.photoId!);
+    await prisma.roomPhoto.delete({ where: { id: photo.id } });
+    await removePhotoFiles(photo.id);
+    res.status(204).end();
+  }),
+);
+
 // Exclusão definitiva. Sala com reservas/séries vinculadas não pode ser excluída
 // (FK ON DELETE RESTRICT) — o Admin deve marcá-la como Inativa (PATCH status) em vez disso.
 roomsRouter.delete(
   "/:id",
   requireAdmin,
   asyncHandler(async (req, res) => {
+    const photos = await prisma.roomPhoto.findMany({ where: { roomId: req.params.id }, select: { id: true } });
     try {
       await prisma.room.delete({ where: { id: req.params.id } });
     } catch (error) {
@@ -214,6 +302,8 @@ roomsRouter.delete(
       }
       throw error;
     }
+    // As linhas de room_photos saem em cascata; os arquivos, aqui.
+    await Promise.all(photos.map((photo) => removePhotoFiles(photo.id)));
     res.status(204).end();
   }),
 );

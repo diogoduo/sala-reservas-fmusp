@@ -73,6 +73,17 @@ export interface Room {
   /** Outros equipamentos, em texto livre: só vem para o SAD. */
   equipmentNotes?: string | null;
   resources: RoomResourceLink[];
+  /** Na ordem da galeria; a primeira é a capa. */
+  photos: RoomPhoto[];
+}
+
+export interface RoomPhoto {
+  id: string;
+  caption: string | null;
+  position: number;
+  /** Dimensões da versão grande, para reservar o espaço antes de carregar. */
+  width: number;
+  height: number;
 }
 
 export type ReservationStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";

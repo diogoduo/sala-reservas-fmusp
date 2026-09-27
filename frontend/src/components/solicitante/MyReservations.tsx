@@ -27,6 +27,7 @@ import { useToast } from "../../lib/toast";
 import type { Reservation, ReviewScope } from "../../lib/types";
 import { StatusBadge } from "../StatusBadge";
 import { Badge } from "../ui/Badge";
+import { RoomPhotosButton } from "../rooms/RoomPhotos";
 import { Button } from "../ui/Button";
 import { CardListSkeleton, EmptyState } from "../ui/Feedback";
 import { SegmentedControl } from "../ui/SegmentedControl";
@@ -44,9 +45,10 @@ function Situation({ reservation: r }: { reservation: Reservation }) {
   switch (r.status) {
     case "APPROVED":
       return (
-        <span className="flex items-center gap-1.5 text-foreground">
+        <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-foreground">
           <MapPinIcon size={16} weight="fill" className="shrink-0 text-primary" aria-hidden />
           {room}
+          {r.room && <RoomPhotosButton room={r.room} />}
         </span>
       );
     case "PENDING":
@@ -173,6 +175,7 @@ export function MyReservations() {
                 </span>
                 <span className="flex items-center gap-1.5">
                   <MapPinIcon size={16} aria-hidden /> {nextApproved.room?.name}
+                  {nextApproved.room && <RoomPhotosButton room={nextApproved.room} tone="inverse" />}
                 </span>
               </p>
             </div>

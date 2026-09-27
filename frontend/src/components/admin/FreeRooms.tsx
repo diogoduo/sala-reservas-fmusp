@@ -13,10 +13,10 @@ import { useSearchParams } from "react-router";
 import { api } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { capitalizeFirst, formatTimeRange } from "../../lib/format";
-import { ROOM_TYPE_ICONS } from "../../lib/icons";
 import { useToast } from "../../lib/toast";
 import { ROOM_TYPE_LABELS } from "../../lib/types";
 import type { RoomAvailability, RoomType } from "../../lib/types";
+import { RoomThumb } from "../rooms/RoomPhotos";
 import { RoomResourceChips } from "../solicitante/RoomSearch";
 import { AvailabilityCalendar } from "../solicitante/AvailabilityCalendar";
 import { StatusBadge } from "../StatusBadge";
@@ -25,7 +25,7 @@ import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Alert, EmptyState, Skeleton } from "../ui/Feedback";
 import { Input, Select } from "../ui/Field";
-import { Card, IconTile, PageHeader } from "../ui/Surface";
+import { Card, PageHeader } from "../ui/Surface";
 
 const ROOM_TYPES = Object.keys(ROOM_TYPE_LABELS) as RoomType[];
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -231,7 +231,7 @@ export function FreeRooms() {
                 <li key={r.room.id} className="min-w-0 animate-fade-in-up" style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}>
                   <Card className="flex h-full flex-col border-success-foreground/25 p-5">
                     <div className="flex items-start gap-3">
-                      <IconTile icon={ROOM_TYPE_ICONS[r.room.roomType]} tone="success" />
+                      <RoomThumb room={r.room} tone="success" />
                       <div className="min-w-0 flex-1">
                         <h2 className="text-base font-semibold break-words">{r.room.name}</h2>
                         <p className="text-sm text-muted">{ROOM_TYPE_LABELS[r.room.roomType]}</p>
@@ -248,7 +248,7 @@ export function FreeRooms() {
                         <UsersIcon size={16} aria-hidden /> até <strong className="text-foreground tabular-nums">{r.room.capacity}</strong> pessoas
                       </p>
                     </div>
-                    {r.room.resources.length > 0 && (
+                    {r.room.resources.some((link) => link.resource.requestable) && (
                       <div className="mt-4">
                         <RoomResourceChips room={r.room} />
                       </div>
@@ -277,7 +277,7 @@ export function FreeRooms() {
                   <li key={r.room.id}>
                     <Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start">
                       <div className="flex min-w-0 flex-1 items-start gap-3">
-                        <IconTile icon={ROOM_TYPE_ICONS[r.room.roomType]} tone="neutral" size="sm" />
+                        <RoomThumb room={r.room} tone="neutral" size="sm" dimmed />
                         <div className="min-w-0 flex-1">
                           <p className="font-semibold">
                             {r.room.name}{" "}

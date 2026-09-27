@@ -2,14 +2,16 @@ import { DownloadSimpleIcon, FunnelSimpleXIcon, MagnifyingGlassIcon, NotePencilI
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { plural } from "../../lib/format";
-import { resourceIcon, ROOM_TYPE_ICONS } from "../../lib/icons";
+import { resourceIcon } from "../../lib/icons";
+import { sortRooms } from "../../lib/rooms";
 import { ROOM_STATUS_LABELS } from "../../lib/types";
 import type { Resource, Room } from "../../lib/types";
+import { RoomThumb } from "../rooms/RoomPhotos";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/Feedback";
 import { Input, Select } from "../ui/Field";
-import { Card, IconTile } from "../ui/Surface";
+import { Card } from "../ui/Surface";
 
 /** Comparação sem acento e sem caixa ("patrimonio" acha "Patrimônio"). */
 const fold = (text: string) =>
@@ -74,7 +76,7 @@ export function InventoryView({ rooms, resources }: Props) {
 
   const needle = fold(query.trim());
   // A busca por nome de sala mostra a sala inteira; a busca por modelo/patrimônio mostra só os itens que batem.
-  const visible = rooms.flatMap((room) => {
+  const visible = sortRooms(rooms).flatMap((room) => {
     if (building && room.building !== building) return [];
     const roomMatches = !needle || fold(`${room.name} ${room.building} ${room.floor}`).includes(needle);
     const items = room.resources.filter(
@@ -161,7 +163,7 @@ export function InventoryView({ rooms, resources }: Props) {
             <li key={room.id}>
               <Card className="overflow-hidden">
                 <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3 sm:px-5">
-                  <IconTile icon={ROOM_TYPE_ICONS[room.roomType]} size="sm" tone={room.status === "ACTIVE" ? "primary" : "neutral"} />
+                  <RoomThumb room={room} size="sm" tone={room.status === "ACTIVE" ? "primary" : "neutral"} dimmed={room.status !== "ACTIVE"} />
                   <div className="min-w-0 flex-1">
                     <h3 className="font-semibold break-words">
                       <Highlight text={room.name} needle={needle} />

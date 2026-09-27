@@ -7,6 +7,7 @@ import { prisma } from "../lib/prisma";
 import { sendInBackground } from "../mail/mailer";
 import { approvedMails, rejectedMails } from "../mail/notifications";
 import { requireAdmin } from "../middleware/auth";
+import { roomPhotosInclude } from "../photos/include";
 import { rankRoomOptions } from "../reservations/allocation";
 import { findConflictingOccurrences, isOverlapViolation, loadBusyIntervals, lockRoomForUpdate } from "../reservations/conflicts";
 import { parseRequestedResources } from "../reservations/requested-resources";
@@ -27,6 +28,7 @@ const adminReservationInclude = {
 
 const roomWithResourcesInclude = {
   resources: { include: { resource: true }, orderBy: { resource: { name: "asc" } } },
+  photos: roomPhotosInclude,
 } satisfies Prisma.RoomInclude;
 
 const conflictMessage = "Outra pessoa revisou esta solicitação ao mesmo tempo. Recarregue a lista e tente de novo.";

@@ -6,6 +6,7 @@ import { ROOM_STATUS_LABELS, ROOM_TYPE_LABELS } from "../../lib/types";
 import type { Resource, Room, RoomStatus, RoomType } from "../../lib/types";
 import { Input, Select, Textarea } from "../ui/Field";
 import { QuantityStepper } from "../ui/QuantityStepper";
+import { RoomPhotosManager } from "./RoomPhotosManager";
 
 export interface RoomFormValues {
   name: string;
@@ -65,10 +66,12 @@ interface Props {
   buildings: string[];
   formId: string;
   onSubmit: (values: RoomFormValues) => void;
+  /** Fotos são salvas na hora (fora do "Salvar"); avisa para recarregar a lista. */
+  onPhotosChange: () => void;
 }
 
 /** Formulário de sala (fica dentro do painel lateral; os botões ficam no rodapé do painel). */
-export function RoomForm({ room, resources, buildings, formId, onSubmit }: Props) {
+export function RoomForm({ room, resources, buildings, formId, onSubmit, onPhotosChange }: Props) {
   const [values, setValues] = useState<RoomFormValues>(() => fromRoom(room));
   const datalistId = useId();
 
@@ -179,6 +182,15 @@ export function RoomForm({ room, resources, buildings, formId, onSubmit }: Props
           )}
         </fieldset>
       </section>
+
+      {room ? (
+        <RoomPhotosManager room={room} onChange={onPhotosChange} />
+      ) : (
+        <section>
+          <h3 className="text-base font-semibold">Fotos</h3>
+          <p className="mt-1 text-sm text-muted">Crie a sala primeiro; depois, em "Editar", dá para adicionar as fotos.</p>
+        </section>
+      )}
 
       {resources.length === 0 ? (
         <section>

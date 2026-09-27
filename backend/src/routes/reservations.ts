@@ -7,6 +7,7 @@ import { prisma } from "../lib/prisma";
 import { sendInBackground } from "../mail/mailer";
 import { cancelledMails, modifiedMails, requestReceivedMails } from "../mail/notifications";
 import { requireAuth } from "../middleware/auth";
+import { roomPhotosInclude } from "../photos/include";
 import { summarizeActivity } from "../reservations/activities";
 import { expandRecurrence, type Occurrence } from "../reservations/recurrence";
 import { normalizeRequestedResources } from "../reservations/requested-resources";
@@ -17,7 +18,7 @@ export const reservationsRouter = Router();
 
 const reservationInclude = {
   // "Outros equipamentos" é inventário interno do SAD.
-  room: { omit: { equipmentNotes: true } },
+  room: { omit: { equipmentNotes: true }, include: { photos: roomPhotosInclude } },
 } satisfies Prisma.ReservationInclude;
 
 // ----------------------------------------------------------------------------

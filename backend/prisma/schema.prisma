@@ -108,6 +108,7 @@ model Room {
   createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
 
   resources    RoomResource[]
+  photos       RoomPhoto[]
   reservations Reservation[]
   series       ReservationSeries[]
   blocks       RoomBlock[]
@@ -151,6 +152,27 @@ model RoomResource {
 
   @@id([roomId, resourceId])
   @@map("room_resources")
+}
+
+/// Foto de uma sala. Os arquivos (versões webp "thumb" e "large", geradas no
+/// upload) ficam em disco, em PHOTO_STORAGE_DIR, com o id como nome.
+model RoomPhoto {
+  id         String   @id @default(uuid()) @db.Uuid
+  roomId     String   @map("room_id") @db.Uuid
+  caption    String?
+  /// Ordem na galeria; a de menor posição é a capa.
+  position   Int      @default(0)
+  width      Int
+  height     Int
+  /// Arquivo de origem, quando veio do import (evita importar a mesma foto duas vezes).
+  sourceName String?  @map("source_name")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, sourceName])
+  @@index([roomId, position])
+  @@map("room_photos")
 }
 
 // ----------------------------------------------------------------------------

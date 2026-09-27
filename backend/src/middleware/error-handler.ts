@@ -20,6 +20,12 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     return;
   }
 
+  // Corpo maior que o limite do parser (ex.: foto acima de 30 MB).
+  if (err?.type === "entity.too.large") {
+    res.status(413).json({ error: { code: "PAYLOAD_TOO_LARGE", message: "Arquivo grande demais." } });
+    return;
+  }
+
   console.error(err);
   res.status(500).json({ error: { code: "INTERNAL_ERROR", message: "Erro interno do servidor." } });
 };

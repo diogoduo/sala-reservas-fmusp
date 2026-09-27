@@ -1,25 +1,25 @@
-import { CalendarBlankIcon, FunnelSimpleXIcon, MagnifyingGlassIcon, MapPinIcon, UsersIcon } from "@phosphor-icons/react";
+import { ArrowRightIcon, FunnelSimpleXIcon, MagnifyingGlassIcon, MapPinIcon, RulerIcon, UsersIcon } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api";
 import { plural } from "../../lib/format";
 import { resourceIcon, ROOM_TYPE_ICONS } from "../../lib/icons";
+import { sortRooms } from "../../lib/rooms";
 import { ROOM_TYPE_LABELS } from "../../lib/types";
 import type { Room, RoomType } from "../../lib/types";
+import { RoomDetailsDrawer } from "../rooms/RoomDetails";
+import { RoomCover } from "../rooms/RoomPhotos";
 import { Button } from "../ui/Button";
-import { Dialog } from "../ui/Dialog";
 import { EmptyState, Skeleton } from "../ui/Feedback";
 import { Input, Select } from "../ui/Field";
-import { Card, IconTile, PageHeader } from "../ui/Surface";
-import { AvailabilityCalendar } from "./AvailabilityCalendar";
+import { Card, PageHeader } from "../ui/Surface";
 
 const ROOM_TYPES = Object.keys(ROOM_TYPE_LABELS) as RoomType[];
-const MAX_CHIPS = 4;
 
 /** Recursos que o solicitante pode pedir; a infraestrutura (nobreak, splitter…) fica de fora. */
-export function RoomResourceChips({ room }: { room: Room }) {
+export function RoomResourceChips({ room, max = 4 }: { room: Room; max?: number }) {
   const visible = room.resources.filter((r) => r.resource.requestable);
-  const shown = visible.slice(0, MAX_CHIPS);
-  const hidden = visible.slice(MAX_CHIPS);
+  const shown = visible.slice(0, max);
+  const hidden = visible.slice(max);
   if (visible.length === 0) return null;
   return (
     <ul className="flex flex-wrap gap-1.5">
@@ -46,7 +46,7 @@ export function RoomResourceChips({ room }: { room: Room }) {
   );
 }
 
-// Catálogo de consulta: ajuda o solicitante a saber o que existe (tipos,
+// Catálogo de consulta: ajuda o solicitante a saber o que existe (fotos, tipos,
 // capacidades, recursos, agenda) antes de descrever o pedido — mas não escolhe
 // a sala aqui. A alocação é sempre feita pelo Admin ao aprovar (Fase 6).
 export function RoomSearch() {
@@ -55,15 +55,17 @@ export function RoomSearch() {
   const [roomType, setRoomType] = useState<RoomType | "">("");
   const [minCapacity, setMinCapacity] = useState("");
   const [building, setBuilding] = useState("");
-  const [agendaRoom, setAgendaRoom] = useState<Room | null>(null);
+  const [openRoom, setOpenRoom] = useState<Room | null>(null);
 
   useEffect(() => {
     api<{ rooms: Room[] }>("/rooms?status=ACTIVE")
-      .then((res) => setRooms(res.rooms))
+      .then((res) => setRooms(sortRooms(res.rooms)))
       .catch(() => setRooms([]));
   }, []);
 
   const buildings = useMemo(() => [...new Set((rooms ?? []).map((r) => r.building))].sort(), [rooms]);
+  // Só os tipos que existem entre as salas ativas.
+  const roomTypes = useMemo(() => ROOM_TYPES.filter((t) => (rooms ?? []).some((r) => r.roomType === t)), [rooms]);
 
   // Filtro no próprio navegador: o catálogo é pequeno e a resposta fica instantânea.
   const filtered = (rooms ?? []).filter((room) => {
@@ -86,16 +88,16 @@ export function RoomSearch() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Consultar salas" description="Conheça os espaços e veja a agenda de cada um antes de fazer seu pedido." />
+      <PageHeader title="Consultar salas" description="Veja as fotos, a capacidade e a agenda de cada espaço antes de fazer seu pedido." />
 
       <Card className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
         <div className="relative">
-          <Input label="Buscar" type="search" placeholder="Nome, prédio ou andar" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-10" />
+          <Input label="Buscar" type="search" placeholder="Nome, número ou prédio" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-10" />
           <MagnifyingGlassIcon size={18} aria-hidden className="pointer-events-none absolute bottom-3.5 left-3 text-muted" />
         </div>
         <Select label="Tipo de espaço" value={roomType} onChange={(e) => setRoomType(e.target.value as RoomType | "")}>
           <option value="">Todos os tipos</option>
-          {ROOM_TYPES.map((t) => (
+          {roomTypes.map((t) => (
             <option key={t} value={t}>
               {ROOM_TYPE_LABELS[t]}
             </option>
@@ -126,7 +128,7 @@ export function RoomSearch() {
       {rooms === null ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 3 }, (_, i) => (
-            <Skeleton key={i} className="h-56 rounded-2xl" />
+            <Skeleton key={i} className="h-96 rounded-2xl" />
           ))}
         </div>
       ) : filtered.length === 0 ? (
@@ -138,51 +140,51 @@ export function RoomSearch() {
         />
       ) : (
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((room, index) => (
-            <li key={room.id} className="min-w-0 animate-fade-in-up" style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}>
-              <Card className="flex h-full flex-col p-5 transition-shadow duration-200 hover:shadow-md">
-                <div className="flex items-start gap-3">
-                  <IconTile icon={ROOM_TYPE_ICONS[room.roomType]} />
-                  <div className="min-w-0">
+          {filtered.map((room, index) => {
+            const TypeIcon = ROOM_TYPE_ICONS[room.roomType];
+            return (
+              <li key={room.id} className="min-w-0 animate-fade-in-up" style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}>
+                <Card className="flex h-full flex-col overflow-hidden transition-shadow duration-200 hover:shadow-md">
+                  <RoomCover room={room} />
+                  <div className="flex flex-1 flex-col p-5">
                     <h2 className="text-base font-semibold break-words">{room.name}</h2>
-                    <p className="text-sm text-muted">{ROOM_TYPE_LABELS[room.roomType]}</p>
+                    <p className="flex items-center gap-1.5 text-sm text-muted">
+                      <TypeIcon size={16} aria-hidden /> {ROOM_TYPE_LABELS[room.roomType]}
+                    </p>
+                    <div className="mt-3 space-y-1.5 text-sm text-muted">
+                      <p className="flex items-center gap-2">
+                        <MapPinIcon size={16} aria-hidden /> {room.building} · {room.floor}
+                      </p>
+                      <p className="flex items-center gap-2">
+                        <UsersIcon size={16} aria-hidden />
+                        <span>
+                          até <strong className="text-foreground tabular-nums">{room.capacity}</strong> pessoas
+                          {room.extraSeats ? <span className="text-muted"> (+{room.extraSeats} cadeiras extras)</span> : null}
+                        </span>
+                      </p>
+                      {room.dimensions && (
+                        <p className="flex items-center gap-2">
+                          <RulerIcon size={16} aria-hidden /> {room.dimensions}
+                        </p>
+                      )}
+                    </div>
+                    <div className="mt-4">
+                      <RoomResourceChips room={room} />
+                    </div>
+                    <div className="mt-auto pt-5">
+                      <Button variant="secondary" iconRight={ArrowRightIcon} className="w-full" onClick={() => setOpenRoom(room)}>
+                        Ver sala e agenda
+                      </Button>
+                    </div>
                   </div>
-                </div>
-                <div className="mt-4 space-y-1.5 text-sm">
-                  <p className="flex items-center gap-2 text-muted">
-                    <MapPinIcon size={16} aria-hidden /> {room.building} · {room.floor}
-                  </p>
-                  <p className="flex items-center gap-2 text-muted">
-                    <UsersIcon size={16} aria-hidden /> até <strong className="text-foreground tabular-nums">{room.capacity}</strong> pessoas
-                  </p>
-                </div>
-                {room.resources.length > 0 && (
-                  <div className="mt-4">
-                    <RoomResourceChips room={room} />
-                  </div>
-                )}
-                <div className="mt-auto pt-5">
-                  <Button variant="secondary" icon={CalendarBlankIcon} className="w-full" onClick={() => setAgendaRoom(room)}>
-                    Ver agenda
-                  </Button>
-                </div>
-              </Card>
-            </li>
-          ))}
+                </Card>
+              </li>
+            );
+          })}
         </ul>
       )}
 
-      {agendaRoom && (
-        <Dialog
-          open
-          variant="drawer"
-          onClose={() => setAgendaRoom(null)}
-          title={agendaRoom.name}
-          description={`${ROOM_TYPE_LABELS[agendaRoom.roomType]} · ${agendaRoom.building}, ${agendaRoom.floor} · até ${agendaRoom.capacity} pessoas`}
-        >
-          <AvailabilityCalendar roomId={agendaRoom.id} />
-        </Dialog>
-      )}
+      {openRoom && <RoomDetailsDrawer room={openRoom} onClose={() => setOpenRoom(null)} />}
     </div>
   );
 }

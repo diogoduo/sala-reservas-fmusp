@@ -27,6 +27,9 @@ const schema = z
 
     DATABASE_URL: z.string().min(1),
 
+    // Fotos das salas (versões webp geradas no upload). Relativo à pasta do back-end.
+    PHOTO_STORAGE_DIR: z.string().default("storage/room-photos"),
+
     SESSION_SECRET: z.string().min(32, "SESSION_SECRET precisa ter pelo menos 32 caracteres"),
     SESSION_TTL_HOURS: z.coerce.number().positive().default(8),
     COOKIE_SECURE: bool("false"),

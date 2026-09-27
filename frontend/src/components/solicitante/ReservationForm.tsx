@@ -25,6 +25,7 @@ import { isEditable } from "../../lib/reservations";
 import { validateReservationTimes } from "../../lib/reservationValidation";
 import { useToast } from "../../lib/toast";
 import type { ActivityType, Reservation, Resource, ReviewScope } from "../../lib/types";
+import { RoomsPreview } from "../rooms/RoomsPreview";
 import { Button } from "../ui/Button";
 import { Alert, CardListSkeleton, EmptyState } from "../ui/Feedback";
 import { Input, Select, Switch, Textarea } from "../ui/Field";
@@ -580,6 +581,8 @@ function ReservationForm({ onReset, editing }: ReservationFormProps) {
               <ActivityFields type={activityType} values={details} onChange={(name, value) => setDetails((prev) => ({ ...prev, [name]: value }))} />
             </div>
           </FormSection>
+
+          <RoomsPreview attendees={Number(attendees) || 0} date={startDate && !Number.isNaN(startDate.getTime()) ? startDate : undefined} />
 
           <FormSection step={3} title="Recursos" description="Marque o que vai precisar. Não precisa de nada? É só seguir em frente.">
             <div className="grid gap-3 sm:grid-cols-2">
