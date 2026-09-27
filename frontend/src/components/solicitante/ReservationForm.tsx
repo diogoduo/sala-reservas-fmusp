@@ -240,7 +240,8 @@ function ReservationForm({ onReset, editing }: ReservationFormProps) {
   const [result, setResult] = useState<Reservation[] | null>(null);
 
   useEffect(() => {
-    api<{ resources: Resource[] }>("/resources").then((res) => setResources(res.resources));
+    // Itens só de inventário (nobreak, splitter…) não são pedidos pelo solicitante.
+    api<{ resources: Resource[] }>("/resources").then((res) => setResources(res.resources.filter((r) => r.requestable)));
   }, []);
 
   const startDate = useMemo(() => (date && startTimeStr ? new Date(`${date}T${startTimeStr}:00`) : null), [date, startTimeStr]);

@@ -5,6 +5,8 @@ export const createResourceSchema = z.object({
   description: z.string().max(500).optional(),
   // O formulário de solicitação pede a quantidade (ex.: Computador, Chromebook).
   requestsQuantity: z.boolean().default(false),
+  // false = só inventário das salas (nobreak, splitter…), fora do formulário de reserva.
+  requestable: z.boolean().default(true),
   // Texto de exemplo do campo de detalhe (ex.: "Ex.: Zoom, Teams"); null/"" = não pede detalhe.
   detailPrompt: z
     .string()

@@ -55,6 +55,9 @@ export async function normalizeRequestedResources(
 
   return requested.map(({ resourceId, quantity, detail }) => {
     const resource = byId.get(resourceId)!;
+    if (!resource.requestable) {
+      throw new AppError(400, "RESOURCE_NOT_REQUESTABLE", `"${resource.name}" faz parte do inventário da sala e não é solicitado no formulário.`);
+    }
     if (resource.detailOptions.length > 0 && !resource.detailOptions.includes(detail ?? "")) {
       throw new AppError(
         400,

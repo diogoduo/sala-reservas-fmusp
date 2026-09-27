@@ -15,9 +15,12 @@ import { AvailabilityCalendar } from "./AvailabilityCalendar";
 const ROOM_TYPES = Object.keys(ROOM_TYPE_LABELS) as RoomType[];
 const MAX_CHIPS = 4;
 
+/** Recursos que o solicitante pode pedir; a infraestrutura (nobreak, splitter…) fica de fora. */
 export function RoomResourceChips({ room }: { room: Room }) {
-  const shown = room.resources.slice(0, MAX_CHIPS);
-  const hidden = room.resources.slice(MAX_CHIPS);
+  const visible = room.resources.filter((r) => r.resource.requestable);
+  const shown = visible.slice(0, MAX_CHIPS);
+  const hidden = visible.slice(MAX_CHIPS);
+  if (visible.length === 0) return null;
   return (
     <ul className="flex flex-wrap gap-1.5">
       {shown.map((r) => {

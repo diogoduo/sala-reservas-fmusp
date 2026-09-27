@@ -44,7 +44,8 @@ sala-reservas-fmusp/
 │   ├── prisma/
 │   │   ├── schema.prisma
 │   │   ├── migrations/       # init + db_constraints (CHECKs e exclusão de sobreposição)
-│   │   └── seed.ts
+│   │   ├── seed.ts           # salas, recursos e usuários fictícios
+│   │   └── import-fmusp.ts   # catálogo real da FMUSP (dados fora do git)
 │   └── src/                  # app, config/env (zod), rotas, middleware de erros
 └── frontend/                 # React + TypeScript + Vite + Tailwind v4
 ```
@@ -64,6 +65,7 @@ cp .env.example .env
 npm install
 npx prisma migrate dev      # aplica as duas migrations e gera o client
 npm run db:seed             # recursos, salas e usuários fictícios
+npm run db:import-fmusp     # opcional: salas reais (precisa de prisma/data/fmusp.json)
 npm run dev                 # http://localhost:3333/api/health
 
 # 3. Front-end (outro terminal)
@@ -343,6 +345,63 @@ A aba **Minhas reservas** passou a ser a tela inicial do solicitante
 - Na fila do Admin, a aba **Canceladas** mostra quando o solicitante cancelou.
 - Cancelar avisa o SAD por e-mail (ver Fase 7).
 
+## Alterar uma reserva (solicitante)
+
+- Em **Minhas reservas**, cada reserva pendente ou aprovada que começa daqui a
+  pelo menos 3 dias tem o botão **Alterar**. Ele abre o mesmo formulário, já
+  preenchido (`/minhas-reservas/:id/editar`).
+- `PUT /api/reservations/:id` recebe os campos do formulário mais `{ scope }`:
+  - `single` altera só aquela data;
+  - `series` altera esta e as próximas datas da série, com a mesma mudança de
+    data e horário em todas.
+
+  Valem as regras da criação (horário de funcionamento, antecedência), mais:
+  - o tipo de atividade não muda (`ACTIVITY_TYPE_LOCKED`), nem a recorrência;
+  - com menos de 3 dias, a API recusa com `EDIT_TOO_SOON`.
+- A reserva volta para **Pendente**, marcada como alterada
+  (`modified_by_requester_at`), e a sala é liberada. `previous_snapshot` guarda
+  como ela estava na última análise do SAD: status, horário, sala e
+  participantes.
+- O SAD vê as alteradas na aba **Alteradas** de Solicitações, e não em
+  Pendentes. O painel de análise mostra um quadro "antes × agora" e já deixa
+  marcada a sala anterior, se ela ainda servir.
+- E-mails:
+  - confirmação ao solicitante;
+  - aviso ao SAD;
+  - aviso à TI, se a reserva estava aprovada e tinha recursos pedidos.
+
+## Catálogo real de salas e inventário
+
+As salas da faculdade vêm das planilhas do SAD: cadeiras, dimensões e os
+equipamentos de cada sala, com modelo e patrimônio.
+
+- `npm run db:import-fmusp` (em `backend/`) carrega esses dados de
+  `backend/prisma/data/fmusp.json`.
+  - O arquivo **não fica no git**, porque os números de patrimônio são dados
+    internos. Sem ele, o projeto roda com as salas fictícias do seed.
+  - O import pode rodar de novo. Ele identifica a sala por prédio, andar e
+    nome, substitui o inventário pelo da planilha e mantém o status que o SAD
+    deu a ela.
+  - As salas fictícias do seed ficam **Inativas**: elas têm reservas de teste
+    e não podem ser excluídas.
+- Cada sala tem:
+  - capacidade (cadeiras da plateia), cadeiras extras e dimensões;
+  - tipo: Anfiteatro, Sala de Aula, Sala de Informática, Sala de Reunião,
+    Congregação/CTA ou Teatro.
+- Cada recurso da sala tem quantidade, modelo e patrimônio(s). O que não é um
+  tipo de recurso vai em **Outros equipamentos**, em texto livre.
+- **Só o SAD vê modelo, patrimônio e outros equipamentos.** Para os demais
+  perfis, `GET /api/rooms` e `GET /api/rooms/:id` omitem esses campos.
+- Recursos com `requestable = false` (nobreak, monitor, splitter…) ficam só no
+  inventário:
+  - não aparecem no formulário de reserva nem na consulta de salas;
+  - a API recusa um pedido deles com `RESOURCE_NOT_REQUESTABLE`.
+- Tela **Recursos**, aba **Inventário** (`/admin/recursos?aba=inventario`):
+  - busca por patrimônio, modelo ou sala, com o termo destacado;
+  - filtros por recurso e por prédio;
+  - **Exportar CSV**, que abre direto no Excel;
+  - **Editar**, que abre o painel da sala.
+
 ## Salas livres (SAD)
 
 Consulta rápida para o SAD responder na hora "qual sala está livre no dia 30,
@@ -375,6 +434,9 @@ do `docker-compose` e aparecem em http://localhost:8025 — nada sai de verdade.
 | Rejeitada | solicitante | justificativa |
 | Cancelada pelo solicitante | SAD | horário liberado |
 | Cancelada, e já estava aprovada com recursos | TI | recursos dispensados |
+| Alterada pelo solicitante | solicitante | confirmação, com o novo horário |
+| Alterada pelo solicitante | SAD | como estava e como ficou, para nova análise |
+| Alterada, e já estava aprovada com recursos | TI | aguardar a nova aprovação |
 
 - **Um e-mail por ação, não por data:** aprovar uma série de 10 datas gera um
   e-mail com as 10 datas.

@@ -16,7 +16,8 @@ import { cancelReservationSchema, createReservationSchema, updateReservationSche
 export const reservationsRouter = Router();
 
 const reservationInclude = {
-  room: true,
+  // "Outros equipamentos" é inventário interno do SAD.
+  room: { omit: { equipmentNotes: true } },
 } satisfies Prisma.ReservationInclude;
 
 // ----------------------------------------------------------------------------

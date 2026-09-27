@@ -32,6 +32,9 @@ enum RoomType {
   CLASSROOM // Sala de Aula
   MEETING_ROOM // Sala de Reunião
   MULTIPURPOSE // Espaço Multiuso
+  COMPUTER_LAB // Sala de Informática
+  BOARD_ROOM // Congregação/CTA
+  THEATER // Teatro
 
   @@map("room_type")
 }
@@ -96,6 +99,12 @@ model Room {
   capacity  Int
   roomType  RoomType   @map("room_type")
   status    RoomStatus @default(ACTIVE)
+  /// Cadeiras de rodinha / professor / bancos, além das cadeiras da plateia (capacity).
+  extraSeats     Int?     @map("extra_seats")
+  /// Largura × comprimento, como na planilha da FMUSP (ex.: "10,30 × 9,60 m").
+  dimensions     String?
+  /// Outros equipamentos da sala, em texto livre. Só o SAD vê.
+  equipmentNotes String?  @map("equipment_notes")
   createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
 
   resources    RoomResource[]
@@ -114,6 +123,9 @@ model Resource {
   description String?
   /// O formulário de solicitação pede a quantidade (ex.: Computador, Chromebook).
   requestsQuantity Boolean @default(false) @map("requests_quantity")
+  /// Aparece no formulário de reserva. Itens de infraestrutura (nobreak, splitter…)
+  /// ficam só no inventário das salas.
+  requestable      Boolean  @default(true)
   /// Quando preenchido, o formulário pede um detalhe usando este texto de
   /// exemplo (ex.: "Ex.: Zoom, Teams, Google Meet" na Webconferência).
   detailPrompt     String?  @map("detail_prompt")
@@ -130,6 +142,9 @@ model RoomResource {
   roomId     String @map("room_id") @db.Uuid
   resourceId String @map("resource_id") @db.Uuid
   quantity   Int    @default(1)
+  /// Modelo e patrimônio(s) do equipamento nesta sala — só o SAD vê.
+  model      String?
+  assetTags  String? @map("asset_tags")
 
   room     Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
   resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)

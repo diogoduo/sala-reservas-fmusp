@@ -13,6 +13,21 @@ const roomInclude = {
   resources: { include: { resource: true }, orderBy: { resource: { name: "asc" } } },
 } satisfies Prisma.RoomInclude;
 
+type RoomWithResources = Prisma.RoomGetPayload<{ include: typeof roomInclude }>;
+
+/**
+ * Modelo, patrimônio e "outros equipamentos" são inventário interno: só o SAD
+ * (Admin) vê. Para o solicitante, a sala mostra só os tipos de recurso.
+ */
+function forViewer(room: RoomWithResources, role: string | undefined) {
+  if (role === "ADMIN") return room;
+  const { equipmentNotes: _notes, ...publicRoom } = room;
+  return {
+    ...publicRoom,
+    resources: room.resources.map(({ model: _model, assetTags: _tags, ...link }) => link),
+  };
+}
+
 const listQuerySchema = z.object({
   status: z.nativeEnum(RoomStatus).optional(),
   roomType: z.nativeEnum(RoomType).optional(),
@@ -39,7 +54,7 @@ roomsRouter.get(
       orderBy: [{ building: "asc" }, { floor: "asc" }, { name: "asc" }],
     });
 
-    res.json({ rooms });
+    res.json({ rooms: rooms.map((room) => forViewer(room, req.user?.role)) });
   }),
 );
 
@@ -49,7 +64,7 @@ roomsRouter.get(
   asyncHandler(async (req, res) => {
     const room = await prisma.room.findUnique({ where: { id: req.params.id }, include: roomInclude });
     if (!room) throw new AppError(404, "ROOM_NOT_FOUND", "Sala não encontrada.");
-    res.json({ room });
+    res.json({ room: forViewer(room, req.user?.role) });
   }),
 );
 
@@ -115,6 +130,9 @@ roomsRouter.post(
             capacity: input.capacity,
             roomType: input.roomType,
             status: input.status,
+            extraSeats: input.extraSeats,
+            dimensions: input.dimensions,
+            equipmentNotes: input.equipmentNotes,
           },
         });
       } catch (error) {
@@ -126,7 +144,7 @@ roomsRouter.post(
 
       if (input.resources.length > 0) {
         await tx.roomResource.createMany({
-          data: input.resources.map((r) => ({ roomId: created.id, resourceId: r.resourceId, quantity: r.quantity })),
+          data: input.resources.map((r) => ({ roomId: created.id, resourceId: r.resourceId, quantity: r.quantity, model: r.model, assetTags: r.assetTags })),
         });
       }
 
@@ -163,7 +181,7 @@ roomsRouter.patch(
         await tx.roomResource.deleteMany({ where: { roomId } });
         if (resources.length > 0) {
           await tx.roomResource.createMany({
-            data: resources.map((r) => ({ roomId, resourceId: r.resourceId, quantity: r.quantity })),
+            data: resources.map((r) => ({ roomId, resourceId: r.resourceId, quantity: r.quantity, model: r.model, assetTags: r.assetTags })),
           });
         }
       }

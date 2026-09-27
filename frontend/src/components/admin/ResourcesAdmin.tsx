@@ -1,16 +1,33 @@
-import { FloppyDiskIcon, HashIcon, ListBulletsIcon, PencilSimpleIcon, PlusIcon, TextTIcon, TrashIcon, WrenchIcon } from "@phosphor-icons/react";
+import {
+  ClipboardTextIcon,
+  DoorOpenIcon,
+  EyeSlashIcon,
+  FloppyDiskIcon,
+  HashIcon,
+  ListBulletsIcon,
+  PencilSimpleIcon,
+  PlusIcon,
+  SquaresFourIcon,
+  TextTIcon,
+  TrashIcon,
+  WrenchIcon,
+} from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 import { api, ApiError } from "../../lib/api";
 import { useConfirm } from "../../lib/confirm";
+import { plural } from "../../lib/format";
 import { resourceIcon } from "../../lib/icons";
 import { useToast } from "../../lib/toast";
-import type { Resource } from "../../lib/types";
+import type { Resource, Room } from "../../lib/types";
 import { Badge } from "../ui/Badge";
 import { Button, IconButton } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { EmptyState, Skeleton } from "../ui/Feedback";
 import { Input, Switch } from "../ui/Field";
+import { SegmentedControl } from "../ui/SegmentedControl";
 import { Card, IconTile, PageHeader } from "../ui/Surface";
+import { InventoryView } from "./InventoryView";
 
 const FORM_ID = "formulario-recurso";
 
@@ -28,6 +45,7 @@ interface ResourceFormProps {
 function ResourceForm({ resource, onSubmit }: ResourceFormProps) {
   const [name, setName] = useState(resource?.name ?? "");
   const [description, setDescription] = useState(resource?.description ?? "");
+  const [requestable, setRequestable] = useState(resource?.requestable ?? true);
   const [requestsQuantity, setRequestsQuantity] = useState(resource?.requestsQuantity ?? false);
   const [detailPrompt, setDetailPrompt] = useState(resource?.detailPrompt ?? "");
   const [detailOptions, setDetailOptions] = useState(resource?.detailOptions.join(", ") ?? "");
@@ -39,7 +57,14 @@ function ResourceForm({ resource, onSubmit }: ResourceFormProps) {
       id={FORM_ID}
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit({ name, description: description || undefined, requestsQuantity, detailPrompt: detailPrompt || null, detailOptions: options });
+        onSubmit({
+          name,
+          description: description || undefined,
+          requestable,
+          requestsQuantity,
+          detailPrompt: detailPrompt || null,
+          detailOptions: options,
+        });
       }}
       className="space-y-6"
     >
@@ -54,52 +79,70 @@ function ResourceForm({ resource, onSubmit }: ResourceFormProps) {
       <Input label="Descrição" placeholder="Opcional" value={description} onChange={(e) => setDescription(e.target.value)} />
 
       <div className="space-y-4 rounded-xl border border-border p-4">
-        <p className="text-sm font-semibold">No formulário de reserva</p>
         <Switch
-          checked={requestsQuantity}
-          onChange={setRequestsQuantity}
-          label="Pedir quantidade"
-          description="Ex.: quantos computadores ou Chromebooks."
+          checked={requestable}
+          onChange={setRequestable}
+          label="Aparece no formulário de reserva"
+          description="Desligado, o recurso fica só no inventário das salas (ex.: nobreak, splitter)."
         />
-        <Input
-          label="Pedir um detalhe (texto de exemplo)"
-          placeholder="Ex.: Zoom, Teams, Google Meet"
-          hint="Deixe vazio para não pedir detalhe."
-          value={detailPrompt}
-          onChange={(e) => setDetailPrompt(e.target.value)}
-        />
-        <Input
-          label="Opções fixas do detalhe"
-          placeholder="Separadas por vírgula"
-          hint="Se preencher, o detalhe vira uma lista de escolha obrigatória."
-          value={detailOptions}
-          onChange={(e) => setDetailOptions(e.target.value)}
-        />
-        {options.length > 0 && (
-          <ul className="flex flex-wrap gap-1.5" aria-label="Prévia das opções">
-            {options.map((option) => (
-              <li key={option}>
-                <Badge tone="primary">{option}</Badge>
-              </li>
-            ))}
-          </ul>
+        {requestable && (
+          <>
+            <Switch
+              checked={requestsQuantity}
+              onChange={setRequestsQuantity}
+              label="Pedir quantidade"
+              description="Ex.: quantos computadores ou Chromebooks."
+            />
+            <Input
+              label="Pedir um detalhe (texto de exemplo)"
+              placeholder="Ex.: Zoom, Teams, Google Meet"
+              hint="Deixe vazio para não pedir detalhe."
+              value={detailPrompt}
+              onChange={(e) => setDetailPrompt(e.target.value)}
+            />
+            <Input
+              label="Opções fixas do detalhe"
+              placeholder="Separadas por vírgula"
+              hint="Se preencher, o detalhe vira uma lista de escolha obrigatória."
+              value={detailOptions}
+              onChange={(e) => setDetailOptions(e.target.value)}
+            />
+            {options.length > 0 && (
+              <ul className="flex flex-wrap gap-1.5" aria-label="Prévia das opções">
+                {options.map((option) => (
+                  <li key={option}>
+                    <Badge tone="primary">{option}</Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </div>
     </form>
   );
 }
 
+type Tab = "tipos" | "inventario";
+
 export function ResourcesAdmin() {
   const toast = useToast();
   const confirm = useConfirm();
+  const [params, setParams] = useSearchParams();
+  const tab: Tab = params.get("aba") === "inventario" ? "inventario" : "tipos";
   const [resources, setResources] = useState<Resource[] | null>(null);
+  const [rooms, setRooms] = useState<Room[]>([]);
   const [editing, setEditing] = useState<Resource | "new" | null>(null);
   const [saving, setSaving] = useState(false);
 
   async function load() {
     try {
-      const { resources: list } = await api<{ resources: Resource[] }>("/resources");
+      const [{ resources: list }, { rooms: roomList }] = await Promise.all([
+        api<{ resources: Resource[] }>("/resources"),
+        api<{ rooms: Room[] }>("/rooms"),
+      ]);
       setResources(list);
+      setRooms(roomList);
     } catch (e) {
       toast.error("Não foi possível carregar os recursos.", e instanceof Error ? e.message : undefined);
       setResources([]);
@@ -134,7 +177,7 @@ export function ResourcesAdmin() {
     const ok = await confirm({
       tone: "danger",
       title: `Excluir "${resource.name}"?`,
-      description: "Ele sai de todas as salas vinculadas e do formulário de reserva.",
+      description: "Ele sai de todas as salas vinculadas (com modelo e patrimônio) e do formulário de reserva.",
       confirmLabel: "Excluir recurso",
     });
     if (!ok) return;
@@ -148,17 +191,35 @@ export function ResourcesAdmin() {
   }
 
   const editingResource = editing === "new" ? null : editing;
+  const roomCount = (resourceId: string) => rooms.filter((room) => room.resources.some((link) => link.resourceId === resourceId)).length;
+  const inventoryItems = rooms.reduce((sum, room) => sum + room.resources.length, 0);
+  const groups = [
+    { title: "No formulário de reserva", items: (resources ?? []).filter((r) => r.requestable) },
+    { title: "Só inventário", items: (resources ?? []).filter((r) => !r.requestable) },
+  ].filter((group) => group.items.length > 0);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Recursos"
-        description="Equipamentos e serviços que aparecem no formulário de reserva e nas salas."
+        description="Equipamentos e serviços do formulário de reserva, e o inventário de cada sala com modelo e patrimônio."
         actions={
-          <Button icon={PlusIcon} onClick={() => setEditing("new")}>
-            Novo recurso
-          </Button>
+          tab === "tipos" && (
+            <Button icon={PlusIcon} onClick={() => setEditing("new")}>
+              Novo recurso
+            </Button>
+          )
         }
+      />
+
+      <SegmentedControl
+        label="Visualização"
+        value={tab}
+        onChange={(value) => setParams(value === "inventario" ? { aba: "inventario" } : {}, { replace: true })}
+        options={[
+          { value: "tipos", label: "Tipos", icon: SquaresFourIcon, count: resources?.length },
+          { value: "inventario", label: "Inventário", icon: ClipboardTextIcon, count: resources ? inventoryItems : undefined },
+        ]}
       />
 
       {resources === null ? (
@@ -167,6 +228,8 @@ export function ResourcesAdmin() {
             <Skeleton key={i} className="h-24 rounded-2xl" />
           ))}
         </div>
+      ) : tab === "inventario" ? (
+        <InventoryView rooms={rooms} resources={resources} />
       ) : resources.length === 0 ? (
         <EmptyState
           icon={WrenchIcon}
@@ -179,43 +242,57 @@ export function ResourcesAdmin() {
           }
         />
       ) : (
-        <ul className="grid gap-3 sm:grid-cols-2">
-          {resources.map((resource, index) => (
-            <li key={resource.id} className="min-w-0 animate-fade-in-up" style={{ animationDelay: `${Math.min(index, 10) * 30}ms` }}>
-              <Card className="flex h-full items-start gap-4 p-4">
-                <IconTile icon={resourceIcon(resource.name)} />
-                <div className="min-w-0 flex-1">
-                  <h2 className="font-semibold">{resource.name}</h2>
-                  {resource.description && <p className="text-sm text-muted">{resource.description}</p>}
-                  {(resource.requestsQuantity || resource.detailPrompt || resource.detailOptions.length > 0) && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {resource.requestsQuantity && (
-                        <Badge tone="info" icon={HashIcon}>
-                          Pede quantidade
-                        </Badge>
-                      )}
-                      {resource.detailOptions.length > 0 ? (
-                        <Badge tone="info" icon={ListBulletsIcon}>
-                          {resource.detailOptions.join(" · ")}
-                        </Badge>
-                      ) : (
-                        resource.detailPrompt && (
-                          <Badge tone="info" icon={TextTIcon}>
-                            Pede detalhe
-                          </Badge>
-                        )
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="flex shrink-0 gap-1">
-                  <IconButton icon={PencilSimpleIcon} label={`Editar ${resource.name}`} size="sm" onClick={() => setEditing(resource)} />
-                  <IconButton icon={TrashIcon} label={`Excluir ${resource.name}`} size="sm" variant="danger-soft" onClick={() => void remove(resource)} />
-                </div>
-              </Card>
-            </li>
-          ))}
-        </ul>
+        groups.map((group) => (
+          <section key={group.title} className="space-y-3">
+            <h2 className="text-sm font-semibold text-muted">
+              {group.title} <span className="font-normal tabular-nums">· {group.items.length}</span>
+            </h2>
+            <ul className="grid gap-3 sm:grid-cols-2">
+              {group.items.map((resource, index) => {
+                const inRooms = roomCount(resource.id);
+                return (
+                  <li key={resource.id} className="min-w-0 animate-fade-in-up" style={{ animationDelay: `${Math.min(index, 10) * 30}ms` }}>
+                    <Card className="flex h-full items-start gap-4 p-4">
+                      <IconTile icon={resourceIcon(resource.name)} tone={resource.requestable ? "primary" : "neutral"} />
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-semibold">{resource.name}</h3>
+                        {resource.description && <p className="text-sm text-muted">{resource.description}</p>}
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {inRooms > 0 && (
+                            <Badge icon={DoorOpenIcon}>{plural(inRooms, "sala", "salas")}</Badge>
+                          )}
+                          {!resource.requestable && (
+                            <Badge icon={EyeSlashIcon}>Solicitante não vê</Badge>
+                          )}
+                          {resource.requestsQuantity && (
+                            <Badge tone="info" icon={HashIcon}>
+                              Pede quantidade
+                            </Badge>
+                          )}
+                          {resource.detailOptions.length > 0 ? (
+                            <Badge tone="info" icon={ListBulletsIcon}>
+                              {resource.detailOptions.join(" · ")}
+                            </Badge>
+                          ) : (
+                            resource.detailPrompt && (
+                              <Badge tone="info" icon={TextTIcon}>
+                                Pede detalhe
+                              </Badge>
+                            )
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        <IconButton icon={PencilSimpleIcon} label={`Editar ${resource.name}`} size="sm" onClick={() => setEditing(resource)} />
+                        <IconButton icon={TrashIcon} label={`Excluir ${resource.name}`} size="sm" variant="danger-soft" onClick={() => void remove(resource)} />
+                      </div>
+                    </Card>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ))
       )}
 
       {editing !== null && (

@@ -9,3 +9,8 @@ coverage/
 cookies.txt
 # ferramentas locais do Claude Code (skills etc.)
 .claude/
+# Dados reais da FMUSP (salas, modelos, patrimônios e fotos) ficam só na máquina
+# local: são carregados no banco por backend/prisma/import-fmusp.ts.
+FM/
+backend/prisma/data/
+backend/storage/

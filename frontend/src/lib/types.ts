@@ -1,12 +1,23 @@
-export type RoomType = "AUDITORIUM" | "LABORATORY" | "CLASSROOM" | "MEETING_ROOM" | "MULTIPURPOSE";
+export type RoomType =
+  | "AUDITORIUM"
+  | "LABORATORY"
+  | "CLASSROOM"
+  | "MEETING_ROOM"
+  | "MULTIPURPOSE"
+  | "COMPUTER_LAB"
+  | "BOARD_ROOM"
+  | "THEATER";
 export type ActivityType = "UNDERGRADUATE" | "GRADUATE" | "CULTURE_EXTENSION" | "PUBLIC_EXAM" | "DEFENSE";
 export type RoomStatus = "ACTIVE" | "MAINTENANCE" | "INACTIVE";
 
 export const ROOM_TYPE_LABELS: Record<RoomType, string> = {
-  AUDITORIUM: "Auditório",
-  LABORATORY: "Laboratório",
+  AUDITORIUM: "Anfiteatro",
   CLASSROOM: "Sala de Aula",
+  COMPUTER_LAB: "Sala de Informática",
   MEETING_ROOM: "Sala de Reunião",
+  BOARD_ROOM: "Congregação/CTA",
+  THEATER: "Teatro",
+  LABORATORY: "Laboratório",
   MULTIPURPOSE: "Espaço Multiuso",
 };
 
@@ -22,6 +33,8 @@ export interface Resource {
   description: string | null;
   /** O formulário de solicitação pede a quantidade. */
   requestsQuantity: boolean;
+  /** Aparece no formulário de reserva; false = só inventário das salas (nobreak, splitter…). */
+  requestable: boolean;
   /** Texto de exemplo do campo de detalhe; null = não pede detalhe. */
   detailPrompt: string | null;
   /** Se não vazia, o detalhe é um select com estas opções (e é obrigatório). */
@@ -39,6 +52,9 @@ export interface RoomResourceLink {
   roomId: string;
   resourceId: string;
   quantity: number;
+  /** Modelo e patrimônio(s): só vêm para o SAD. */
+  model?: string | null;
+  assetTags?: string | null;
   resource: Resource;
 }
 
@@ -50,6 +66,12 @@ export interface Room {
   capacity: number;
   roomType: RoomType;
   status: RoomStatus;
+  /** Cadeiras extras (professor, rodinha…) além da capacidade da plateia. */
+  extraSeats: number | null;
+  /** Largura × comprimento, como na planilha (ex.: "10,30 × 9,60 m"). */
+  dimensions: string | null;
+  /** Outros equipamentos, em texto livre: só vem para o SAD. */
+  equipmentNotes?: string | null;
   resources: RoomResourceLink[];
 }
 

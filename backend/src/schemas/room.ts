@@ -4,6 +4,9 @@ import { z } from "zod";
 export const resourceAssignmentSchema = z.object({
   resourceId: z.string().uuid(),
   quantity: z.number().int().positive().default(1),
+  // Inventário (só o SAD vê): vazio vira null.
+  model: z.string().trim().max(200).nullish().transform((v) => v || null),
+  assetTags: z.string().trim().max(500).nullish().transform((v) => v || null),
 });
 
 export const createRoomSchema = z.object({
@@ -13,6 +16,9 @@ export const createRoomSchema = z.object({
   capacity: z.number().int().positive("A capacidade deve ser maior que zero."),
   roomType: z.nativeEnum(RoomType),
   status: z.nativeEnum(RoomStatus).default(RoomStatus.ACTIVE),
+  extraSeats: z.number().int().min(0).nullish(),
+  dimensions: z.string().trim().max(60).nullish().transform((v) => v || null),
+  equipmentNotes: z.string().trim().max(2000).nullish().transform((v) => v || null),
   // ids de resources + quantidade; substitui totalmente o vínculo atual da sala
   resources: z.array(resourceAssignmentSchema).default([]),
 });

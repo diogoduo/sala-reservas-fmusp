@@ -8,12 +8,14 @@ import {
   PencilSimpleIcon,
   PlusIcon,
   ProhibitIcon,
+  RulerIcon,
   TrashIcon,
   UsersIcon,
   WrenchIcon,
   type Icon,
 } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 import { api, ApiError } from "../../lib/api";
 import { useConfirm } from "../../lib/confirm";
 import { plural } from "../../lib/format";
@@ -50,6 +52,7 @@ export function RoomsAdmin() {
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<Room | "new" | null>(null);
   const [saving, setSaving] = useState(false);
+  const [params, setParams] = useSearchParams();
 
   async function load() {
     try {
@@ -69,6 +72,15 @@ export function RoomsAdmin() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // "Editar" no inventário (Recursos) abre direto o painel da sala: /admin/salas?editar=<id>
+  const editId = params.get("editar");
+  useEffect(() => {
+    if (!editId || !rooms) return;
+    const room = rooms.find((r) => r.id === editId);
+    if (room) setEditing(room);
+    setParams({}, { replace: true });
+  }, [editId, rooms, setParams]);
 
   async function submit(values: RoomFormValues) {
     setSaving(true);
@@ -110,7 +122,8 @@ export function RoomsAdmin() {
   const all = rooms ?? [];
   const buildings = [...new Set(all.map((r) => r.building))].sort();
   const needle = query.trim().toLowerCase();
-  const visible = all.filter(
+  // Inativas por último: são as que saíram de uso (ex.: as salas fictícias do seed).
+  const visible = [...all].sort((a, b) => Number(a.status === "INACTIVE") - Number(b.status === "INACTIVE")).filter(
     (room) =>
       (filter === "ALL" || room.status === filter) &&
       (!needle || `${room.name} ${room.building} ${room.floor}`.toLowerCase().includes(needle)),
@@ -199,7 +212,13 @@ export function RoomsAdmin() {
                     </p>
                     <p className="flex items-center gap-2">
                       <UsersIcon size={16} aria-hidden /> {plural(room.capacity, "lugar", "lugares")}
+                      {room.extraSeats ? ` + ${plural(room.extraSeats, "extra", "extras")}` : ""}
                     </p>
+                    {room.dimensions && (
+                      <p className="flex items-center gap-2">
+                        <RulerIcon size={16} aria-hidden /> {room.dimensions}
+                      </p>
+                    )}
                   </div>
                   {room.resources.length > 0 && (
                     <div className="mt-4">
