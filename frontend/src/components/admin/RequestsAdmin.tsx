@@ -2,9 +2,11 @@ import {
   ArrowRightIcon,
   CalendarBlankIcon,
   CheckCircleIcon,
+  ClockCounterClockwiseIcon,
   HourglassMediumIcon,
   MagnifyingGlassIcon,
   MapPinIcon,
+  PencilSimpleLineIcon,
   ProhibitIcon,
   RepeatIcon,
   TrayIcon,
@@ -18,11 +20,12 @@ import { ACTIVITY_TYPE_LABELS } from "../../lib/activities";
 import { api } from "../../lib/api";
 import { formatDateTimeRange, formatShortDate, formatTimeRange, plural } from "../../lib/format";
 import { ACTIVITY_ICONS } from "../../lib/icons";
-import { groupBySeries, notifyReservationsChanged } from "../../lib/reservations";
+import { groupBySeries, isModifiedPending, notifyReservationsChanged } from "../../lib/reservations";
 import { useToast } from "../../lib/toast";
 import type { AdminReservation, ReservationStatus, Resource } from "../../lib/types";
 import { StatusBadge } from "../StatusBadge";
 import { Avatar } from "../ui/Avatar";
+import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { CardListSkeleton, EmptyState } from "../ui/Feedback";
 import { Input } from "../ui/Field";
@@ -30,8 +33,18 @@ import { SegmentedControl } from "../ui/SegmentedControl";
 import { Card, IconTile, PageHeader } from "../ui/Surface";
 import { ReviewDrawer } from "./ReviewPanel";
 
-const STATUS_FILTERS: { value: ReservationStatus; label: string; icon: Icon; empty: string }[] = [
+// "MODIFIED" não é um status do banco: são as pendentes que o solicitante alterou.
+type Filter = ReservationStatus | "MODIFIED";
+
+function matchesFilter(r: AdminReservation, filter: Filter): boolean {
+  if (filter === "MODIFIED") return isModifiedPending(r);
+  if (filter === "PENDING") return r.status === "PENDING" && !isModifiedPending(r);
+  return r.status === filter;
+}
+
+const STATUS_FILTERS: { value: Filter; label: string; icon: Icon; empty: string }[] = [
   { value: "PENDING", label: "Pendentes", icon: HourglassMediumIcon, empty: "Nenhuma solicitação esperando análise. Tudo em dia!" },
+  { value: "MODIFIED", label: "Alteradas", icon: PencilSimpleLineIcon, empty: "Nenhuma reserva alterada pelos solicitantes esperando análise." },
   { value: "APPROVED", label: "Aprovadas", icon: CheckCircleIcon, empty: "Nenhuma solicitação aprovada ainda." },
   { value: "REJECTED", label: "Rejeitadas", icon: XCircleIcon, empty: "Nenhuma solicitação rejeitada." },
   { value: "CANCELLED", label: "Canceladas", icon: ProhibitIcon, empty: "Nenhuma reserva cancelada pelos solicitantes." },
@@ -54,7 +67,7 @@ export function RequestsAdmin() {
   const toast = useToast();
   const [reservations, setReservations] = useState<AdminReservation[] | null>(null);
   const [resources, setResources] = useState<Resource[]>([]);
-  const [status, setStatus] = useState<ReservationStatus>("PENDING");
+  const [status, setStatus] = useState<Filter>("PENDING");
   const [query, setQuery] = useState("");
   const [openKey, setOpenKey] = useState<string | null>(null);
 
@@ -83,7 +96,7 @@ export function RequestsAdmin() {
   }
 
   const all = reservations ?? [];
-  const groupsByStatus = (s: ReservationStatus) => groupBySeries(all.filter((r) => r.status === s));
+  const groupsByStatus = (s: Filter) => groupBySeries(all.filter((r) => matchesFilter(r, s)));
   const statusGroups = groupsByStatus(status);
   const needle = query.trim().toLowerCase();
   const groups = needle
@@ -144,7 +157,14 @@ export function RequestsAdmin() {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
                         <h2 className="min-w-0 text-base font-semibold sm:text-lg">{first.title}</h2>
-                        <StatusBadge status={first.status} />
+                        <div className="flex flex-wrap gap-1.5">
+                          <StatusBadge status={first.status} />
+                          {isModifiedPending(first) && (
+                            <Badge tone="info" icon={PencilSimpleLineIcon}>
+                              Alterada
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                       <p className="mt-1 flex min-w-0 items-center gap-2 text-sm text-muted">
                         <Avatar name={first.user.name} size="sm" className="size-6 text-[10px]" />
@@ -164,6 +184,12 @@ export function RequestsAdmin() {
                         {formatTimeRange(first.startTime, first.endTime)}
                       </Chip>
                     )}
+                    {isModifiedPending(first) && first.previousSnapshot && (
+                      <Chip icon={ClockCounterClockwiseIcon}>
+                        Antes: {formatDateTimeRange(first.previousSnapshot.startTime, first.previousSnapshot.endTime)}
+                        {first.previousSnapshot.roomName ? ` · ${first.previousSnapshot.roomName.split(" — ")[0]}` : ""}
+                      </Chip>
+                    )}
                     <Chip icon={UsersIcon}>{plural(first.expectedAttendees, "pessoa", "pessoas")}</Chip>
                     {first.activityType && <Chip icon={ActivityIcon}>{ACTIVITY_TYPE_LABELS[first.activityType]}</Chip>}
                     {first.requestedResources.length > 0 && (
@@ -175,7 +201,11 @@ export function RequestsAdmin() {
                   <p className="mt-3 line-clamp-2 text-sm text-muted">{first.description}</p>
 
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-                    <p className="text-xs text-muted">Enviada em {new Date(first.createdAt).toLocaleDateString("pt-BR")}</p>
+                    <p className="text-xs text-muted">
+                      {isModifiedPending(first) && first.modifiedByRequesterAt
+                        ? `Alterada pelo solicitante em ${new Date(first.modifiedByRequesterAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}`
+                        : `Enviada em ${new Date(first.createdAt).toLocaleDateString("pt-BR")}`}
+                    </p>
                     <Button
                       size="sm"
                       variant={isPending ? "primary" : "secondary"}

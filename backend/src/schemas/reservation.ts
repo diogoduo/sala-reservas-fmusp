@@ -134,3 +134,8 @@ export type CreateReservationInput = z.infer<typeof createReservationSchema>;
 // Mesmo escopo da revisão do Admin: "single" = só esta data; "series" = todas
 // as próximas datas ainda ativas da mesma série.
 export const cancelReservationSchema = z.object({ scope: reviewScopeSchema });
+
+// Alteração pelo solicitante: os mesmos campos (e validações por tipo) da
+// criação, mais o escopo. A recorrência não muda por aqui — `recurrence`, se
+// vier, é ignorado.
+export const updateReservationSchema = z.intersection(createReservationSchema, z.object({ scope: reviewScopeSchema }));

@@ -190,6 +190,12 @@ model Reservation {
   reviewedById       String?           @map("reviewed_by_id") @db.Uuid
   reviewedAt         DateTime?         @map("reviewed_at") @db.Timestamptz(3)
   cancelledAt        DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  /// Quando o solicitante alterou a reserva pela última vez. Alterar devolve a
+  /// reserva para análise (PENDING); o SAD vê essas na aba "Alteradas".
+  modifiedByRequesterAt DateTime?      @map("modified_by_requester_at") @db.Timestamptz(3)
+  /// Como a reserva estava antes da alteração (status, horário, sala…), para o
+  /// SAD comparar. Guarda o último estado revisado, não as edições intermediárias.
+  previousSnapshot   Json?             @map("previous_snapshot")
   createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 

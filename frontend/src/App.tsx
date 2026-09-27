@@ -6,7 +6,7 @@ import { RoomsAdmin } from "./components/admin/RoomsAdmin";
 import { AppShell } from "./components/layout/AppShell";
 import { Login } from "./components/Login";
 import { MyReservations } from "./components/solicitante/MyReservations";
-import { ReservationPage } from "./components/solicitante/ReservationForm";
+import { EditReservationPage, ReservationPage } from "./components/solicitante/ReservationForm";
 import { RoomSearch } from "./components/solicitante/RoomSearch";
 import { LogoMark } from "./components/ui/Logo";
 import { useAuth } from "./lib/auth";
@@ -38,6 +38,7 @@ export default function App() {
         ) : (
           <>
             <Route path="/minhas-reservas" element={<MyReservations />} />
+            <Route path="/minhas-reservas/:id/editar" element={<EditReservationPage />} />
             <Route path="/reservar" element={<ReservationPage />} />
             <Route path="/salas" element={<RoomSearch />} />
             <Route path="*" element={<Navigate to="/minhas-reservas" replace />} />

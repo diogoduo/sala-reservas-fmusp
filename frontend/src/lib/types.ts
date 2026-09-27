@@ -55,6 +55,16 @@ export interface Room {
 
 export type ReservationStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
 
+export interface ReservationSnapshot {
+  status: ReservationStatus;
+  startTime: string;
+  endTime: string;
+  roomId: string | null;
+  roomName: string | null;
+  expectedAttendees: number;
+  title: string;
+}
+
 export const RESERVATION_STATUS_LABELS: Record<ReservationStatus, string> = {
   PENDING: "Pendente",
   APPROVED: "Aprovada",
@@ -80,6 +90,10 @@ export interface Reservation {
   rejectionReason: string | null;
   cancelledAt: string | null;
   createdAt: string;
+  /** Quando o solicitante alterou a reserva pela última vez (null se nunca). */
+  modifiedByRequesterAt: string | null;
+  /** Como estava antes da alteração, para o SAD comparar. */
+  previousSnapshot: ReservationSnapshot | null;
   room: Room | null;
 }
 

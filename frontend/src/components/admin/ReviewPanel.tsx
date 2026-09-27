@@ -1,5 +1,7 @@
 import {
   CheckCircleIcon,
+  ClockCounterClockwiseIcon,
+  PencilSimpleLineIcon,
   SealCheckIcon,
   SparkleIcon,
   WarningIcon,
@@ -13,7 +15,7 @@ import { cn } from "../../lib/cn";
 import { formatDateTimeRange, formatShortDate, formatTimeRange, plural } from "../../lib/format";
 import { ROOM_TYPE_ICONS } from "../../lib/icons";
 import { useToast } from "../../lib/toast";
-import { ROOM_TYPE_LABELS } from "../../lib/types";
+import { RESERVATION_STATUS_LABELS, ROOM_TYPE_LABELS } from "../../lib/types";
 import type { AdminReservation, RequestedResource, Resource, ReviewScope, RoomOption } from "../../lib/types";
 import { StatusBadge } from "../StatusBadge";
 import { Avatar } from "../ui/Avatar";
@@ -55,6 +57,10 @@ function RequestDetails({ group, resources }: { group: AdminReservation[]; resou
         </div>
         <StatusBadge status={first.status} />
       </div>
+
+      {first.previousSnapshot && first.modifiedByRequesterAt && first.status === "PENDING" && (
+        <ChangeSummary reservation={first} />
+      )}
 
       <dl className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-sm">
         {first.activityType && <DetailRow label="Atividade">{ACTIVITY_TYPE_LABELS[first.activityType]}</DetailRow>}
@@ -103,6 +109,54 @@ function RequestDetails({ group, resources }: { group: AdminReservation[]; resou
   );
 }
 
+/** Antes × depois de uma reserva alterada pelo solicitante. */
+function ChangeSummary({ reservation: r }: { reservation: AdminReservation }) {
+  const before = r.previousSnapshot!;
+  const rows: { label: string; before: string; after: string }[] = [
+    {
+      label: "Data e horário",
+      before: formatDateTimeRange(before.startTime, before.endTime),
+      after: formatDateTimeRange(r.startTime, r.endTime),
+    },
+    { label: "Participantes", before: String(before.expectedAttendees), after: String(r.expectedAttendees) },
+    { label: "Sala", before: before.roomName ?? "—", after: "a definir" },
+    { label: "Status", before: RESERVATION_STATUS_LABELS[before.status], after: "Pendente" },
+  ];
+  return (
+    <div className="rounded-xl border border-info-foreground/25 bg-info-soft p-4 text-sm">
+      <p className="flex items-center gap-2 font-semibold text-info-foreground">
+        <PencilSimpleLineIcon size={18} weight="fill" aria-hidden />
+        Alterada pelo solicitante em {new Date(r.modifiedByRequesterAt!).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+      </p>
+      <table className="mt-3 w-full text-left">
+        <thead className="text-xs text-muted">
+          <tr>
+            <th scope="col" className="pb-1 font-medium">
+              <span className="sr-only">Campo</span>
+            </th>
+            <th scope="col" className="pb-1 font-medium">Antes</th>
+            <th scope="col" className="pb-1 font-medium">Agora</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const changed = row.before !== row.after;
+            return (
+              <tr key={row.label} className="align-top">
+                <th scope="row" className="py-1 pr-3 font-normal text-muted">
+                  {row.label}
+                </th>
+                <td className={cn("py-1 pr-3", changed && "text-muted line-through decoration-muted/50")}>{row.before}</td>
+                <td className={cn("py-1", changed && "font-semibold")}>{row.after}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Check({ state, children }: { state: "ok" | "warn" | "bad"; children: ReactNode }) {
   const { icon: CheckIcon, className }: { icon: Icon; className: string } = {
     ok: { icon: CheckCircleIcon, className: "text-success-foreground" },
@@ -145,6 +199,7 @@ export function ReviewDrawer({ group, resources, onClose, onDone }: ReviewDrawer
   const [reloadKey, setReloadKey] = useState(0);
 
   const scope: ReviewScope = target === ALL ? "series" : "single";
+  const previousRoomId = first.previousSnapshot?.roomId ?? null;
   const reservationId = target === ALL ? first.id : target;
 
   useEffect(() => {
@@ -155,9 +210,13 @@ export function ReviewDrawer({ group, resources, onClose, onDone }: ReviewDrawer
       .then((res) => {
         setOptions(res.options);
         setOccurrenceCount(res.occurrences.length);
-        // A API já devolve a mais adequada primeiro; só pré-seleciona se ela for utilizável.
+        // Numa alteração, se a sala em que estava aprovada ainda serve, ela vem marcada;
+        // senão, a mais adequada (a API já devolve essa primeiro).
+        const usable = (o: RoomOption) => o.fitsCapacity && o.conflictingDates.length < res.occurrences.length;
+        const previous = res.options.find((o) => o.room.id === previousRoomId && usable(o));
         const best = res.options[0];
-        if (best && best.fitsCapacity && best.conflictingDates.length < res.occurrences.length) setSelectedRoomId(best.room.id);
+        if (previous) setSelectedRoomId(previous.room.id);
+        else if (best && usable(best)) setSelectedRoomId(best.room.id);
       })
       .catch((e: Error) => {
         toast.error("Não foi possível carregar as salas.", e.message);
@@ -321,6 +380,11 @@ export function ReviewDrawer({ group, resources, onClose, onDone }: ReviewDrawer
                           {option.room.id === recommendedId && (
                             <Badge tone="primary" icon={SparkleIcon}>
                               Recomendada
+                            </Badge>
+                          )}
+                          {option.room.id === previousRoomId && (
+                            <Badge tone="info" icon={ClockCounterClockwiseIcon}>
+                              Sala anterior
                             </Badge>
                           )}
                         </div>

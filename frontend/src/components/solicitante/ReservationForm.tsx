@@ -8,23 +8,25 @@ import {
   CheckIcon,
   CircleIcon,
   PaperPlaneTiltIcon,
+  PencilSimpleLineIcon,
   PlusIcon,
   UsersIcon,
   WrenchIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { ACTIVITY_TYPE_LABELS, ACTIVITY_TYPES } from "../../lib/activities";
 import { api, ApiError } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { capitalizeFirst, formatShortDate, plural } from "../../lib/format";
 import { ACTIVITY_ICONS, resourceIcon } from "../../lib/icons";
 import { previewWeeklyDates } from "../../lib/recurrence";
+import { isEditable } from "../../lib/reservations";
 import { validateReservationTimes } from "../../lib/reservationValidation";
 import { useToast } from "../../lib/toast";
-import type { ActivityType, Reservation, Resource } from "../../lib/types";
+import type { ActivityType, Reservation, Resource, ReviewScope } from "../../lib/types";
 import { Button } from "../ui/Button";
-import { Alert } from "../ui/Feedback";
+import { Alert, CardListSkeleton, EmptyState } from "../ui/Feedback";
 import { Input, Select, Switch, Textarea } from "../ui/Field";
 import { QuantityStepper } from "../ui/QuantityStepper";
 import { SegmentedControl } from "../ui/SegmentedControl";
@@ -61,6 +63,39 @@ function todayPlus(days: number): string {
 function validationMessages(details: unknown): string[] {
   const flat = details as { formErrors?: string[]; fieldErrors?: Record<string, string[]> } | undefined;
   return [...new Set([...(flat?.formErrors ?? []), ...Object.values(flat?.fieldErrors ?? {}).flat()])];
+}
+
+/** Tela "Alterar reserva" (/minhas-reservas/:id/editar): o mesmo formulário, pré-preenchido. */
+export function EditReservationPage() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [reservation, setReservation] = useState<Reservation | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<{ reservation: Reservation }>(`/reservations/${id}`)
+      .then((res) => setReservation(res.reservation))
+      .catch((e: Error) => setError(e.message));
+  }, [id]);
+
+  const back = (
+    <Button variant="secondary" icon={ArrowLeftIcon} onClick={() => navigate("/minhas-reservas")}>
+      Minhas reservas
+    </Button>
+  );
+  if (error) return <EmptyState icon={CalendarBlankIcon} title="Reserva não encontrada" description={error} action={back} />;
+  if (!reservation) return <CardListSkeleton count={2} />;
+  if (!isEditable(reservation)) {
+    return (
+      <EmptyState
+        icon={CalendarBlankIcon}
+        title="Esta reserva não pode mais ser alterada"
+        description="Só dá para alterar reservas pendentes ou aprovadas com pelo menos 3 dias de antecedência. Se precisar, cancele e faça uma nova solicitação."
+        action={back}
+      />
+    );
+  }
+  return <ReservationForm editing={reservation} />;
 }
 
 /** Envolve o formulário com uma `key`: "Nova solicitação" remonta tudo do zero. */
@@ -140,22 +175,60 @@ function ChecklistItem({ ok, children }: { ok: boolean; children: ReactNode }) {
  * tem seus próprios campos; datas e recursos são iguais para todos. Não pede
  * sala — o Admin aloca a mais adequada ao aprovar.
  */
-function ReservationForm({ onReset }: { onReset: () => void }) {
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** Converte uma reserva salva nos valores do formulário (para alterá-la). */
+function formValuesFrom(r: Reservation) {
+  const details: DetailValues = { ...INITIAL_DETAIL_VALUES };
+  for (const [key, value] of Object.entries(r.activityDetails ?? {})) {
+    if (typeof value === "boolean") details[key] = value;
+    else if (value !== null && value !== undefined) details[key] = String(value);
+  }
+  const start = new Date(r.startTime);
+  const end = new Date(r.endTime);
+  return {
+    activityType: r.activityType,
+    details,
+    description: r.description,
+    supportNotes: r.supportNotes ?? "",
+    selectedResources: Object.fromEntries(
+      r.requestedResources.map((x) => [x.resourceId, { quantity: String(x.quantity ?? 1), detail: x.detail ?? "" }]),
+    ),
+    date: `${start.getFullYear()}-${pad2(start.getMonth() + 1)}-${pad2(start.getDate())}`,
+    start: `${pad2(start.getHours())}:${pad2(start.getMinutes())}`,
+    end: `${pad2(end.getHours())}:${pad2(end.getMinutes())}`,
+  };
+}
+
+interface ReservationFormProps {
+  onReset?: () => void;
+  /** Reserva existente a alterar (em vez de criar uma nova). */
+  editing?: Reservation;
+}
+
+function ReservationForm({ onReset, editing }: ReservationFormProps) {
   const navigate = useNavigate();
   const toast = useToast();
   const [resources, setResources] = useState<Resource[]>([]);
+  const [initial] = useState(() => (editing ? formValuesFrom(editing) : null));
 
-  const [activityType, setActivityType] = useState<ActivityType | null>(null);
-  const [details, setDetails] = useState<DetailValues>(INITIAL_DETAIL_VALUES);
-  const [description, setDescription] = useState("");
-  const [supportNotes, setSupportNotes] = useState("");
-  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [activityType, setActivityType] = useState<ActivityType | null>(initial?.activityType ?? null);
+  const [details, setDetails] = useState<DetailValues>(initial?.details ?? INITIAL_DETAIL_VALUES);
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [supportNotes, setSupportNotes] = useState(initial?.supportNotes ?? "");
+  // Numa alteração, o regulamento já tinha sido aceito no pedido original.
+  const [termsAccepted, setTermsAccepted] = useState(editing !== undefined);
   // Recursos marcados (a chave é o id), com a quantidade/detalhe como digitados.
-  const [selectedResources, setSelectedResources] = useState<Record<string, { quantity: string; detail: string }>>({});
+  const [selectedResources, setSelectedResources] = useState<Record<string, { quantity: string; detail: string }>>(
+    initial?.selectedResources ?? {},
+  );
 
-  const [date, setDate] = useState(todayPlus(4));
-  const [startTimeStr, setStartTimeStr] = useState("14:00");
-  const [endTimeStr, setEndTimeStr] = useState("16:00");
+  const [date, setDate] = useState(initial?.date ?? todayPlus(4));
+  const [startTimeStr, setStartTimeStr] = useState(initial?.start ?? "14:00");
+  const [endTimeStr, setEndTimeStr] = useState(initial?.end ?? "16:00");
+  // Alteração de uma data de série: só ela, ou ela e as próximas.
+  const [scope, setScope] = useState<ReviewScope>("single");
+  const [savedCount, setSavedCount] = useState<number | null>(null);
 
   const [recurrenceEnabled, setRecurrenceEnabled] = useState(false);
   const [interval, setInterval_] = useState<"1" | "2">("1");
@@ -223,37 +296,66 @@ function ReservationForm({ onReset }: { onReset: () => void }) {
             .join(",")}`
         : null;
 
-      const res = await api<{ reservations: Reservation[] }>("/reservations", {
-        method: "POST",
-        body: JSON.stringify({
-          activityType,
-          description,
-          details,
-          requestedResources: resources
-            .filter((r) => selectedResources[r.id])
-            .map((r) => ({
-              resourceId: r.id,
-              quantity: r.requestsQuantity ? Number(selectedResources[r.id]!.quantity) : undefined,
-              detail:
-                r.detailPrompt || r.detailOptions.length > 0 ? selectedResources[r.id]!.detail.trim() || undefined : undefined,
-            })),
-          supportNotes: supportNotes || undefined,
-          termsAccepted: true,
-          startTime: startDate!.toISOString(),
-          endTime: endDate!.toISOString(),
-          recurrence: rrule ? { rrule, until: new Date(`${until}T23:59:59`).toISOString() } : undefined,
-        }),
-      });
-      setResult(res.reservations);
+      const payload = {
+        activityType,
+        description,
+        details,
+        requestedResources: resources
+          .filter((r) => selectedResources[r.id])
+          .map((r) => ({
+            resourceId: r.id,
+            quantity: r.requestsQuantity ? Number(selectedResources[r.id]!.quantity) : undefined,
+            detail: r.detailPrompt || r.detailOptions.length > 0 ? selectedResources[r.id]!.detail.trim() || undefined : undefined,
+          })),
+        supportNotes: supportNotes || undefined,
+        termsAccepted: true,
+        startTime: startDate!.toISOString(),
+        endTime: endDate!.toISOString(),
+      };
+
+      if (editing) {
+        const res = await api<{ updatedIds: string[] }>(`/reservations/${editing.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ ...payload, scope }),
+        });
+        setSavedCount(res.updatedIds.length);
+      } else {
+        const res = await api<{ reservations: Reservation[] }>("/reservations", {
+          method: "POST",
+          body: JSON.stringify({ ...payload, recurrence: rrule ? { rrule, until: new Date(`${until}T23:59:59`).toISOString() } : undefined }),
+        });
+        setResult(res.reservations);
+      }
       window.scrollTo({ top: 0 });
     } catch (e) {
       const messages = e instanceof ApiError && e.code === "VALIDATION_ERROR" ? validationMessages(e.details) : [];
       const list = messages.length > 0 ? messages : [e instanceof Error ? e.message : "Falha ao enviar a solicitação."];
       setSubmitErrors(list);
-      toast.error("Não foi possível enviar a solicitação.", list[0]);
+      toast.error(editing ? "Não foi possível salvar a alteração." : "Não foi possível enviar a solicitação.", list[0]);
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (savedCount !== null) {
+    return (
+      <Card className="mx-auto max-w-lg animate-fade-in-up p-8 text-center">
+        <span className="mx-auto grid size-16 animate-pop place-items-center rounded-full bg-info-soft text-info-foreground">
+          <PencilSimpleLineIcon size={36} weight="fill" aria-hidden />
+        </span>
+        <h1 className="mt-5 text-2xl font-bold tracking-tight">Alteração enviada!</h1>
+        <p className="mt-2 text-muted">
+          {savedCount === 1 ? "A reserva voltou" : `As ${savedCount} datas voltaram`} para análise do SAD e{" "}
+          {savedCount === 1 ? "aparece" : "aparecem"} como <strong className="text-foreground">alterada</strong>. Você recebe um
+          e-mail quando o SAD aprovar ou rejeitar.
+        </p>
+        <div className="mt-8 flex justify-center">
+          <Button icon={CalendarCheckIcon} onClick={() => navigate("/minhas-reservas")}>
+            Ver minhas reservas
+          </Button>
+        </div>
+      </Card>
+    );
   }
 
   if (result) {
@@ -298,14 +400,37 @@ function ReservationForm({ onReset }: { onReset: () => void }) {
       ? capitalizeFirst(startDate.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" }))
       : "—";
 
+  // O tipo de atividade não muda numa alteração (só nas reservas antigas, que ainda não tinham tipo).
+  const activityLocked = editing?.activityType != null;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" icon={ArrowLeftIcon} onClick={() => setActivityType(null)} className="-ml-3">
-          Tipos de atividade
-        </Button>
+        {editing ? (
+          <Button variant="ghost" size="sm" icon={ArrowLeftIcon} onClick={() => navigate("/minhas-reservas")} className="-ml-3">
+            Minhas reservas
+          </Button>
+        ) : (
+          <Button variant="ghost" size="sm" icon={ArrowLeftIcon} onClick={() => setActivityType(null)} className="-ml-3">
+            Tipos de atividade
+          </Button>
+        )}
       </div>
-      <PageHeader title="Reservar uma sala" description={`${ACTIVITY_TYPE_LABELS[activityType]} — preencha os dados e envie para o SAD.`} />
+      <PageHeader
+        title={editing ? "Alterar reserva" : "Reservar uma sala"}
+        description={
+          editing
+            ? `${ACTIVITY_TYPE_LABELS[activityType]} — ${editing.title}`
+            : `${ACTIVITY_TYPE_LABELS[activityType]} — preencha os dados e envie para o SAD.`
+        }
+      />
+      {editing && (
+        <Alert tone={editing.status === "APPROVED" ? "warning" : "info"} title="Ao salvar, a reserva volta para análise do SAD">
+          {editing.status === "APPROVED" && editing.room
+            ? `Ela está aprovada na ${editing.room.name}. Com a alteração, fica marcada como alterada e a sala é liberada até o SAD aprovar de novo.`
+            : "Ela fica marcada como alterada até o SAD aprovar ou rejeitar."}
+        </Alert>
+      )}
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <form
@@ -333,7 +458,27 @@ function ReservationForm({ onReset }: { onReset: () => void }) {
               </Alert>
             )}
 
-            <div className="mt-5 rounded-xl border border-border p-4">
+            {editing?.seriesId && (
+              <div className="mt-5 space-y-2 rounded-xl border border-border p-4">
+                <span className="text-sm font-medium">Esta reserva faz parte de uma série. Alterar:</span>
+                <SegmentedControl
+                  label="Aplicar a alteração a"
+                  value={scope}
+                  onChange={setScope}
+                  options={[
+                    { value: "single", label: "Só esta data" },
+                    { value: "series", label: "Esta e as próximas" },
+                  ]}
+                />
+                {scope === "series" && (
+                  <p className="text-xs text-muted">
+                    Mudar a data ou o horário aqui muda todas as próximas datas do mesmo jeito (ex.: das 10h para as 14h).
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className={cn("mt-5 rounded-xl border border-border p-4", editing && "hidden")}>
               <Switch
                 checked={recurrenceEnabled}
                 onChange={toggleRecurrence}
@@ -415,9 +560,11 @@ function ReservationForm({ onReset }: { onReset: () => void }) {
                   <p className="font-semibold text-primary-soft-foreground">{ACTIVITY_TYPE_LABELS[activityType]}</p>
                 </div>
               </div>
-              <Button variant="ghost" size="sm" icon={ArrowsLeftRightIcon} onClick={() => setActivityType(null)}>
-                Trocar
-              </Button>
+              {!activityLocked && (
+                <Button variant="ghost" size="sm" icon={ArrowsLeftRightIcon} onClick={() => setActivityType(null)}>
+                  Trocar
+                </Button>
+              )}
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <Textarea
@@ -572,7 +719,7 @@ function ReservationForm({ onReset }: { onReset: () => void }) {
             {/* No celular o botão fica no fim do formulário; aqui só no computador. */}
             <div className="mt-5 hidden lg:block">
               <Button type="submit" form={FORM_ID} size="lg" icon={PaperPlaneTiltIcon} loading={submitting} disabled={!canSubmit} className="w-full">
-                Enviar solicitação
+                {editing ? "Salvar alteração" : "Enviar solicitação"}
               </Button>
             </div>
           </Card>
@@ -603,7 +750,7 @@ function ReservationForm({ onReset }: { onReset: () => void }) {
           )}
           <div className="lg:hidden">
             <Button type="submit" form={FORM_ID} size="lg" icon={PaperPlaneTiltIcon} loading={submitting} disabled={!canSubmit} className="w-full">
-              Enviar solicitação
+              {editing ? "Salvar alteração" : "Enviar solicitação"}
             </Button>
           </div>
         </Card>

@@ -27,3 +27,15 @@ export function onReservationsChanged(callback: () => void): () => void {
 export function isCancellable(r: Pick<Reservation, "status" | "startTime">, now = Date.now()): boolean {
   return (r.status === "PENDING" || r.status === "APPROVED") && new Date(r.startTime).getTime() > now;
 }
+
+const MIN_EDIT_ADVANCE_MS = 3 * 24 * 60 * 60 * 1000;
+
+/** Mesma regra do back-end: pendente ou aprovada, com pelo menos 3 dias de antecedência. */
+export function isEditable(r: Pick<Reservation, "status" | "startTime">, now = Date.now()): boolean {
+  return (r.status === "PENDING" || r.status === "APPROVED") && new Date(r.startTime).getTime() - now >= MIN_EDIT_ADVANCE_MS;
+}
+
+/** Pendente de novo depois de o solicitante alterar (aba "Alteradas" do SAD). */
+export function isModifiedPending(r: Pick<Reservation, "status" | "modifiedByRequesterAt">): boolean {
+  return r.status === "PENDING" && r.modifiedByRequesterAt !== null;
+}

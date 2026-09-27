@@ -152,6 +152,73 @@ export async function rejectedMails(ids: string[]): Promise<Mail[]> {
   ];
 }
 
+const STATUS_LABELS: Record<string, string> = { PENDING: "pendente", APPROVED: "aprovada", REJECTED: "rejeitada", CANCELLED: "cancelada" };
+
+/** Lê o retrato "antes da alteração" guardado em reservations.previous_snapshot. */
+function snapshotOf(json: Prisma.JsonValue | null): { status: string; startTime: Date; endTime: Date; roomName: string | null } | null {
+  if (!json || typeof json !== "object" || Array.isArray(json)) return null;
+  const s = json as Prisma.JsonObject;
+  if (typeof s.startTime !== "string" || typeof s.endTime !== "string") return null;
+  return {
+    status: String(s.status),
+    startTime: new Date(s.startTime),
+    endTime: new Date(s.endTime),
+    roomName: typeof s.roomName === "string" ? s.roomName : null,
+  };
+}
+
+/**
+ * Alteração pelo solicitante: a reserva volta para análise. Confirmação para o
+ * solicitante, aviso para o SAD (com o "antes") e, se estava aprovada com
+ * equipamentos, para a TI esperar a nova aprovação.
+ */
+export async function modifiedMails(ids: string[]): Promise<Mail[]> {
+  const list = await load(ids);
+  const first = list[0];
+  if (!first) return [];
+  const dates = list.map(formatSlot);
+  const before = snapshotOf(first.previousSnapshot);
+  const beforeLine = before
+    ? `${formatSlot(before)}${before.roomName ? ` · ${before.roomName}` : ""} (${STATUS_LABELS[before.status] ?? before.status})`
+    : null;
+
+  const mails = [
+    mail([first.user.email], `Alteração recebida: ${first.title}`, {
+      heading: "Recebemos a alteração da sua reserva",
+      paragraphs: [
+        `Olá, ${first.user.name}. A reserva "${first.title}" foi alterada e voltou para análise do SAD.`,
+        "Você recebe outro e-mail quando ela for aprovada ou rejeitada.",
+      ],
+      dates,
+    }),
+    mail(await adminEmails(), `Reserva alterada: ${first.title}`, {
+      heading: "Reserva alterada pelo solicitante",
+      paragraphs: ["Ela voltou para análise e está na aba Alteradas, em Solicitações."],
+      details: [
+        ["Solicitante", requesterOf(first)],
+        ...(beforeLine ? [["Antes", beforeLine] as [string, string]] : []),
+      ],
+      dates,
+    }),
+  ];
+
+  const resources = before?.status === "APPROVED" ? await describeResources(first.requestedResources) : null;
+  if (resources && beforeLine) {
+    mails.push(
+      mail([env.TI_EMAIL_ADDRESS], `Aguardar nova aprovação: ${first.title}`, {
+        heading: "Reserva aprovada com recursos foi alterada",
+        paragraphs: ["Ela voltou para análise do SAD. Espere a nova aprovação antes de preparar os recursos."],
+        details: [
+          ["Antes", beforeLine],
+          ["Recursos", resources],
+        ],
+        dates,
+      }),
+    );
+  }
+  return mails;
+}
+
 /**
  * Cancelamento pelo solicitante: aviso para o SAD e, se alguma data já
  * estava aprovada com equipamentos, para a TI não preparar à toa.

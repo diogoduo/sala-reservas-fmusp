@@ -9,6 +9,8 @@ import {
   ClockIcon,
   HourglassMediumIcon,
   MapPinIcon,
+  PencilSimpleIcon,
+  PencilSimpleLineIcon,
   RepeatIcon,
   XIcon,
 } from "@phosphor-icons/react";
@@ -20,10 +22,11 @@ import { cn } from "../../lib/cn";
 import { useConfirm } from "../../lib/confirm";
 import { dateTile, formatDateTimeRange, formatTimeRange, plural, relativeDays } from "../../lib/format";
 import { ACTIVITY_ICONS } from "../../lib/icons";
-import { groupBySeries, isCancellable } from "../../lib/reservations";
+import { groupBySeries, isCancellable, isEditable, isModifiedPending } from "../../lib/reservations";
 import { useToast } from "../../lib/toast";
 import type { Reservation, ReviewScope } from "../../lib/types";
 import { StatusBadge } from "../StatusBadge";
+import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { CardListSkeleton, EmptyState } from "../ui/Feedback";
 import { SegmentedControl } from "../ui/SegmentedControl";
@@ -47,6 +50,9 @@ function Situation({ reservation: r }: { reservation: Reservation }) {
         </span>
       );
     case "PENDING":
+      if (r.modifiedByRequesterAt) {
+        return <span className="text-muted">Alterada por você · aguardando nova análise do SAD</span>;
+      }
       // Com sala = pedido anterior à correção pós-Fase 5, quando o solicitante indicava a sala.
       return <span className="text-muted">{room ? `Sala indicada: ${room} · aguardando aprovação` : "Aguardando o SAD alocar uma sala"}</span>;
     case "REJECTED":
@@ -242,17 +248,30 @@ export function MyReservations() {
                   <ul className="divide-y divide-border border-t border-border">
                     {visibleRows.map((r) => {
                       const inactive = r.status === "CANCELLED" || r.status === "REJECTED";
-                      const cancelButton = isCancellable(r, now) && (
-                        <Button
-                          variant="danger-soft"
-                          size="sm"
-                          icon={XIcon}
-                          loading={busyId === r.id}
-                          disabled={busyId !== null}
-                          onClick={() => void cancel(r, "single", 1)}
-                        >
-                          Cancelar
-                        </Button>
+                      const actions = isCancellable(r, now) && (
+                        <div className="flex gap-1">
+                          {isEditable(r, now) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              icon={PencilSimpleIcon}
+                              disabled={busyId !== null}
+                              onClick={() => navigate(`/minhas-reservas/${r.id}/editar`)}
+                            >
+                              Alterar
+                            </Button>
+                          )}
+                          <Button
+                            variant="danger-soft"
+                            size="sm"
+                            icon={XIcon}
+                            loading={busyId === r.id}
+                            disabled={busyId !== null}
+                            onClick={() => void cancel(r, "single", 1)}
+                          >
+                            Cancelar
+                          </Button>
+                        </div>
                       );
                       return (
                         <li key={r.id} className="flex items-start gap-3 px-4 py-3 sm:items-center sm:gap-4 sm:px-5">
@@ -264,14 +283,19 @@ export function MyReservations() {
                                 {formatTimeRange(r.startTime, r.endTime)}
                               </span>
                               <StatusBadge status={r.status} />
+                              {isModifiedPending(r) && (
+                                <Badge tone="info" icon={PencilSimpleLineIcon}>
+                                  Alterada
+                                </Badge>
+                              )}
                             </div>
                             <p className="text-sm">
                               <Situation reservation={r} />
                             </p>
                             {/* Celular: o botão vai abaixo do texto, que fica com a largura toda. */}
-                            {cancelButton && <div className="-ml-3 sm:hidden">{cancelButton}</div>}
+                            {actions && <div className="-ml-3 sm:hidden">{actions}</div>}
                           </div>
-                          {cancelButton && <div className="hidden shrink-0 sm:block">{cancelButton}</div>}
+                          {actions && <div className="hidden shrink-0 sm:block">{actions}</div>}
                         </li>
                       );
                     })}

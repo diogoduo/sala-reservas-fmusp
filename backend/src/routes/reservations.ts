@@ -5,13 +5,13 @@ import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
 import { prisma } from "../lib/prisma";
 import { sendInBackground } from "../mail/mailer";
-import { cancelledMails, requestReceivedMails } from "../mail/notifications";
+import { cancelledMails, modifiedMails, requestReceivedMails } from "../mail/notifications";
 import { requireAuth } from "../middleware/auth";
 import { summarizeActivity } from "../reservations/activities";
 import { expandRecurrence, type Occurrence } from "../reservations/recurrence";
 import { normalizeRequestedResources } from "../reservations/requested-resources";
 import { assertMinAdvance, assertValidDuration, assertWithinBusinessHours } from "../reservations/rules";
-import { cancelReservationSchema, createReservationSchema } from "../schemas/reservation";
+import { cancelReservationSchema, createReservationSchema, updateReservationSchema } from "../schemas/reservation";
 
 export const reservationsRouter = Router();
 
@@ -186,5 +186,116 @@ reservationsRouter.post(
 
     sendInBackground("reserva cancelada", () => cancelledMails(cancelledIds));
     res.json({ cancelledIds });
+  }),
+);
+
+// ----------------------------------------------------------------------------
+// Alteração pelo próprio solicitante. Vale para reservas pendentes ou
+// aprovadas com pelo menos 3 dias de antecedência (a mesma regra de um pedido
+// novo). A reserva volta para análise (PENDING) marcada como alterada, e a sala
+// é liberada: o novo horário pode não caber nela. O SAD vê essas reservas na
+// aba "Alteradas", com o retrato de como estavam antes.
+// ----------------------------------------------------------------------------
+
+const MIN_EDIT_ADVANCE_MS = 3 * 24 * 60 * 60 * 1000; // mesma antecedência de assertMinAdvance
+
+reservationsRouter.put(
+  "/:id",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const input = updateReservationSchema.parse(req.body);
+    const userId = req.user!.id;
+    const { title, expectedAttendees } = summarizeActivity(input);
+    assertValidDuration(input.startTime, input.endTime);
+    const requestedResources = await normalizeRequestedResources(prisma, input.requestedResources);
+
+    const updatedIds = await prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const editableFrom = new Date(now.getTime() + MIN_EDIT_ADVANCE_MS);
+      const reservation = await tx.reservation.findUnique({ where: { id: req.params.id } });
+      if (!reservation || reservation.userId !== userId) {
+        throw new AppError(404, "RESERVATION_NOT_FOUND", "Reserva não encontrada.");
+      }
+      if (!CANCELLABLE_STATUSES.includes(reservation.status)) {
+        throw new AppError(409, "RESERVATION_NOT_EDITABLE", "Esta reserva já foi rejeitada ou cancelada e não pode ser alterada.");
+      }
+      if (reservation.startTime < editableFrom) {
+        throw new AppError(
+          400,
+          "EDIT_TOO_SOON",
+          "Faltam menos de 3 dias para esta reserva: não dá mais para alterar. Se precisar, cancele e faça uma nova solicitação.",
+        );
+      }
+      if (reservation.activityType && reservation.activityType !== input.activityType) {
+        throw new AppError(400, "ACTIVITY_TYPE_LOCKED", "O tipo de atividade não muda numa alteração. Cancele e faça uma nova solicitação.");
+      }
+
+      // "series": esta e as próximas datas ativas da série que ainda podem ser alteradas.
+      const targets =
+        input.scope === "series" && reservation.seriesId
+          ? await tx.reservation.findMany({
+              where: {
+                seriesId: reservation.seriesId,
+                userId,
+                status: { in: CANCELLABLE_STATUSES },
+                startTime: { gte: reservation.startTime },
+              },
+              include: { room: true },
+              orderBy: { startTime: "asc" },
+            })
+          : [await tx.reservation.findUniqueOrThrow({ where: { id: reservation.id }, include: { room: true } })];
+
+      // Mover a data/horário da data escolhida move todas as outras do mesmo jeito
+      // (ex.: "a aula passa das 10h para as 14h" ou "passa de quinta para sexta").
+      const shiftMs = input.startTime.getTime() - reservation.startTime.getTime();
+      const durationMs = input.endTime.getTime() - input.startTime.getTime();
+
+      for (const target of targets) {
+        const start = new Date(target.startTime.getTime() + shiftMs);
+        const end = new Date(start.getTime() + durationMs);
+        assertWithinBusinessHours(start, end);
+        assertMinAdvance(start, now);
+
+        // Guarda o último estado revisado: se já era uma alteração pendente, mantém o retrato original.
+        const keepSnapshot = target.status === "PENDING" && target.modifiedByRequesterAt !== null && target.previousSnapshot !== null;
+        const previousSnapshot = keepSnapshot
+          ? (target.previousSnapshot as Prisma.InputJsonValue)
+          : {
+              status: target.status,
+              startTime: target.startTime.toISOString(),
+              endTime: target.endTime.toISOString(),
+              roomId: target.roomId,
+              roomName: target.room ? `${target.room.name} — ${target.room.building}, ${target.room.floor}` : null,
+              expectedAttendees: target.expectedAttendees,
+              title: target.title,
+            };
+
+        await tx.reservation.update({
+          where: { id: target.id },
+          data: {
+            title,
+            description: input.description,
+            activityType: input.activityType,
+            activityDetails: input.details,
+            expectedAttendees,
+            requestedResources,
+            supportNotes: input.supportNotes ?? null,
+            startTime: start,
+            endTime: end,
+            status: "PENDING",
+            roomId: null,
+            reviewedById: null,
+            reviewedAt: null,
+            rejectionReason: null,
+            modifiedByRequesterAt: now,
+            previousSnapshot,
+          },
+        });
+      }
+      return targets.map((t) => t.id);
+    });
+
+    sendInBackground("reserva alterada", () => modifiedMails(updatedIds));
+    res.json({ updatedIds });
   }),
 );
