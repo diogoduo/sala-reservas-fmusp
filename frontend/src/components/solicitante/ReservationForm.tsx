@@ -441,7 +441,7 @@ function ReservationForm({ onReset, editing }: ReservationFormProps) {
             e.preventDefault();
             if (canSubmit) void submit();
           }}
-          className="space-y-6"
+          className="min-w-0 space-y-6"
         >
           <FormSection step={1} title="Quando" description="Funcionamento das 07:30 às 22:30, com no mínimo 3 dias de antecedência.">
             <div className="grid gap-4 sm:grid-cols-3">

@@ -74,7 +74,9 @@ export function RoomsPreview({ attendees, date }: Props) {
         <ul
           ref={scroller}
           aria-label="Salas que comportam a atividade"
-          className="-mx-5 mt-4 flex snap-x snap-mandatory scroll-px-5 gap-3 overflow-x-auto px-5 pb-2 scrollbar-none sm:-mx-6 sm:scroll-px-6 sm:px-6"
+          // `relative`: o texto sr-only (position: absolute) dos links fica preso na área
+          // rolável; sem isso ele "escapa" e a página inteira ganha rolagem lateral.
+          className="relative -mx-5 mt-4 flex snap-x snap-mandatory scroll-px-5 gap-3 overflow-x-auto px-5 pb-2 scrollbar-none sm:-mx-6 sm:scroll-px-6 sm:px-6"
         >
           {fitting.map((room) => (
             <li key={room.id} className="w-56 shrink-0 snap-start overflow-hidden rounded-xl border border-border bg-surface">
