@@ -40,6 +40,7 @@ Monorepo simples com duas aplicações independentes:
 ```
 sala-reservas-fmusp/
 ├── docker-compose.yml        # PostgreSQL 16 + Mailpit (SMTP de desenvolvimento)
+├── render.yaml               # deploy da demonstração (Render + banco no Neon)
 ├── backend/                  # Node.js + Express + TypeScript + Prisma
 │   ├── prisma/
 │   │   ├── schema.prisma
@@ -324,6 +325,48 @@ cloudflared tunnel --url http://localhost:5173
 O `vite.config.ts` libera só os domínios de túnel (`.trycloudflare.com` e
 `.devtunnels.ms`, do VS Code); qualquer outro host continua bloqueado. Quem
 tiver o link usa o Dev Mode e os dados do banco local, inclusive como Admin.
+
+### Demonstração online (Render + Neon)
+
+Para deixar o sistema no ar sem depender do computador ligado:
+
+- **Render**, plano grátis: um serviço web só. O Express serve a API e também
+  o front-end compilado (`frontend/dist`), com fallback para as rotas do
+  React. Tudo fica na mesma origem, então o cookie de sessão funciona sem
+  CORS. A configuração está em `render.yaml`.
+- **Neon**, plano grátis: o PostgreSQL, com a extensão `btree_gist`. As fotos
+  ficam no banco, então o servidor não precisa de disco.
+
+O modo demonstração é ligado por variáveis de ambiente:
+
+| Variável | Na demonstração | Para quê |
+|---|---|---|
+| `ACCESS_CODE` | código combinado | Antes de qualquer tela, o site pede esse código. Sem ele, a API responde `ACCESS_CODE_REQUIRED` (só `/api/health` e `/api/access` ficam abertos). O cookie guarda um HMAC do código, e trocar o código derruba os acessos antigos. São 10 tentativas erradas por IP a cada 15 min. |
+| `DEMO_MODE` | `true` | Libera o login de teste (`AUTH_MODE=mock`) em produção, desde que `ACCESS_CODE` esteja definido. Sem essa combinação, o servidor não sobe. |
+| `MAIL_ENABLED` | `false` | Não envia e-mails, só registra no log. |
+| `FRONTEND_URL` | (vazio) | Vem sozinho de `RENDER_EXTERNAL_URL`. |
+
+**Passo a passo:**
+
+1. No Neon, crie um projeto na região **AWS US East (N. Virginia)**, a mesma
+   do serviço no Render. Copie a connection string.
+2. Carregue o banco do seu computador. Os dados reais e as fotos saem daqui,
+   e não do GitHub. Em `backend/`, crie `.env.neon` (fora do git) com
+   `DATABASE_URL=<connection string>` e rode:
+
+   ```bash
+   export $(grep DATABASE_URL .env.neon)   # no PowerShell: $env:DATABASE_URL="..."
+   npx prisma migrate deploy
+   npm run db:seed          # recursos e contas de teste
+   npm run db:import-fmusp  # salas reais, inventário, notebooks e fotos
+   ```
+3. No Render, crie um **Blueprint** a partir deste repositório. Ele lê o
+   `render.yaml` e pede `DATABASE_URL` (a mesma do Neon) e `ACCESS_CODE`.
+4. Abra o endereço `https://….onrender.com` e digite o código.
+
+No plano grátis, o serviço "dorme" depois de 15 minutos sem acesso, e o
+primeiro acesso depois disso leva cerca de 1 minuto. Antes de apresentar, abra
+o site um pouco antes.
 
 ## Fase 8 — Minhas Reservas
 

@@ -4,6 +4,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import App from "./App";
+import { AccessGate } from "./components/AccessGate";
 import { AuthProvider } from "./lib/auth";
 import { ConfirmProvider } from "./lib/confirm";
 import { PhotoViewerProvider } from "./lib/photoViewer";
@@ -15,15 +16,17 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider>
       <BrowserRouter>
-        <AuthProvider>
-          <ToastProvider>
-            <ConfirmProvider>
-              <PhotoViewerProvider>
-                <App />
-              </PhotoViewerProvider>
-            </ConfirmProvider>
-          </ToastProvider>
-        </AuthProvider>
+        <AccessGate>
+          <AuthProvider>
+            <ToastProvider>
+              <ConfirmProvider>
+                <PhotoViewerProvider>
+                  <App />
+                </PhotoViewerProvider>
+              </ConfirmProvider>
+            </ToastProvider>
+          </AuthProvider>
+        </AccessGate>
       </BrowserRouter>
     </ThemeProvider>
   </StrictMode>,

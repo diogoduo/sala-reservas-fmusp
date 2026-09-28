@@ -3,6 +3,7 @@ import {
   BellRingingIcon,
   CodeIcon,
   ListChecksIcon,
+  PresentationChartIcon,
   SignInIcon,
   SparkleIcon,
   type Icon,
@@ -34,7 +35,7 @@ const HIGHLIGHTS: { icon: Icon; title: string; text: string }[] = [
 
 /** Tela de login do "Dev Mode": escolher uma conta de teste ou digitar um e-mail @usp.br novo. */
 function MockLogin() {
-  const { refresh } = useAuth();
+  const { refresh, demo } = useAuth();
   const [users, setUsers] = useState<MockUser[] | null>(null);
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -62,12 +63,20 @@ function MockLogin() {
     <>
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Entrar</h1>
-        <Badge tone="warning" icon={CodeIcon}>
-          Dev Mode
-        </Badge>
+        {demo ? (
+          <Badge tone="info" icon={PresentationChartIcon}>
+            Demonstração
+          </Badge>
+        ) : (
+          <Badge tone="warning" icon={CodeIcon}>
+            Dev Mode
+          </Badge>
+        )}
       </div>
       <p className="mt-2 text-sm text-muted">
-        Simula a Senha Única USP para desenvolvimento local. Escolha uma conta de teste:
+        {demo
+          ? "Ambiente de demonstração, com as salas reais da FMUSP. Na versão oficial o login é pela Senha Única USP. Escolha um perfil para entrar:"
+          : "Simula a Senha Única USP para desenvolvimento local. Escolha uma conta de teste:"}
       </p>
 
       <ul className="mt-6 space-y-2">

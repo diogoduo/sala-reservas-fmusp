@@ -12,6 +12,8 @@ interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
   authMode: "mock" | "senhaunica" | "oidc" | null;
+  /** Demonstração online (DEMO_MODE): o login de teste está liberado em produção. */
+  demo: boolean;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -21,6 +23,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [authMode, setAuthMode] = useState<AuthContextValue["authMode"]>(null);
+  const [demo, setDemo] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const refresh = async () => {
@@ -40,8 +43,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    api<{ mode: AuthContextValue["authMode"] }>("/auth/config")
-      .then((res) => setAuthMode(res.mode))
+    api<{ mode: AuthContextValue["authMode"]; demo?: boolean }>("/auth/config")
+      .then((res) => {
+        setAuthMode(res.mode);
+        setDemo(Boolean(res.demo));
+      })
       .catch(() => setAuthMode(null));
     void refresh();
   }, []);
@@ -52,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, authMode, refresh, logout }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ user, loading, authMode, demo, refresh, logout }}>{children}</AuthContext.Provider>
   );
 }
 

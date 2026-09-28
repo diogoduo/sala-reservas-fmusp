@@ -15,6 +15,9 @@ export class ApiError extends Error {
   }
 }
 
+/** Disparado quando a API pede o código de acesso da demonstração (ver AccessGate). */
+export const ACCESS_REQUIRED_EVENT = "reservas:codigo-de-acesso";
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api${path}`, {
     credentials: "include",
@@ -24,6 +27,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as ApiErrorBody | null;
+    if (body?.error.code === "ACCESS_CODE_REQUIRED") window.dispatchEvent(new Event(ACCESS_REQUIRED_EVENT));
     throw new ApiError(
       response.status,
       body?.error.code ?? "UNKNOWN",

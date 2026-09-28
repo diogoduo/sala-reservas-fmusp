@@ -7,15 +7,7 @@
     <meta name="theme-color" content="#0f766e" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Reserva de Salas — FMUSP</title>
-    <script>
-      // Aplica o tema antes de o React montar, para a página não "piscar" no tema errado.
-      // Mesma chave de src/lib/theme.tsx.
-      try {
-        var t = localStorage.getItem("reservas-fmusp:tema");
-        var dark = t === "dark" || ((t === null || t === "system") && matchMedia("(prefers-color-scheme: dark)").matches);
-        if (dark) document.documentElement.classList.add("dark");
-      } catch (e) {}
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

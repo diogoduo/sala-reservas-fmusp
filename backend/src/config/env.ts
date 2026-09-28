@@ -18,12 +18,16 @@ const bool = (fallback: "true" | "false") =>
     .default(fallback)
     .transform((value) => value === "true");
 
+// Variável definida mas vazia (comum em painéis de hospedagem) conta como ausente.
+const optionalText = (inner: z.ZodString) => z.preprocess((value) => (value === "" ? undefined : value), inner.optional());
+
 const schema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     PORT: z.coerce.number().int().positive().default(3333),
     APP_TIMEZONE: z.string().default("America/Sao_Paulo"),
-    FRONTEND_URL: z.string().url(),
+    // No Render, o endereço público do serviço vem em RENDER_EXTERNAL_URL.
+    FRONTEND_URL: z.preprocess((value) => value || process.env.RENDER_EXTERNAL_URL, z.string().url()),
 
     DATABASE_URL: z.string().min(1),
 
@@ -32,6 +36,13 @@ const schema = z
     COOKIE_SECURE: bool("false"),
 
     AUTH_MODE: z.enum(["mock", "senhaunica", "oidc"]).default("mock"),
+    // Demonstração online: libera o login de teste (mock) em produção, desde
+    // que o site esteja protegido por ACCESS_CODE.
+    DEMO_MODE: bool("false"),
+    // Código pedido antes de qualquer tela; sem ele a API não responde. Vazio = sem código.
+    ACCESS_CODE: optionalText(z.string().min(6, "ACCESS_CODE precisa ter pelo menos 6 caracteres")),
+    // Pasta do front-end compilado (vite build), servida pelo próprio back-end em produção.
+    FRONTEND_DIST: optionalText(z.string()),
     ALLOWED_EMAIL_DOMAINS: csv("usp.br,fm.usp.br,hc.fm.usp.br"),
     ADMIN_EMAILS: csv(""),
 
@@ -53,6 +64,8 @@ const schema = z
     SMTP_USER: z.string().optional(),
     SMTP_PASS: z.string().optional(),
     MAIL_FROM: z.string().min(1),
+    // false = não envia e-mails (só registra no log). Útil numa demonstração sem SMTP.
+    MAIL_ENABLED: bool("true"),
     TI_EMAIL_ADDRESS: z.string().email(),
   })
   .superRefine((cfg, ctx) => {
@@ -71,11 +84,11 @@ const schema = z
       requireKeys(["OIDC_ISSUER", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET", "OIDC_REDIRECT_URI"], "com AUTH_MODE=oidc");
     }
     if (cfg.NODE_ENV === "production") {
-      if (cfg.AUTH_MODE === "mock") {
+      if (cfg.AUTH_MODE === "mock" && !(cfg.DEMO_MODE && cfg.ACCESS_CODE)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["AUTH_MODE"],
-          message: "AUTH_MODE=mock é proibido em produção",
+          message: "AUTH_MODE=mock é proibido em produção (exceto em demonstração: DEMO_MODE=true com ACCESS_CODE)",
         });
       }
       if (!cfg.COOKIE_SECURE) {

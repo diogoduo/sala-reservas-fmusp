@@ -18,6 +18,10 @@ export interface Mail {
 
 async function send(mail: Mail): Promise<void> {
   if (mail.to.length === 0) return;
+  if (!env.MAIL_ENABLED) {
+    console.log(`[e-mail] MAIL_ENABLED=false, não enviado: "${mail.subject}" → ${mail.to.join(", ")}`);
+    return;
+  }
   await transport.sendMail({ from: env.MAIL_FROM, ...mail });
 }
 

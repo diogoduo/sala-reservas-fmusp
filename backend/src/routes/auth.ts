@@ -33,7 +33,7 @@ authRouter.post("/logout", (_req, res) => {
 
 authRouter.get("/config", (_req, res) => {
   // O front usa isto para saber qual tela de login mostrar.
-  res.json({ mode: env.AUTH_MODE });
+  res.json({ mode: env.AUTH_MODE, demo: env.DEMO_MODE });
 });
 
 /** Cria (no primeiro acesso) ou atualiza o usuário e abre a sessão. Usado pelos três modos. */
@@ -51,7 +51,8 @@ async function loginOrCreateUser(input: { uspNumber: string; name: string; email
 }
 
 // ----------------------------------------------------------------------------
-// Modo "mock" — só disponível fora de produção (garantido também em config/env.ts)
+// Modo "mock" — fora de produção, ou na demonstração online (DEMO_MODE com
+// ACCESS_CODE; regra em config/env.ts)
 // ----------------------------------------------------------------------------
 
 const mockOnly = (_req: unknown, res: import("express").Response, next: import("express").NextFunction) => {
