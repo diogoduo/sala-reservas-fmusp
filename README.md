@@ -46,7 +46,6 @@ sala-reservas-fmusp/
 │   │   ├── migrations/       # init + db_constraints (CHECKs e exclusão de sobreposição)
 │   │   ├── seed.ts           # salas, recursos e usuários fictícios
 │   │   └── import-fmusp.ts   # catálogo real da FMUSP (dados fora do git)
-│   ├── storage/              # fotos das salas geradas no upload (fora do git)
 │   └── src/                  # app, config/env (zod), rotas, middleware de erros
 └── frontend/                 # React + TypeScript + Vite + Tailwind v4
 ```
@@ -383,12 +382,20 @@ equipamentos de cada sala, com modelo e patrimônio.
   - O import pode rodar de novo. Ele identifica a sala por prédio, andar e
     nome, substitui o inventário pelo da planilha e mantém o status que o SAD
     deu a ela.
-  - As salas fictícias do seed ficam **Inativas**: elas têm reservas de teste
-    e não podem ser excluídas.
+  - As salas fictícias do seed saem do banco se nada aponta para elas. Se já
+    têm reservas de teste, ficam **Inativas**.
 - Cada sala tem:
   - capacidade (cadeiras da plateia), cadeiras extras e dimensões;
   - tipo: Anfiteatro, Sala de Aula, Sala de Informática, Sala de Reunião,
-    Congregação/CTA ou Teatro.
+    Congregação/CTA ou Teatro;
+  - tipo de cadeira (Escolar, Universitária fixa, Universitária móvel; pode
+    ter mais de um), porta de 900 mm e **atendimento especial**. Essas
+    informações aparecem para o solicitante, e a consulta de salas filtra as
+    salas com atendimento especial.
+- **Capacidade "a definir"**: uma sala fora de uso (em reforma, por exemplo)
+  pode ficar sem capacidade. Sala **Ativa** precisa dela, porque entra na
+  alocação. A API recusa com `CAPACITY_REQUIRED`, e o banco garante a mesma
+  regra (`rooms_active_capacity_check`).
 - Cada recurso da sala tem quantidade, modelo e patrimônio(s). O que não é um
   tipo de recurso vai em **Outros equipamentos**, em texto livre.
 - **Só o SAD vê modelo, patrimônio e outros equipamentos.** Para os demais
@@ -402,6 +409,15 @@ equipamentos de cada sala, com modelo e patrimônio.
   - filtros por recurso e por prédio;
   - **Exportar CSV**, que abre direto no Excel;
   - **Editar**, que abre o painel da sala.
+- Tela **Recursos**, aba **Notebooks** (`/admin/recursos?aba=notebooks`):
+  controle de patrimônio dos notebooks do SAD, que não são reservados pelo
+  sistema.
+  - Dois grupos: **Backup no SAD** e **Transferidos para o NIT** (a TI da
+    faculdade).
+  - Cadastrar, informar o modelo, mover de um grupo para o outro, excluir e
+    exportar CSV.
+  - API `/api/notebooks`, só para o SAD. O import carrega os patrimônios da
+    planilha e não mexe no que o SAD já editou.
 
 ## Fotos das salas
 
@@ -429,9 +445,11 @@ equipamentos de cada sala, com modelo e patrimônio.
   - `DELETE /api/rooms/:id/photos/:photoId` remove a foto e os arquivos.
 - **Arquivos**: o back-end (sharp) gera duas versões WebP de cada foto,
   `thumb` (720 px) e `large` (1920 px), respeita a orientação do EXIF e
-  descarta a original. As 113 fotos originais (667 MB) viraram 16 MB.
-  - Ficam em `PHOTO_STORAGE_DIR` (padrão `backend/storage/room-photos`, fora do
-    git).
+  descarta a original. As fotos originais (cerca de 700 MB) viraram 19 MB.
+  - As versões ficam **no próprio banco** (`room_photos.thumb` e `.large`), e
+    não em disco. Assim o app roda em hospedagem sem disco persistente, e o
+    import manda as fotos direto para o banco. As listagens nunca carregam
+    esses bytes.
   - São servidas em `/api/fotos/<id>-thumb.webp` e `-large.webp`, só para
     quem está logado.
   - Foto nova ganha um id novo, então o navegador pode guardá-las em cache

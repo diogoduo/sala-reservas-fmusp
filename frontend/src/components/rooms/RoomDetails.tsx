@@ -6,6 +6,7 @@ import type { Room } from "../../lib/types";
 import { AvailabilityCalendar } from "../solicitante/AvailabilityCalendar";
 import { RoomResourceChips } from "../solicitante/RoomSearch";
 import { Dialog } from "../ui/Dialog";
+import { RoomFeatures } from "./RoomFeatures";
 import { PhotoMosaic } from "./RoomPhotos";
 
 function Fact({ icon: FactIcon, label, children }: { icon: Icon; label: string; children: ReactNode }) {
@@ -34,7 +35,7 @@ export function RoomDetailsDrawer({ room, onClose, initialDate }: { room: Room; 
 
         <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <Fact icon={UsersIcon} label="Capacidade">
-            {plural(room.capacity, "lugar", "lugares")}
+            {room.capacity === null ? "A definir" : plural(room.capacity, "lugar", "lugares")}
           </Fact>
           {room.extraSeats ? (
             <Fact icon={ArmchairIcon} label="Cadeiras extras">
@@ -47,6 +48,8 @@ export function RoomDetailsDrawer({ room, onClose, initialDate }: { room: Room; 
             </Fact>
           )}
         </dl>
+
+        <RoomFeatures room={room} />
 
         {room.resources.some((r) => r.resource.requestable) && (
           <section>

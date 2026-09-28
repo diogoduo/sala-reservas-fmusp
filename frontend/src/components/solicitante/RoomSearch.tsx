@@ -1,4 +1,4 @@
-import { ArrowRightIcon, FunnelSimpleXIcon, MagnifyingGlassIcon, MapPinIcon, RulerIcon, UsersIcon } from "@phosphor-icons/react";
+import { ArrowRightIcon, FunnelSimpleXIcon, HandHeartIcon, MagnifyingGlassIcon, MapPinIcon, RulerIcon, UsersIcon } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api";
 import { plural } from "../../lib/format";
@@ -7,6 +7,7 @@ import { sortRooms } from "../../lib/rooms";
 import { ROOM_TYPE_LABELS } from "../../lib/types";
 import type { Room, RoomType } from "../../lib/types";
 import { RoomDetailsDrawer } from "../rooms/RoomDetails";
+import { RoomFeatures } from "../rooms/RoomFeatures";
 import { RoomCover } from "../rooms/RoomPhotos";
 import { Button } from "../ui/Button";
 import { EmptyState, Skeleton } from "../ui/Feedback";
@@ -55,6 +56,7 @@ export function RoomSearch() {
   const [roomType, setRoomType] = useState<RoomType | "">("");
   const [minCapacity, setMinCapacity] = useState("");
   const [building, setBuilding] = useState("");
+  const [specialOnly, setSpecialOnly] = useState(false);
   const [openRoom, setOpenRoom] = useState<Room | null>(null);
 
   useEffect(() => {
@@ -73,17 +75,19 @@ export function RoomSearch() {
     return (
       (!query || text.includes(query.toLowerCase())) &&
       (!roomType || room.roomType === roomType) &&
-      (!minCapacity || room.capacity >= Number(minCapacity)) &&
-      (!building || room.building === building)
+      (!minCapacity || (room.capacity ?? 0) >= Number(minCapacity)) &&
+      (!building || room.building === building) &&
+      (!specialOnly || room.specialNeeds)
     );
   });
-  const hasFilters = Boolean(query || roomType || minCapacity || building);
+  const hasFilters = Boolean(query || roomType || minCapacity || building || specialOnly);
 
   function clearFilters() {
     setQuery("");
     setRoomType("");
     setMinCapacity("");
     setBuilding("");
+    setSpecialOnly(false);
   }
 
   return (
@@ -112,6 +116,13 @@ export function RoomSearch() {
             </option>
           ))}
         </Select>
+        {(rooms ?? []).some((room) => room.specialNeeds) && (
+          <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-full border border-border-strong px-3.5 py-2 text-sm font-medium text-muted transition-colors hover:text-foreground has-[:checked]:border-info-foreground/40 has-[:checked]:bg-info-soft has-[:checked]:text-info-foreground has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring sm:col-span-2 lg:col-span-4">
+            <input type="checkbox" className="sr-only" checked={specialOnly} onChange={(e) => setSpecialOnly(e.target.checked)} />
+            <HandHeartIcon size={18} aria-hidden />
+            Só salas com atendimento especial
+          </label>
+        )}
       </Card>
 
       <div className="flex items-center justify-between gap-2">
@@ -168,7 +179,8 @@ export function RoomSearch() {
                         </p>
                       )}
                     </div>
-                    <div className="mt-4">
+                    <RoomFeatures room={room} compact className="mt-4" />
+                    <div className="mt-1.5">
                       <RoomResourceChips room={room} />
                     </div>
                     <div className="mt-auto pt-5">

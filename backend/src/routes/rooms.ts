@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { Prisma, RoomStatus, RoomType } from "@prisma/client";
 import express, { Router } from "express";
 import { z } from "zod";
@@ -7,8 +6,8 @@ import { AppError } from "../lib/errors";
 import { prisma } from "../lib/prisma";
 import { requireAdmin, requireAuth } from "../middleware/auth";
 import { roomPhotosInclude } from "../photos/include";
-import { removePhotoFiles, writePhotoFiles } from "../photos/storage";
-import { createRoomSchema, photoCaptionSchema, photoOrderSchema, updateRoomSchema } from "../schemas/room";
+import { renderPhotoVersions } from "../photos/storage";
+import { CAPACITY_REQUIRED_MESSAGE, createRoomSchema, photoCaptionSchema, photoOrderSchema, updateRoomSchema } from "../schemas/room";
 
 export const roomsRouter = Router();
 
@@ -137,6 +136,9 @@ roomsRouter.post(
             extraSeats: input.extraSeats,
             dimensions: input.dimensions,
             equipmentNotes: input.equipmentNotes,
+            seatTypes: input.seatTypes,
+            wideDoor: input.wideDoor,
+            specialNeeds: input.specialNeeds,
           },
         });
       } catch (error) {
@@ -167,8 +169,13 @@ roomsRouter.patch(
     const { resources, ...fields } = input;
     const roomId = req.params.id!;
 
-    const exists = await prisma.room.findUnique({ where: { id: roomId }, select: { id: true } });
+    const exists = await prisma.room.findUnique({ where: { id: roomId }, select: { status: true, capacity: true } });
     if (!exists) throw new AppError(404, "ROOM_NOT_FOUND", "Sala não encontrada.");
+    const finalStatus = fields.status ?? exists.status;
+    const finalCapacity = fields.capacity !== undefined ? fields.capacity : exists.capacity;
+    if (finalStatus === RoomStatus.ACTIVE && finalCapacity === null) {
+      throw new AppError(400, "CAPACITY_REQUIRED", CAPACITY_REQUIRED_MESSAGE);
+    }
 
     const room = await prisma.$transaction(async (tx) => {
       try {
@@ -198,7 +205,7 @@ roomsRouter.patch(
 );
 
 // ---------------------------------------------------------------------------
-// Fotos (só Admin). Os arquivos são servidos em /api/fotos/<id>-{thumb,large}.webp
+// Fotos (só Admin). As versões são servidas em /api/fotos/<id>-{thumb,large}.webp
 // ---------------------------------------------------------------------------
 
 async function findPhoto(roomId: string, photoId: string) {
@@ -221,19 +228,13 @@ roomsRouter.post(
     }
     const { caption } = photoCaptionSchema.parse({ caption: req.query.caption });
 
-    const id = randomUUID();
-    const { width, height } = await writePhotoFiles(id, req.body);
-    try {
-      const last = await prisma.roomPhoto.aggregate({ where: { roomId }, _max: { position: true } });
-      const photo = await prisma.roomPhoto.create({
-        data: { id, roomId, caption, width, height, position: (last._max.position ?? -1) + 1 },
-        select: roomPhotosInclude.select,
-      });
-      res.status(201).json({ photo });
-    } catch (error) {
-      await removePhotoFiles(id);
-      throw error;
-    }
+    const versions = await renderPhotoVersions(req.body);
+    const last = await prisma.roomPhoto.aggregate({ where: { roomId }, _max: { position: true } });
+    const photo = await prisma.roomPhoto.create({
+      data: { roomId, caption, ...versions, position: (last._max.position ?? -1) + 1 },
+      select: roomPhotosInclude.select,
+    });
+    res.status(201).json({ photo });
   }),
 );
 
@@ -275,7 +276,6 @@ roomsRouter.delete(
   asyncHandler(async (req, res) => {
     const photo = await findPhoto(req.params.id!, req.params.photoId!);
     await prisma.roomPhoto.delete({ where: { id: photo.id } });
-    await removePhotoFiles(photo.id);
     res.status(204).end();
   }),
 );
@@ -286,7 +286,6 @@ roomsRouter.delete(
   "/:id",
   requireAdmin,
   asyncHandler(async (req, res) => {
-    const photos = await prisma.roomPhoto.findMany({ where: { roomId: req.params.id }, select: { id: true } });
     try {
       await prisma.room.delete({ where: { id: req.params.id } });
     } catch (error) {
@@ -302,8 +301,6 @@ roomsRouter.delete(
       }
       throw error;
     }
-    // As linhas de room_photos saem em cascata; os arquivos, aqui.
-    await Promise.all(photos.map((photo) => removePhotoFiles(photo.id)));
     res.status(204).end();
   }),
 );

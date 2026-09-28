@@ -149,7 +149,7 @@ export function RoomsAdmin() {
           <StatCard label="Salas cadastradas" value={all.length} icon={DoorOpenIcon} />
           <StatCard label="Ativas" value={active.length} icon={CheckCircleIcon} tone="success" />
           <StatCard label="Em manutenção" value={all.filter((r) => r.status === "MAINTENANCE").length} icon={PauseCircleIcon} tone="warning" />
-          <StatCard label="Lugares nas ativas" value={active.reduce((sum, r) => sum + r.capacity, 0)} icon={UsersIcon} tone="info" />
+          <StatCard label="Lugares nas ativas" value={active.reduce((sum, r) => sum + (r.capacity ?? 0), 0)} icon={UsersIcon} tone="info" />
         </div>
       )}
 
@@ -213,7 +213,7 @@ export function RoomsAdmin() {
                         <MapPinIcon size={16} aria-hidden /> {room.building} · {room.floor}
                       </p>
                       <p className="flex items-center gap-2">
-                        <UsersIcon size={16} aria-hidden /> {plural(room.capacity, "lugar", "lugares")}
+                        <UsersIcon size={16} aria-hidden /> {room.capacity === null ? "Capacidade a definir" : plural(room.capacity, "lugar", "lugares")}
                         {room.extraSeats ? ` + ${plural(room.extraSeats, "extra", "extras")}` : ""}
                       </p>
                       {room.dimensions && (

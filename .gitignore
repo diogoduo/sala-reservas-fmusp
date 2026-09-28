@@ -13,4 +13,3 @@ cookies.txt
 # local: são carregados no banco por backend/prisma/import-fmusp.ts.
 FM/
 backend/prisma/data/
-backend/storage/

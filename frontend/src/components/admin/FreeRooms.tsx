@@ -128,7 +128,7 @@ export function FreeRooms() {
   }, [date, start, end, valid]);
 
   const filtered = (rooms ?? []).filter(
-    (r) => (!minCapacity || r.room.capacity >= Number(minCapacity)) && (!roomType || r.room.roomType === roomType),
+    (r) => (!minCapacity || (r.room.capacity ?? 0) >= Number(minCapacity)) && (!roomType || r.room.roomType === roomType),
   );
   const free = filtered.filter((r) => r.free);
   const occupied = filtered.filter((r) => !r.free);

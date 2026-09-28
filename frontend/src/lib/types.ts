@@ -9,6 +9,8 @@ export type RoomType =
   | "THEATER";
 export type ActivityType = "UNDERGRADUATE" | "GRADUATE" | "CULTURE_EXTENSION" | "PUBLIC_EXAM" | "DEFENSE";
 export type RoomStatus = "ACTIVE" | "MAINTENANCE" | "INACTIVE";
+export type SeatType = "SCHOOL" | "UNIVERSITY_FIXED" | "UNIVERSITY_MOBILE";
+export type NotebookLocation = "SAD" | "NIT";
 
 export const ROOM_TYPE_LABELS: Record<RoomType, string> = {
   AUDITORIUM: "Anfiteatro",
@@ -25,6 +27,18 @@ export const ROOM_STATUS_LABELS: Record<RoomStatus, string> = {
   ACTIVE: "Ativa",
   MAINTENANCE: "Em Manutenção",
   INACTIVE: "Inativa",
+};
+
+/** Tipos de cadeira da planilha do SAD. */
+export const SEAT_TYPE_LABELS: Record<SeatType, string> = {
+  SCHOOL: "Escolar",
+  UNIVERSITY_FIXED: "Universitária fixa",
+  UNIVERSITY_MOBILE: "Universitária móvel",
+};
+
+export const NOTEBOOK_LOCATION_LABELS: Record<NotebookLocation, string> = {
+  SAD: "Backup no SAD",
+  NIT: "Transferidos para o NIT",
 };
 
 export interface Resource {
@@ -63,9 +77,15 @@ export interface Room {
   name: string;
   building: string;
   floor: string;
-  capacity: number;
+  /** Cadeiras da plateia. null = a definir: só em sala que não está Ativa (ex.: em reforma). */
+  capacity: number | null;
   roomType: RoomType;
   status: RoomStatus;
+  seatTypes: SeatType[];
+  /** Porta de 900 mm. */
+  wideDoor: boolean;
+  /** Sala preparada para atendimento especial. */
+  specialNeeds: boolean;
   /** Cadeiras extras (professor, rodinha…) além da capacidade da plateia. */
   extraSeats: number | null;
   /** Largura × comprimento, como na planilha (ex.: "10,30 × 9,60 m"). */
@@ -84,6 +104,16 @@ export interface RoomPhoto {
   /** Dimensões da versão grande, para reservar o espaço antes de carregar. */
   width: number;
   height: number;
+}
+
+/** Notebook do SAD (só controle de patrimônio; não é reservado pelo sistema). */
+export interface Notebook {
+  id: string;
+  assetTag: string;
+  model: string | null;
+  location: NotebookLocation;
+  notes: string | null;
+  updatedAt: string;
 }
 
 export type ReservationStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";

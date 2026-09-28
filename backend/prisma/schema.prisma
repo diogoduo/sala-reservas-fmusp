@@ -39,6 +39,15 @@ enum RoomType {
   @@map("room_type")
 }
 
+/// Tipo de cadeira, como na planilha do SAD (uma sala pode ter mais de um).
+enum SeatType {
+  SCHOOL // Escolar
+  UNIVERSITY_FIXED // Universitária fixa
+  UNIVERSITY_MOBILE // Universitária móvel
+
+  @@map("seat_type")
+}
+
 enum RoomStatus {
   ACTIVE // Ativa
   MAINTENANCE // Em Manutenção
@@ -96,7 +105,9 @@ model Room {
   name      String // nome/número da sala
   building  String // prédio/bloco
   floor     String // andar/pavimento (texto: "Térreo", "2º andar"...)
-  capacity  Int
+  /// Cadeiras da plateia. Pode ficar sem valor ("a definir") só em sala que
+  /// não está Ativa (ex.: em reforma) — CHECK rooms_active_capacity_check.
+  capacity  Int?
   roomType  RoomType   @map("room_type")
   status    RoomStatus @default(ACTIVE)
   /// Cadeiras de rodinha / professor / bancos, além das cadeiras da plateia (capacity).
@@ -105,6 +116,11 @@ model Room {
   dimensions     String?
   /// Outros equipamentos da sala, em texto livre. Só o SAD vê.
   equipmentNotes String?  @map("equipment_notes")
+  seatTypes      SeatType[] @default([]) @map("seat_types")
+  /// Porta de 900 mm.
+  wideDoor       Boolean  @default(false) @map("wide_door")
+  /// Sala preparada para atendimento especial.
+  specialNeeds   Boolean  @default(false) @map("special_needs")
   createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
 
   resources    RoomResource[]
@@ -154,8 +170,8 @@ model RoomResource {
   @@map("room_resources")
 }
 
-/// Foto de uma sala. Os arquivos (versões webp "thumb" e "large", geradas no
-/// upload) ficam em disco, em PHOTO_STORAGE_DIR, com o id como nome.
+/// Foto de uma sala. As versões webp "thumb" e "large" (geradas no upload)
+/// ficam no próprio banco: o app não depende de disco persistente no servidor.
 model RoomPhoto {
   id         String   @id @default(uuid()) @db.Uuid
   roomId     String   @map("room_id") @db.Uuid
@@ -166,6 +182,10 @@ model RoomPhoto {
   height     Int
   /// Arquivo de origem, quando veio do import (evita importar a mesma foto duas vezes).
   sourceName String?  @map("source_name")
+  /// WebP de até 720 px (cards e miniaturas) e de até 1920 px (galeria).
+  /// Nunca vêm nas listagens (roomPhotosInclude seleciona só os metadados).
+  thumb      Bytes
+  large      Bytes
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
@@ -246,6 +266,29 @@ model Reservation {
   @@index([status])
   @@index([seriesId])
   @@map("reservations")
+}
+
+// ----------------------------------------------------------------------------
+// Notebooks do SAD (controle de patrimônio; não são reservados pelo sistema)
+// ----------------------------------------------------------------------------
+
+enum NotebookLocation {
+  SAD // Backup no SAD
+  NIT // Transferido para o NIT (TI da faculdade)
+
+  @@map("notebook_location")
+}
+
+model Notebook {
+  id        String           @id @default(uuid()) @db.Uuid
+  assetTag  String           @unique @map("asset_tag")
+  model     String?
+  location  NotebookLocation
+  notes     String?
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("notebooks")
 }
 
 /// Bloqueio administrativo/manutenção de uma sala em um intervalo.

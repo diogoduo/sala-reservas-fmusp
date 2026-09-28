@@ -4,6 +4,7 @@ import {
   EyeSlashIcon,
   FloppyDiskIcon,
   HashIcon,
+  LaptopIcon,
   ListBulletsIcon,
   PencilSimpleIcon,
   PlusIcon,
@@ -28,6 +29,7 @@ import { Input, Switch } from "../ui/Field";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Card, IconTile, PageHeader } from "../ui/Surface";
 import { InventoryView } from "./InventoryView";
+import { NotebooksView } from "./NotebooksView";
 
 const FORM_ID = "formulario-recurso";
 
@@ -123,13 +125,14 @@ function ResourceForm({ resource, onSubmit }: ResourceFormProps) {
   );
 }
 
-type Tab = "tipos" | "inventario";
+type Tab = "tipos" | "inventario" | "notebooks";
+const TABS: Tab[] = ["tipos", "inventario", "notebooks"];
 
 export function ResourcesAdmin() {
   const toast = useToast();
   const confirm = useConfirm();
   const [params, setParams] = useSearchParams();
-  const tab: Tab = params.get("aba") === "inventario" ? "inventario" : "tipos";
+  const tab: Tab = TABS.find((t) => t === params.get("aba")) ?? "tipos";
   const [resources, setResources] = useState<Resource[] | null>(null);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [editing, setEditing] = useState<Resource | "new" | null>(null);
@@ -202,7 +205,7 @@ export function ResourcesAdmin() {
     <div className="space-y-6">
       <PageHeader
         title="Recursos"
-        description="Equipamentos e serviços do formulário de reserva, e o inventário de cada sala com modelo e patrimônio."
+        description="Equipamentos e serviços do formulário de reserva, o inventário de cada sala com modelo e patrimônio, e os notebooks do SAD."
         actions={
           tab === "tipos" && (
             <Button icon={PlusIcon} onClick={() => setEditing("new")}>
@@ -215,14 +218,17 @@ export function ResourcesAdmin() {
       <SegmentedControl
         label="Visualização"
         value={tab}
-        onChange={(value) => setParams(value === "inventario" ? { aba: "inventario" } : {}, { replace: true })}
+        onChange={(value) => setParams(value === "tipos" ? {} : { aba: value }, { replace: true })}
         options={[
           { value: "tipos", label: "Tipos", icon: SquaresFourIcon, count: resources?.length },
           { value: "inventario", label: "Inventário", icon: ClipboardTextIcon, count: resources ? inventoryItems : undefined },
+          { value: "notebooks", label: "Notebooks", icon: LaptopIcon },
         ]}
       />
 
-      {resources === null ? (
+      {tab === "notebooks" ? (
+        <NotebooksView />
+      ) : resources === null ? (
         <div className="grid gap-3 sm:grid-cols-2">
           {Array.from({ length: 4 }, (_, i) => (
             <Skeleton key={i} className="h-24 rounded-2xl" />

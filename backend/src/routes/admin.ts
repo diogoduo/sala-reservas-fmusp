@@ -128,7 +128,7 @@ adminRouter.get(
         return { room, free: busy.length === 0, busy };
       })
       // Livres primeiro; dentro de cada grupo, da menor para a maior capacidade.
-      .sort((a, b) => Number(b.free) - Number(a.free) || a.room.capacity - b.room.capacity);
+      .sort((a, b) => Number(b.free) - Number(a.free) || (a.room.capacity ?? 0) - (b.room.capacity ?? 0));
 
     res.json({ rooms: result });
   }),

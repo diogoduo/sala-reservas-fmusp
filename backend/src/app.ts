@@ -3,12 +3,13 @@ import cors from "cors";
 import express from "express";
 import helmet from "helmet";
 import { env } from "./config/env";
-import { attachUser, requireAuth } from "./middleware/auth";
+import { attachUser } from "./middleware/auth";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler";
-import { PHOTO_DIR } from "./photos/storage";
 import { adminRouter } from "./routes/admin";
 import { authRouter } from "./routes/auth";
 import { healthRouter } from "./routes/health";
+import { notebooksRouter } from "./routes/notebooks";
+import { photosRouter } from "./routes/photos";
 import { reservationsRouter } from "./routes/reservations";
 import { resourcesRouter } from "./routes/resources";
 import { roomsRouter } from "./routes/rooms";
@@ -31,8 +32,8 @@ export function createApp() {
   app.use("/api/resources", resourcesRouter);
   app.use("/api/reservations", reservationsRouter);
   app.use("/api/admin", adminRouter);
-  // Fotos das salas: o nome muda a cada upload, então o navegador pode guardar para sempre.
-  app.use("/api/fotos", requireAuth, express.static(PHOTO_DIR, { index: false, immutable: true, maxAge: "365d" }));
+  app.use("/api/notebooks", notebooksRouter);
+  app.use("/api/fotos", photosRouter);
   // Próximas fases: /api/calendar (.ics)
 
   app.use(notFoundHandler);

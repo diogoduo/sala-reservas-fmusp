@@ -35,7 +35,10 @@ export function RoomsPreview({ attendees, date }: Props) {
   if (!rooms || rooms.length === 0) return null;
 
   // Da menor para a maior: as primeiras são as que o SAD tende a alocar.
-  const fitting = rooms.filter((room) => !attendees || room.capacity >= attendees).sort((a, b) => a.capacity - b.capacity);
+  // (Salas Ativas sempre têm capacidade; o "?? 0" só satisfaz o tipo.)
+  const fitting = rooms
+    .filter((room) => !attendees || (room.capacity ?? 0) >= attendees)
+    .sort((a, b) => (a.capacity ?? 0) - (b.capacity ?? 0));
 
   function scrollBy(direction: 1 | -1) {
     const el = scroller.current;

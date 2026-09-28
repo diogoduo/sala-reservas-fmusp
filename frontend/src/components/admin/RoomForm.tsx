@@ -2,9 +2,9 @@ import { CheckIcon, LockSimpleIcon } from "@phosphor-icons/react";
 import { useId, useState } from "react";
 import { cn } from "../../lib/cn";
 import { resourceIcon } from "../../lib/icons";
-import { ROOM_STATUS_LABELS, ROOM_TYPE_LABELS } from "../../lib/types";
-import type { Resource, Room, RoomStatus, RoomType } from "../../lib/types";
-import { Input, Select, Textarea } from "../ui/Field";
+import { ROOM_STATUS_LABELS, ROOM_TYPE_LABELS, SEAT_TYPE_LABELS } from "../../lib/types";
+import type { Resource, Room, RoomStatus, RoomType, SeatType } from "../../lib/types";
+import { Input, Select, Switch, Textarea } from "../ui/Field";
 import { QuantityStepper } from "../ui/QuantityStepper";
 import { RoomPhotosManager } from "./RoomPhotosManager";
 
@@ -12,17 +12,25 @@ export interface RoomFormValues {
   name: string;
   building: string;
   floor: string;
-  capacity: number;
+  /** null = a definir (só fora do status Ativa). */
+  capacity: number | null;
   extraSeats: number | null;
   dimensions: string;
   equipmentNotes: string;
   roomType: RoomType;
   status: RoomStatus;
+  seatTypes: SeatType[];
+  wideDoor: boolean;
+  specialNeeds: boolean;
   resources: { resourceId: string; quantity: number; model: string; assetTags: string }[];
 }
 
 const ROOM_TYPES = Object.keys(ROOM_TYPE_LABELS) as RoomType[];
 const ROOM_STATUSES = Object.keys(ROOM_STATUS_LABELS) as RoomStatus[];
+const SEAT_TYPES = Object.keys(SEAT_TYPE_LABELS) as SeatType[];
+
+const pillClass =
+  "inline-flex h-10 items-center rounded-full border border-border-strong px-4 text-sm font-medium text-muted transition-colors hover:text-foreground has-[:checked]:border-primary has-[:checked]:bg-primary-soft has-[:checked]:text-primary-soft-foreground has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring";
 
 function fromRoom(room: Room | null): RoomFormValues {
   if (!room) {
@@ -36,6 +44,9 @@ function fromRoom(room: Room | null): RoomFormValues {
       equipmentNotes: "",
       roomType: "CLASSROOM",
       status: "ACTIVE",
+      seatTypes: [],
+      wideDoor: false,
+      specialNeeds: false,
       resources: [],
     };
   }
@@ -49,6 +60,9 @@ function fromRoom(room: Room | null): RoomFormValues {
     equipmentNotes: room.equipmentNotes ?? "",
     roomType: room.roomType,
     status: room.status,
+    seatTypes: room.seatTypes,
+    wideDoor: room.wideDoor,
+    specialNeeds: room.specialNeeds,
     resources: room.resources.map((r) => ({
       resourceId: r.resourceId,
       quantity: r.quantity,
@@ -133,13 +147,14 @@ export function RoomForm({ room, resources, buildings, formId, onSubmit, onPhoto
         </Select>
         <Input
           label="Capacidade"
-          required
+          required={values.status === "ACTIVE"}
           type="number"
           inputMode="numeric"
           min={1}
-          hint="Cadeiras da plateia."
-          value={values.capacity}
-          onChange={(e) => setValues({ ...values, capacity: Number(e.target.value) })}
+          placeholder={values.status === "ACTIVE" ? undefined : "A definir"}
+          hint={values.status === "ACTIVE" ? "Cadeiras da plateia." : "Cadeiras da plateia. Pode ficar em branco enquanto a sala não estiver Ativa."}
+          value={values.capacity ?? ""}
+          onChange={(e) => setValues({ ...values, capacity: e.target.value === "" ? null : Number(e.target.value) })}
         />
         <Input
           label="Cadeiras extras"
@@ -162,10 +177,7 @@ export function RoomForm({ room, resources, buildings, formId, onSubmit, onPhoto
           <legend className="text-sm font-medium">Status</legend>
           <div className="mt-2 flex flex-wrap gap-2">
             {ROOM_STATUSES.map((status) => (
-              <label
-                key={status}
-                className="inline-flex h-10 items-center rounded-full border border-border-strong px-4 text-sm font-medium text-muted transition-colors hover:text-foreground has-[:checked]:border-primary has-[:checked]:bg-primary-soft has-[:checked]:text-primary-soft-foreground has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring"
-              >
+              <label key={status} className={pillClass}>
                 <input
                   type="radio"
                   name="status"
@@ -181,6 +193,36 @@ export function RoomForm({ room, resources, buildings, formId, onSubmit, onPhoto
             <p className="mt-2 text-xs text-muted">Salas fora do status Ativa não aparecem na consulta nem na alocação.</p>
           )}
         </fieldset>
+        <fieldset className="sm:col-span-2">
+          <legend className="text-sm font-medium">Tipo de cadeira</legend>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {SEAT_TYPES.map((type) => (
+              <label key={type} className={pillClass}>
+                <input
+                  type="checkbox"
+                  className="sr-only"
+                  checked={values.seatTypes.includes(type)}
+                  onChange={(e) =>
+                    setValues({
+                      ...values,
+                      seatTypes: e.target.checked ? [...values.seatTypes, type] : values.seatTypes.filter((t) => t !== type),
+                    })
+                  }
+                />
+                {SEAT_TYPE_LABELS[type]}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <div className="space-y-4 rounded-xl border border-border p-4 sm:col-span-2">
+          <Switch checked={values.wideDoor} onChange={(wideDoor) => setValues({ ...values, wideDoor })} label="Porta de 900 mm" />
+          <Switch
+            checked={values.specialNeeds}
+            onChange={(specialNeeds) => setValues({ ...values, specialNeeds })}
+            label="Atendimento especial"
+            description="Aparece em destaque para o solicitante na consulta de salas."
+          />
+        </div>
       </section>
 
       {room ? (

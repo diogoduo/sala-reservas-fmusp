@@ -173,7 +173,7 @@ export function InventoryView({ rooms, resources }: Props) {
                         {room.building} · {room.floor}
                       </span>
                       <span className="inline-flex items-center gap-1">
-                        <UsersIcon size={12} aria-hidden /> {room.capacity}
+                        <UsersIcon size={12} aria-hidden /> {room.capacity ?? "a definir"}
                         {room.extraSeats ? ` + ${room.extraSeats}` : ""}
                       </span>
                     </p>

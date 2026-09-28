@@ -49,7 +49,8 @@ export function rankRoomOptions(
     const available = new Map(room.resources.map((r) => [r.resourceId, r.quantity]));
     return {
       room,
-      fitsCapacity: room.capacity >= request.expectedAttendees,
+      // Só salas Ativas chegam aqui, e sala Ativa sempre tem capacidade (CHECK no banco).
+      fitsCapacity: (room.capacity ?? 0) >= request.expectedAttendees,
       missingResources: needed.flatMap((r) => {
         const requested = r.quantity ?? 1;
         const have = available.get(r.resourceId) ?? 0;
@@ -65,6 +66,6 @@ export function rankRoomOptions(
       Number(a.conflictingDates.length > 0) - Number(b.conflictingDates.length > 0) ||
       a.missingResources.length - b.missingResources.length ||
       a.conflictingDates.length - b.conflictingDates.length ||
-      a.room.capacity - b.room.capacity,
+      (a.room.capacity ?? 0) - (b.room.capacity ?? 0),
   );
 }

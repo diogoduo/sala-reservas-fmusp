@@ -16,11 +16,10 @@
  * manutenção/Inativa) de uma sala que já existe é preservado. Foto já
  * importada (mesmo arquivo de origem) não é importada de novo.
  */
-import { randomUUID } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { PrismaClient, RoomStatus, RoomType } from "@prisma/client";
-import { writePhotoFiles } from "../src/photos/storage";
+import { NotebookLocation, PrismaClient, RoomStatus, RoomType, SeatType } from "@prisma/client";
+import { renderPhotoVersions } from "../src/photos/storage";
 
 interface EquipmentItem {
   resource: string;
@@ -42,10 +41,16 @@ interface RoomData {
   building: string;
   floor: string;
   type: RoomType;
-  capacity: number;
+  /** null = a definir (sala em reforma). */
+  capacity: number | null;
+  /** Status ao criar a sala; numa sala que já existe, vale o que o SAD definiu. */
+  status?: RoomStatus;
   extraSeats?: number;
   dimensions?: string;
   equipmentNotes?: string;
+  seatTypes?: SeatType[];
+  wideDoor?: boolean;
+  specialNeeds?: boolean;
   equipment: EquipmentItem[];
   photos?: PhotoSource[];
 }
@@ -54,6 +59,7 @@ interface FmuspData {
   retireRooms: { building: string; floor: string; name: string }[];
   resources: { name: string; description: string | null; requestable: boolean }[];
   rooms: RoomData[];
+  notebooks?: { assetTag: string; location: NotebookLocation; model?: string }[];
 }
 
 const prisma = new PrismaClient();
@@ -87,14 +93,18 @@ const WORDS: Record<string, string> = {
   ENTRADA: "entrada",
   TELA: "tela",
   QUADRO: "quadro",
+  PALCO: "palco",
+  FOYER: "foyer",
+  "RECEPÇÃO": "recepção",
 };
 const MODIFIERS: Record<string, string> = { LONGE: "de longe", PERTO: "de perto" };
 
-/** Partes do nome depois do código da sala ("2366_68_V1" → ["V1"]). */
+/** Palavras do nome depois do código da sala ("2366_68_V1" → ["V1"]; "TEATRO_PALCO 2(1)" → ["PALCO", "2"]). */
 function nameTokens(file: string) {
-  const tokens = path.parse(file).name.normalize("NFC").toUpperCase().split("_").slice(1);
-  if (tokens[0] === "68") tokens.shift();
-  return tokens;
+  const parts = path.parse(file).name.normalize("NFC").toUpperCase().split("_").slice(1);
+  if (parts[0] === "68") parts.shift();
+  // "(1)" é o sufixo que o Windows põe na cópia de um arquivo; não entra na legenda.
+  return parts.flatMap((part) => part.replace(/\(\d+\)/g, " ").split(/\s+/)).filter(Boolean);
 }
 
 function captionFromFile(file: string): string | null {
@@ -105,10 +115,10 @@ function captionFromFile(file: string): string | null {
       parts[parts.length - 1] += ` (${modifier})`;
     } else if (/^V\d+$/.test(token)) {
       parts.push(`vista ${token.slice(1)}`);
-    } else {
-      const [, word = token, number] = token.match(/^(.*?)(\d*)$/) ?? [];
-      const label = WORDS[word] ?? word.toLowerCase();
-      parts.push(number ? `${label} (${number})` : label);
+    } else if (!/^\d+$/.test(token)) {
+      // A numeração de fotos parecidas ("CADEIRAS2", "PALCO 3") não entra na legenda.
+      const word = token.replace(/\d+$/, "");
+      parts.push(WORDS[word] ?? word.toLowerCase());
     }
   }
   if (parts.length === 0) return null;
@@ -121,7 +131,7 @@ function coverScore(file: string) {
   const first = nameTokens(file)[0] ?? "";
   if (first.startsWith("CADEIRAS") || first === "V1") return 0;
   if (/^V\d+$/.test(first)) return 1;
-  if (["PROJETOR", "TV", "PC", "TELA"].includes(first)) return 2;
+  if (["PROJETOR", "TV", "PC", "TELA", "PALCO"].includes(first)) return 2;
   if (first === "PORTA") return 4;
   if (first === "BANHEIRO") return 5;
   return 3;
@@ -161,10 +171,9 @@ async function importPhotos(data: FmuspData) {
     let roomAdded = 0;
     for (const { source, file, sourceName } of files) {
       if (already.has(sourceName)) continue;
-      const id = randomUUID();
-      const { width, height } = await writePhotoFiles(id, path.join(photosDir, source.folder, file));
+      const versions = await renderPhotoVersions(path.join(photosDir, source.folder, file));
       const caption = [source.caption, captionFromFile(file)].filter(Boolean).join(" · ") || null;
-      await prisma.roomPhoto.create({ data: { id, roomId: row.id, caption, width, height, position: position++, sourceName } });
+      await prisma.roomPhoto.create({ data: { roomId: row.id, caption, ...versions, position: position++, sourceName } });
       roomAdded++;
     }
     if (roomAdded > 0) console.log(`  ${room.name}: ${roomAdded} foto(s)`);
@@ -204,11 +213,14 @@ async function main() {
           extraSeats: room.extraSeats ?? null,
           dimensions: room.dimensions ?? null,
           equipmentNotes: room.equipmentNotes ?? null,
+          seatTypes: room.seatTypes ?? [],
+          wideDoor: room.wideDoor ?? false,
+          specialNeeds: room.specialNeeds ?? false,
         };
         const existing = await tx.room.findUnique({ where: { building_floor_name: key }, select: { id: true } });
         const row = existing
           ? await tx.room.update({ where: { id: existing.id }, data: fields })
-          : await tx.room.create({ data: { ...key, ...fields, status: RoomStatus.ACTIVE } });
+          : await tx.room.create({ data: { ...key, ...fields, status: room.status ?? RoomStatus.ACTIVE } });
         if (existing) updated++;
         else created++;
 
@@ -224,13 +236,35 @@ async function main() {
         });
       }
 
-      // Salas fictícias do seed: podem ter reservas de teste, então ficam Inativas em vez de excluídas.
-      const retired = await tx.room.updateMany({
-        where: { OR: data.retireRooms, status: { not: RoomStatus.INACTIVE } },
-        data: { status: RoomStatus.INACTIVE },
-      });
+      // Salas fictícias do seed: saem do banco se nada aponta para elas (banco
+      // novo); com reservas de teste, ficam Inativas.
+      let removed = 0;
+      let retired = 0;
+      for (const key of data.retireRooms) {
+        const room = await tx.room.findUnique({
+          where: { building_floor_name: key },
+          select: { id: true, status: true, _count: { select: { reservations: true, series: true, blocks: true } } },
+        });
+        if (!room) continue;
+        if (room._count.reservations + room._count.series + room._count.blocks === 0) {
+          await tx.room.delete({ where: { id: room.id } });
+          removed++;
+        } else if (room.status !== RoomStatus.INACTIVE) {
+          await tx.room.update({ where: { id: room.id }, data: { status: RoomStatus.INACTIVE } });
+          retired++;
+        }
+      }
 
-      return { created, updated, retired: retired.count };
+      // Notebooks: só cria os que faltam; modelo e local editados pelo SAD na tela são mantidos.
+      let notebooks = 0;
+      for (const notebook of data.notebooks ?? []) {
+        const exists = await tx.notebook.findUnique({ where: { assetTag: notebook.assetTag }, select: { id: true } });
+        if (exists) continue;
+        await tx.notebook.create({ data: { assetTag: notebook.assetTag, location: notebook.location, model: notebook.model ?? null } });
+        notebooks++;
+      }
+
+      return { created, updated, removed, retired, notebooks };
     },
     { timeout: 60_000 },
   );
@@ -238,7 +272,8 @@ async function main() {
   const items = data.rooms.reduce((sum, room) => sum + room.equipment.length, 0);
   console.log(
     `Salas: ${summary.created} criadas, ${summary.updated} atualizadas; ${items} itens de inventário; ` +
-      `${summary.retired} sala(s) fictícia(s) marcada(s) como Inativa.`,
+      `salas fictícias: ${summary.removed} excluída(s), ${summary.retired} marcada(s) como Inativa; ` +
+      `${summary.notebooks} notebook(s) novo(s).`,
   );
 
   // Fora da transação: gerar as versões das fotos leva alguns segundos por foto.
