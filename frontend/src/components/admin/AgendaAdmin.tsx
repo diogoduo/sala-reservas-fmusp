@@ -30,7 +30,6 @@ import { sortRooms } from "../../lib/rooms";
 import { useToast } from "../../lib/toast";
 import { ROOM_TYPE_LABELS } from "../../lib/types";
 import type { AdminReservation, Resource, RoomPhoto, RoomType } from "../../lib/types";
-import { RoomThumb } from "../rooms/RoomPhotos";
 import { StatusBadge } from "../StatusBadge";
 import { Badge } from "../ui/Badge";
 import { Button, IconButton } from "../ui/Button";
@@ -158,7 +157,7 @@ function MonthCalendar({ selected, onSelect, counts }: { selected: string; onSel
                 <span
                   aria-hidden
                   className={cn(
-                    "absolute bottom-0.5 min-w-4 rounded-full px-1 text-[9px] leading-3.5 font-bold",
+                    "absolute -top-1 -right-1 min-w-4 rounded-full px-1 text-[9px] leading-4 font-bold shadow-sm",
                     isSelected ? "bg-primary-foreground text-primary" : day!.PENDING + day!.MODIFIED > 0 ? "bg-warning-soft text-warning-foreground" : "bg-primary-soft text-primary-soft-foreground",
                   )}
                 >
@@ -276,7 +275,7 @@ function RoomsTimeline({ day, onOpen, onBook }: { day: AgendaDay; onOpen: (r: Ad
         {/* `relative`: nada de position:absolute "escapa" da área rolável (ver RoomsPreview). */}
         <div className="relative overflow-x-auto">
           <div className="min-w-[680px] sm:min-w-[760px]">
-            <div className="grid grid-cols-[9.5rem_minmax(0,1fr)] sm:grid-cols-[14rem_minmax(0,1fr)] border-b border-border bg-surface-muted/60 text-[11px] text-muted">
+            <div className="grid grid-cols-[9.5rem_minmax(0,1fr)] sm:grid-cols-[13rem_minmax(0,1fr)] border-b border-border bg-surface-muted/60 text-[11px] text-muted">
               <div className="sticky left-0 z-10 bg-surface-muted px-4 py-2 font-medium">Sala</div>
               <div className="relative h-8">
                 {/* Rótulos de 07h a 22h; o 23h, na borda, ficaria cortado (a linha dele continua). */}
@@ -294,10 +293,9 @@ function RoomsTimeline({ day, onOpen, onBook }: { day: AgendaDay; onOpen: (r: Ad
                 {visible.map((room) => {
                   const busy = busyByRoom.get(room.id);
                   return (
-                    <li key={room.id} className="grid grid-cols-[9.5rem_minmax(0,1fr)] sm:grid-cols-[14rem_minmax(0,1fr)] items-center">
+                    <li key={room.id} className="grid grid-cols-[9.5rem_minmax(0,1fr)] sm:grid-cols-[13rem_minmax(0,1fr)] items-center">
                       {/* Nome fixo à esquerda ao rolar a linha do tempo para o lado. */}
                       <div className="sticky left-0 z-10 flex min-w-0 items-center gap-2 bg-surface px-3 py-2 sm:px-4">
-                        <RoomThumb room={room} size="sm" tone={busy ? "primary" : "success"} />
                         <div className="min-w-0 flex-1">
                           <p className="line-clamp-2 text-sm leading-tight font-medium" title={room.name}>
                             {room.name}
