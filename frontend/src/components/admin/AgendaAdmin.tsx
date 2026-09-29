@@ -1,6 +1,7 @@
 import {
   ArrowRightIcon,
   CalendarBlankIcon,
+  CalendarPlusIcon,
   CaretLeftIcon,
   CaretRightIcon,
   CheckCircleIcon,
@@ -11,13 +12,14 @@ import {
   LockIcon,
   MapPinIcon,
   PencilSimpleLineIcon,
+  PlusIcon,
   ProhibitIcon,
   UsersIcon,
   XCircleIcon,
   type Icon,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { ACTIVITY_TYPE_LABELS } from "../../lib/activities";
 import { api } from "../../lib/api";
 import { cn } from "../../lib/cn";
@@ -227,7 +229,7 @@ function ReservationRow({ reservation: r, onOpen }: { reservation: AdminReservat
   );
 }
 
-function RoomsTimeline({ day, onOpen }: { day: AgendaDay; onOpen: (r: AdminReservation) => void }) {
+function RoomsTimeline({ day, onOpen, onBook }: { day: AgendaDay; onOpen: (r: AdminReservation) => void; onBook: (roomId: string) => void }) {
   const [filter, setFilter] = useState<"ALL" | "BUSY" | "FREE">("ALL");
   const rooms = useMemo(() => sortRooms(day.rooms), [day.rooms]);
   const busyByRoom = useMemo(() => {
@@ -296,7 +298,7 @@ function RoomsTimeline({ day, onOpen }: { day: AgendaDay; onOpen: (r: AdminReser
                       {/* Nome fixo à esquerda ao rolar a linha do tempo para o lado. */}
                       <div className="sticky left-0 z-10 flex min-w-0 items-center gap-2 bg-surface px-3 py-2 sm:px-4">
                         <RoomThumb room={room} size="sm" tone={busy ? "primary" : "success"} />
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <p className="line-clamp-2 text-sm leading-tight font-medium" title={room.name}>
                             {room.name}
                           </p>
@@ -304,6 +306,7 @@ function RoomsTimeline({ day, onOpen }: { day: AgendaDay; onOpen: (r: AdminReser
                             {ROOM_TYPE_LABELS[room.roomType]} · {room.capacity ?? "?"} lugares
                           </p>
                         </div>
+                        <IconButton icon={PlusIcon} size="sm" label={`Reservar ${room.name} neste dia`} onClick={() => onBook(room.id)} className="-mr-1" />
                       </div>
                       <div className="relative h-14">
                         {HOURS.map((h) => (
@@ -374,6 +377,7 @@ function RoomsTimeline({ day, onOpen }: { day: AgendaDay; onOpen: (r: AdminReser
  */
 export function AgendaAdmin() {
   const toast = useToast();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const date = /^\d{4}-\d{2}-\d{2}$/.test(params.get("data") ?? "") ? params.get("data")! : isoDay(new Date());
   const openId = params.get("reserva");
@@ -416,10 +420,21 @@ export function AgendaAdmin() {
   const opened = openId ? reservations.find((r) => r.id === openId) : undefined;
   const dayLabel = capitalizeFirst(parseDay(date).toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }));
   const returnTo = `/admin/agenda?data=${date}`;
+  /** Formulário de reserva do SAD já com o dia (e a sala) da Agenda. */
+  const newReservationUrl = (roomId?: string) =>
+    `/admin/reservar?${new URLSearchParams({ data: date, voltar: returnTo, ...(roomId ? { sala: roomId } : {}) }).toString()}`;
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Agenda" description="Tudo o que acontece em cada dia: as reservas por situação e as salas ocupadas e livres." />
+      <PageHeader
+        title="Agenda"
+        description="Tudo o que acontece em cada dia: as reservas por situação e as salas ocupadas e livres."
+        actions={
+          <Button icon={CalendarPlusIcon} onClick={() => navigate(newReservationUrl())}>
+            Nova reserva
+          </Button>
+        }
+      />
 
       <div className="flex flex-wrap items-center gap-2">
         <IconButton icon={CaretLeftIcon} label="Dia anterior" variant="secondary" onClick={() => setDate(shiftDay(date, -1))} />
@@ -479,7 +494,7 @@ export function AgendaAdmin() {
       {day === null ? (
         <Skeleton className="h-72 rounded-2xl" />
       ) : day.rooms.length > 0 ? (
-        <RoomsTimeline day={day} onOpen={(r) => openReservation(r.id)} />
+        <RoomsTimeline day={day} onOpen={(r) => openReservation(r.id)} onBook={(roomId) => navigate(newReservationUrl(roomId))} />
       ) : (
         <EmptyState icon={DoorOpenIcon} title="Nenhuma sala ativa" />
       )}

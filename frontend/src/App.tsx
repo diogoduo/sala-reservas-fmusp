@@ -8,7 +8,7 @@ import { AppShell } from "./components/layout/AppShell";
 import { Login } from "./components/Login";
 import { RegulationPage } from "./components/regulation/Regulation";
 import { MyReservations } from "./components/solicitante/MyReservations";
-import { AdminEditReservationPage, EditReservationPage, ReservationPage } from "./components/solicitante/ReservationForm";
+import { AdminEditReservationPage, AdminNewReservationPage, EditReservationPage, ReservationPage } from "./components/solicitante/ReservationForm";
 import { RoomSearch } from "./components/solicitante/RoomSearch";
 import { LogoMark } from "./components/ui/Logo";
 import { useAuth } from "./lib/auth";
@@ -33,6 +33,7 @@ export default function App() {
           <>
             <Route path="/admin/solicitacoes" element={<RequestsAdmin />} />
             <Route path="/admin/agenda" element={<AgendaAdmin />} />
+            <Route path="/admin/reservar" element={<AdminNewReservationPage />} />
             <Route path="/admin/reservas/:id/editar" element={<AdminEditReservationPage />} />
             <Route path="/admin/salas-livres" element={<FreeRooms />} />
             <Route path="/admin/salas" element={<RoomsAdmin />} />

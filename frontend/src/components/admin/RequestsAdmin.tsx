@@ -1,6 +1,7 @@
 import {
   ArrowRightIcon,
   CalendarBlankIcon,
+  CalendarPlusIcon,
   CheckCircleIcon,
   ClockCounterClockwiseIcon,
   HourglassMediumIcon,
@@ -16,6 +17,7 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 import { useEffect, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router";
 import { ACTIVITY_TYPE_LABELS } from "../../lib/activities";
 import { api } from "../../lib/api";
 import { formatDateTimeRange, formatShortDate, formatTimeRange, plural } from "../../lib/format";
@@ -66,6 +68,7 @@ const groupKey = (group: AdminReservation[]) => group[0]!.seriesId ?? group[0]!.
 // mais adequada e aprova, ou rejeita com justificativa.
 export function RequestsAdmin() {
   const toast = useToast();
+  const navigate = useNavigate();
   const [reservations, setReservations] = useState<AdminReservation[] | null>(null);
   const [resources, setResources] = useState<Resource[]>([]);
   const [status, setStatus] = useState<Filter>("PENDING");
@@ -108,7 +111,15 @@ export function RequestsAdmin() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Solicitações" description="Analise os pedidos, escolha a sala mais adequada e aprove ou rejeite." />
+      <PageHeader
+        title="Solicitações"
+        description="Analise os pedidos, escolha a sala mais adequada e aprove ou rejeite."
+        actions={
+          <Button icon={CalendarPlusIcon} onClick={() => navigate("/admin/reservar?voltar=/admin/solicitacoes")}>
+            Nova reserva
+          </Button>
+        }
+      />
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <SegmentedControl

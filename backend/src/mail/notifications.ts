@@ -89,7 +89,12 @@ export async function requestReceivedMails(ids: string[]): Promise<Mail[]> {
 }
 
 /** Aprovação: sala e datas para o solicitante; se pediu equipamentos, aviso para a TI. */
-export async function approvedMails(ids: string[]): Promise<Mail[]> {
+/**
+ * Aprovação: aviso ao solicitante e, com recursos ou observações, à TI.
+ * `notifyRequester: false` = reserva feita pelo próprio SAD (não precisa
+ * avisar a si mesmo que foi aprovada).
+ */
+export async function approvedMails(ids: string[], { notifyRequester = true } = {}): Promise<Mail[]> {
   const list = await load(ids);
   const first = list[0];
   if (!first) return [];
@@ -101,7 +106,8 @@ export async function approvedMails(ids: string[]): Promise<Mail[]> {
     ? await prisma.reservation.count({ where: { seriesId: first.seriesId, status: "PENDING" } })
     : 0;
 
-  const mails = [
+  const mails: Mail[] = [];
+  if (notifyRequester) mails.push(
     mail([first.user.email], `Reserva aprovada: ${first.title}`, {
       heading: "Sua reserva foi aprovada",
       paragraphs: [
@@ -112,7 +118,7 @@ export async function approvedMails(ids: string[]): Promise<Mail[]> {
       details: [["Sala", rooms]],
       dates,
     }),
-  ];
+  );
 
   // A TI recebe quando há recursos pedidos OU observações para ela (mesmo sem recursos).
   const resources = await describeResources(first.requestedResources);

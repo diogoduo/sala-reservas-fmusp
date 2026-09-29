@@ -1,5 +1,6 @@
 import {
   CalendarBlankIcon,
+  CalendarPlusIcon,
   CheckCircleIcon,
   ClockIcon,
   CopyIcon,
@@ -9,7 +10,7 @@ import {
   UsersIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { api } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { capitalizeFirst, formatTimeRange } from "../../lib/format";
@@ -77,6 +78,7 @@ function QuickChip({ active, onClick, children }: { active?: boolean; onClick: (
  */
 export function FreeRooms() {
   const toast = useToast();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const defaults = useMemo(nextSlot, []);
   const date = params.get("data") ?? defaults.data;
@@ -253,13 +255,27 @@ export function FreeRooms() {
                         <RoomResourceChips room={r.room} />
                       </div>
                     )}
-                    <div className="mt-auto flex gap-2 pt-5">
-                      <Button variant="secondary" size="sm" icon={CopyIcon} className="flex-1" onClick={() => void copyAnswer(r)}>
-                        Copiar resposta
+                    <div className="mt-auto space-y-2 pt-5">
+                      <Button
+                        size="sm"
+                        icon={CalendarPlusIcon}
+                        className="w-full"
+                        onClick={() =>
+                          navigate(
+                            `/admin/reservar?${new URLSearchParams({ sala: r.room.id, data: date, inicio: start, fim: end, voltar: `/admin/salas-livres?${params.toString()}` }).toString()}`,
+                          )
+                        }
+                      >
+                        Reservar
                       </Button>
-                      <Button variant="ghost" size="sm" icon={CalendarBlankIcon} onClick={() => setAgenda(r.room)}>
-                        Agenda
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button variant="secondary" size="sm" icon={CopyIcon} className="flex-1" onClick={() => void copyAnswer(r)}>
+                          Copiar resposta
+                        </Button>
+                        <Button variant="ghost" size="sm" icon={CalendarBlankIcon} onClick={() => setAgenda(r.room)}>
+                          Agenda
+                        </Button>
+                      </div>
                     </div>
                   </Card>
                 </li>

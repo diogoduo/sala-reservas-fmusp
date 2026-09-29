@@ -7,6 +7,7 @@ import {
   CheckCircleIcon,
   CheckIcon,
   CircleIcon,
+  MapPinIcon,
   PaperPlaneTiltIcon,
   PencilSimpleLineIcon,
   PlusIcon,
@@ -141,6 +142,25 @@ export function AdminEditReservationPage() {
   return <ReservationForm editing={reservation} asAdmin={{ returnTo }} />;
 }
 
+/**
+ * "Nova reserva" do SAD (/admin/reservar): a reserva já sai aprovada. Aceita
+ * preencher sala, data e horário pela URL (?sala=&data=&inicio=&fim=), vindo de
+ * Salas livres ou da Agenda, e volta para `voltar` ao reservar.
+ */
+export function AdminNewReservationPage() {
+  const [params] = useSearchParams();
+  const date = params.get("data") ?? undefined;
+  const fallback = date ? `/admin/agenda?data=${date}` : "/admin/agenda";
+  const returnTo = params.get("voltar")?.startsWith("/admin/") ? params.get("voltar")! : fallback;
+  const prefill = {
+    date,
+    start: params.get("inicio") ?? undefined,
+    end: params.get("fim") ?? undefined,
+    roomId: params.get("sala") ?? undefined,
+  };
+  return <ReservationForm key={params.toString()} asAdmin={{ returnTo, prefill }} />;
+}
+
 /** Envolve o formulário com uma `key`: "Nova solicitação" remonta tudo do zero. */
 export function ReservationPage() {
   const [formKey, setFormKey] = useState(0);
@@ -248,11 +268,12 @@ interface ReservationFormProps {
   /** Reserva existente a alterar (em vez de criar uma nova). */
   editing?: Reservation;
   /**
-   * Alteração feita pelo SAD: sem a antecedência de 3 dias, pode trocar o tipo
-   * de atividade e a sala (de uma aprovada), não volta para análise e, ao
-   * salvar, retorna para `returnTo`.
+   * Modo SAD. Com `editing`: alteração sem a antecedência de 3 dias, podendo
+   * trocar o tipo de atividade e a sala (de uma aprovada), sem voltar para
+   * análise. Sem `editing`: reserva feita pelo próprio SAD, que escolhe a sala
+   * e já sai aprovada. Ao salvar, volta para `returnTo`.
    */
-  asAdmin?: { returnTo: string };
+  asAdmin?: { returnTo: string; prefill?: { date?: string; start?: string; end?: string; roomId?: string } };
 }
 
 function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
@@ -260,30 +281,34 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
   const toast = useToast();
   const [resources, setResources] = useState<Resource[]>([]);
   const [initial] = useState(() => (editing ? formValuesFrom(editing) : null));
+  // O SAD reservando (e não alterando): escolhe a sala e a reserva já sai aprovada.
+  const adminCreating = Boolean(asAdmin && !editing);
+  const prefill = asAdmin?.prefill;
 
   const [activityType, setActivityType] = useState<ActivityType | null>(initial?.activityType ?? null);
   const [details, setDetails] = useState<DetailValues>(initial?.details ?? INITIAL_DETAIL_VALUES);
   const [description, setDescription] = useState(initial?.description ?? "");
   const [supportNotes, setSupportNotes] = useState(initial?.supportNotes ?? "");
-  // Numa alteração, o regulamento já tinha sido aceito no pedido original.
-  const [termsAccepted, setTermsAccepted] = useState(editing !== undefined);
+  // Numa alteração, o regulamento já tinha sido aceito no pedido original; o SAD não precisa aceitar.
+  const [termsAccepted, setTermsAccepted] = useState(editing !== undefined || Boolean(asAdmin));
   // Recursos marcados (a chave é o id), com a quantidade/detalhe como digitados.
   const [selectedResources, setSelectedResources] = useState<Record<string, { quantity: string; detail: string }>>(
     initial?.selectedResources ?? {},
   );
 
   // Tudo começa em branco numa reserva nova (nada de data/horário sugeridos).
-  const [date, setDate] = useState(initial?.date ?? "");
-  const [startTimeStr, setStartTimeStr] = useState(initial?.start ?? "");
-  const [endTimeStr, setEndTimeStr] = useState(initial?.end ?? "");
+  const [date, setDate] = useState(initial?.date ?? prefill?.date ?? "");
+  const [startTimeStr, setStartTimeStr] = useState(initial?.start ?? prefill?.start ?? "");
+  const [endTimeStr, setEndTimeStr] = useState(initial?.end ?? prefill?.end ?? "");
   // Alteração de uma data de série: só ela, ou ela e as próximas.
   const [scope, setScope] = useState<ReviewScope>("single");
   const [savedCount, setSavedCount] = useState<number | null>(null);
   const [showRegulation, setShowRegulation] = useState(false);
   const regulationTitle = useRegulationTitle();
-  // Só o SAD troca a sala, e só de uma reserva aprovada.
-  const [roomId, setRoomId] = useState(editing?.roomId ?? "");
+  // Só o SAD escolhe a sala: ao reservar, ou ao alterar uma reserva aprovada.
+  const [roomId, setRoomId] = useState(editing?.roomId ?? prefill?.roomId ?? "");
   const [activeRooms, setActiveRooms] = useState<Room[]>([]);
+  const choosesRoom = adminCreating || Boolean(asAdmin && editing?.status === "APPROVED");
 
   const [recurrenceEnabled, setRecurrenceEnabled] = useState(false);
   const [interval, setInterval_] = useState<"1" | "2">("1");
@@ -295,7 +320,7 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
   const [result, setResult] = useState<Reservation[] | null>(null);
 
   useEffect(() => {
-    if (asAdmin && editing?.status === "APPROVED") {
+    if (choosesRoom) {
       api<{ rooms: Room[] }>("/rooms?status=ACTIVE").then((res) => setActiveRooms(sortRooms(res.rooms)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -352,7 +377,7 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
   }
 
   const recurrenceOk = !recurrenceEnabled || (weekdays.size > 0 && previewDates.length > 0);
-  const canSubmit = clientErrors.length === 0 && recurrenceOk && termsAccepted && !submitting;
+  const canSubmit = clientErrors.length === 0 && recurrenceOk && termsAccepted && (!adminCreating || Boolean(roomId)) && !submitting;
 
   async function submit() {
     setSubmitting(true);
@@ -381,7 +406,23 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
         endTime: endDate!.toISOString(),
       };
 
-      if (editing && asAdmin) {
+      if (adminCreating && asAdmin) {
+        const res = await api<{ reservations: { id: string }[] }>("/admin/reservations", {
+          method: "POST",
+          body: JSON.stringify({
+            ...payload,
+            roomId,
+            recurrence: rrule ? { rrule, until: new Date(`${until}T23:59:59`).toISOString() } : undefined,
+          }),
+        });
+        toast.success(
+          res.reservations.length === 1 ? "Sala reservada" : `${res.reservations.length} datas reservadas`,
+          "A reserva já está aprovada.",
+        );
+        notifyReservationsChanged();
+        navigate(asAdmin.returnTo);
+        return;
+      } else if (editing && asAdmin) {
         const res = await api<{ updatedIds: string[] }>(`/admin/reservations/${editing.id}`, {
           method: "PUT",
           body: JSON.stringify({ ...payload, scope, roomId: roomId || null }),
@@ -411,7 +452,10 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
       const messages = e instanceof ApiError && e.code === "VALIDATION_ERROR" ? validationMessages(e.details) : [];
       const list = messages.length > 0 ? messages : [e instanceof Error ? e.message : "Falha ao enviar a solicitação."];
       setSubmitErrors(list);
-      toast.error(editing ? "Não foi possível salvar a alteração." : "Não foi possível enviar a solicitação.", list[0]);
+      toast.error(
+        editing ? "Não foi possível salvar a alteração." : adminCreating ? "Não foi possível reservar." : "Não foi possível enviar a solicitação.",
+        list[0],
+      );
     } finally {
       setSubmitting(false);
     }
@@ -483,11 +527,12 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
 
   // O tipo de atividade não muda numa alteração (só nas reservas antigas, que ainda não tinham tipo).
   const activityLocked = !asAdmin && editing?.activityType != null;
+  const submitLabel = editing ? "Salvar alteração" : adminCreating ? "Reservar" : "Enviar solicitação";
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
-        {asAdmin ? (
+        {asAdmin && editing ? (
           <Button variant="ghost" size="sm" icon={ArrowLeftIcon} onClick={() => navigate(asAdmin.returnTo)} className="-ml-3">
             Voltar
           </Button>
@@ -502,13 +547,21 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
         )}
       </div>
       <PageHeader
-        title={asAdmin ? "Alterar reserva (SAD)" : editing ? "Alterar reserva" : "Reservar uma sala"}
+        title={adminCreating ? "Nova reserva (SAD)" : asAdmin ? "Alterar reserva (SAD)" : editing ? "Alterar reserva" : "Reservar uma sala"}
         description={
           editing
             ? `${ACTIVITY_TYPE_LABELS[activityType]} — ${editing.title}${asAdmin && editing.user ? ` · de ${editing.user.name}` : ""}`
-            : `${ACTIVITY_TYPE_LABELS[activityType]} — preencha os dados e envie para o SAD.`
+            : adminCreating
+              ? `${ACTIVITY_TYPE_LABELS[activityType]} — escolha a sala; a reserva já sai aprovada.`
+              : `${ACTIVITY_TYPE_LABELS[activityType]} — preencha os dados e envie para o SAD.`
         }
       />
+      {adminCreating && (
+        <Alert tone="success" title="Reserva do SAD não passa pela fila">
+          Ela é gravada já aprovada, na sala escolhida. O sistema confere se a sala está livre em todas as datas e se comporta o número de
+          pessoas.
+        </Alert>
+      )}
       {asAdmin && editing && (
         <Alert tone="info" title="O solicitante recebe um e-mail com a alteração">
           {editing.status === "APPROVED"
@@ -544,21 +597,31 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
               <Input label="Término" type="time" required step={300} value={endTimeStr} onChange={(e) => setEndTimeStr(e.target.value)} />
             </div>
 
-            {asAdmin && editing?.status === "APPROVED" && (
+            {choosesRoom && (
               <Select
                 label="Sala"
+                required={adminCreating}
                 value={roomId}
                 onChange={(e) => setRoomId(e.target.value)}
-                hint="Trocar a sala vale para todas as datas alteradas. Se ela estiver ocupada, o sistema avisa ao salvar."
+                hint={
+                  adminCreating
+                    ? "Vale para todas as datas. Se a sala estiver ocupada, o sistema avisa ao reservar."
+                    : "Trocar a sala vale para todas as datas alteradas. Se ela estiver ocupada, o sistema avisa ao salvar."
+                }
                 containerClassName="mt-4"
               >
-                {editing.room && !activeRooms.some((r) => r.id === editing.room!.id) && (
+                {adminCreating && (
+                  <option value="" disabled>
+                    Selecione a sala
+                  </option>
+                )}
+                {editing?.room && !activeRooms.some((r) => r.id === editing.room!.id) && (
                   <option value={editing.room.id}>{editing.room.name} (atual)</option>
                 )}
                 {activeRooms.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name}
-                    {r.id === editing.roomId ? " (atual)" : ""} — {ROOM_TYPE_LABELS[r.roomType]}, até {r.capacity ?? "?"} pessoas
+                    {r.id === editing?.roomId ? " (atual)" : ""} — {ROOM_TYPE_LABELS[r.roomType]}, até {r.capacity ?? "?"} pessoas
                   </option>
                 ))}
               </Select>
@@ -816,6 +879,13 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
                   </span>
                 </dd>
               </div>
+              {choosesRoom && (
+                <div className="flex gap-3">
+                  <dt className="sr-only">Sala</dt>
+                  <MapPinIcon size={20} className="shrink-0 text-muted" aria-hidden />
+                  <dd className={roomId ? undefined : "text-muted"}>{activeRooms.find((r) => r.id === roomId)?.name ?? (roomId ? editing?.room?.name : "Sala a escolher")}</dd>
+                </div>
+              )}
               <div className="flex gap-3">
                 <dt className="sr-only">Pessoas</dt>
                 <UsersIcon size={20} className="shrink-0 text-muted" aria-hidden />
@@ -836,18 +906,23 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
             <ul className="mt-5 space-y-2 border-t border-border pt-4">
               <ChecklistItem ok={clientErrors.length === 0}>Data e horário dentro das regras</ChecklistItem>
               {recurrenceEnabled && <ChecklistItem ok={recurrenceOk}>Datas da série definidas</ChecklistItem>}
-              <ChecklistItem ok={termsAccepted}>Regulamento aceito</ChecklistItem>
+              {adminCreating ? (
+                <ChecklistItem ok={Boolean(roomId)}>Sala escolhida</ChecklistItem>
+              ) : (
+                !asAdmin && <ChecklistItem ok={termsAccepted}>Regulamento aceito</ChecklistItem>
+              )}
             </ul>
             {/* No celular o botão fica no fim do formulário; aqui só no computador. */}
             <div className="mt-5 hidden lg:block">
               <Button type="submit" form={FORM_ID} size="lg" icon={PaperPlaneTiltIcon} loading={submitting} disabled={!canSubmit} className="w-full">
-                {editing ? "Salvar alteração" : "Enviar solicitação"}
+                {submitLabel}
               </Button>
             </div>
           </Card>
         </aside>
 
-        <Card className="space-y-4 p-5 sm:p-6 lg:col-start-1">
+        {/* Para o SAD, no computador, este quadro ficaria vazio (sem "Li e concordo"; o botão fica no resumo). */}
+        <Card className={cn("space-y-4 p-5 sm:p-6 lg:col-start-1", asAdmin && submitErrors.length === 0 && "lg:hidden")}>
           {!asAdmin && (
             <label className="flex items-start gap-3 text-sm">
               <input
@@ -891,7 +966,7 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
           )}
           <div className="lg:hidden">
             <Button type="submit" form={FORM_ID} size="lg" icon={PaperPlaneTiltIcon} loading={submitting} disabled={!canSubmit} className="w-full">
-              {editing ? "Salvar alteração" : "Enviar solicitação"}
+              {submitLabel}
             </Button>
           </div>
         </Card>

@@ -140,6 +140,10 @@ export const cancelReservationSchema = z.object({ scope: reviewScopeSchema });
 // vier, é ignorado.
 export const updateReservationSchema = z.intersection(createReservationSchema, z.object({ scope: reviewScopeSchema }));
 
+// Reserva feita pelo próprio SAD: os mesmos campos (e a recorrência) da
+// solicitação, mais a sala — já nasce aprovada.
+export const adminCreateReservationSchema = z.intersection(createReservationSchema, z.object({ roomId: z.string().uuid() }));
+
 // Alteração pelo SAD: os mesmos campos, mais a sala (troca a sala de uma reserva
 // aprovada; null/ausente = mantém a atual).
 export const adminUpdateReservationSchema = z.intersection(

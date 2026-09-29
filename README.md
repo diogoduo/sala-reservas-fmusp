@@ -417,8 +417,24 @@ A aba **Minhas reservas** passou a ser a tela inicial do solicitante
   - aviso ao SAD;
   - aviso à TI, se a reserva estava aprovada e tinha recursos pedidos.
 
-## O SAD altera e cancela qualquer reserva
+## O SAD reserva, altera e cancela qualquer reserva
 
+- **Reservar** (`POST /api/admin/reservations`, tela `/admin/reservar`): a
+  reserva feita pelo SAD **não passa pela fila**. Ela já nasce aprovada, na
+  sala escolhida.
+  - É o mesmo formulário, com a sala obrigatória e a repetição semanal ou
+    quinzenal.
+  - Não precisa dos 3 dias de antecedência.
+  - A sala é travada, e o sistema confere o horário de funcionamento, a
+    capacidade e o conflito em **todas** as datas. Se alguma estiver ocupada,
+    a API responde `RESERVATION_CONFLICT` com as datas e nada é gravado.
+  - Atalhos que abrem o formulário já preenchido:
+    - "Nova reserva" em Solicitações e na Agenda (com o dia);
+    - o "+" de cada sala na linha do tempo da Agenda (sala e dia);
+    - "Reservar" em cada sala livre de **Salas livres** (sala, dia e horário
+      pesquisados).
+  - A TI é avisada se houver recursos ou observações. O próprio SAD não
+    recebe "reserva aprovada".
 - Em **Solicitações**, na **Agenda** e no painel de uma reserva, o SAD tem
   **Alterar** e **Cancelar** para toda reserva pendente ou aprovada que ainda
   não terminou.

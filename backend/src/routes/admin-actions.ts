@@ -7,14 +7,15 @@ import { prisma } from "../lib/prisma";
 import { zonedDateKey, zonedDayRange } from "../lib/timezone";
 import { env } from "../config/env";
 import { sendInBackground, sendNow } from "../mail/mailer";
-import { adminCancelledMails, adminModifiedMails, type AdminEditBefore } from "../mail/notifications";
+import { adminCancelledMails, adminModifiedMails, approvedMails, type AdminEditBefore } from "../mail/notifications";
 import { requireAdmin } from "../middleware/auth";
 import { roomPhotosInclude } from "../photos/include";
 import { summarizeActivity } from "../reservations/activities";
 import { findConflictingOccurrences, isOverlapViolation, lockRoomForUpdate } from "../reservations/conflicts";
+import { expandRecurrence, type Occurrence } from "../reservations/recurrence";
 import { normalizeRequestedResources } from "../reservations/requested-resources";
 import { assertCapacity, assertValidDuration, assertWithinBusinessHours } from "../reservations/rules";
-import { adminUpdateReservationSchema } from "../schemas/reservation";
+import { adminCreateReservationSchema, adminUpdateReservationSchema } from "../schemas/reservation";
 import { adminCancelReservationSchema } from "../schemas/review";
 import { adminReservationInclude } from "./admin";
 
@@ -45,6 +46,114 @@ async function resolveTargets(tx: Prisma.TransactionClient, id: string, scope: "
       : [reservation];
   return { reservation, targets };
 }
+
+// ----------------------------------------------------------------------------
+// Reservar (pelo próprio SAD). Não passa pela fila: já nasce APROVADA, na sala
+// escolhida. Sem os 3 dias de antecedência (só não pode ser no passado); valem
+// o horário de funcionamento, a capacidade e a checagem de conflito em todas
+// as datas, com a sala travada como na aprovação.
+// ----------------------------------------------------------------------------
+
+adminActionsRouter.post(
+  "/reservations",
+  asyncHandler(async (req, res) => {
+    const input = adminCreateReservationSchema.parse(req.body);
+    const { title, expectedAttendees } = summarizeActivity(input);
+    const adminId = req.user!.id;
+
+    assertValidDuration(input.startTime, input.endTime);
+    assertWithinBusinessHours(input.startTime, input.endTime);
+    const now = new Date();
+    if (input.startTime <= now) {
+      throw new AppError(400, "RESERVATION_IN_PAST", "Escolha um horário que ainda não passou.");
+    }
+    const requestedResources = await normalizeRequestedResources(prisma, input.requestedResources);
+
+    const occurrences: Occurrence[] = input.recurrence
+      ? expandRecurrence(input.recurrence.rrule, input.startTime, input.endTime, input.recurrence.until)
+      : [{ start: input.startTime, end: input.endTime }];
+    for (const occ of occurrences) assertWithinBusinessHours(occ.start, occ.end);
+
+    let result;
+    try {
+      result = await prisma.$transaction(
+        async (tx) => {
+          await lockRoomForUpdate(tx, input.roomId);
+          const room = await tx.room.findUnique({ where: { id: input.roomId } });
+          if (!room) throw new AppError(404, "ROOM_NOT_FOUND", "Sala não encontrada.");
+          if (room.status !== "ACTIVE") throw new AppError(409, "ROOM_NOT_ACTIVE", "Só é possível reservar salas com status Ativa.");
+          assertCapacity(expectedAttendees, room.capacity);
+
+          const conflicting = await findConflictingOccurrences(tx, room.id, occurrences);
+          if (conflicting.length > 0) {
+            throw new AppError(
+              409,
+              "RESERVATION_CONFLICT",
+              occurrences.length === 1
+                ? `A sala ${room.name} já está ocupada nesse horário.`
+                : `A sala ${room.name} já está ocupada em ${conflicting.length} das ${occurrences.length} datas.`,
+              { conflictingDates: conflicting.map((c) => c.start) },
+            );
+          }
+
+          const series = input.recurrence
+            ? await tx.reservationSeries.create({
+                data: {
+                  userId: adminId,
+                  roomId: room.id,
+                  title,
+                  description: input.description,
+                  rrule: input.recurrence.rrule,
+                  startTime: input.startTime,
+                  endTime: input.endTime,
+                  untilDate: input.recurrence.until,
+                },
+              })
+            : null;
+
+          // Sequencial: dentro de uma transação interativa as consultas dividem a mesma conexão.
+          const reservations = [];
+          for (const occ of occurrences) {
+            reservations.push(
+              await tx.reservation.create({
+                data: {
+                  seriesId: series?.id,
+                  userId: adminId,
+                  roomId: room.id,
+                  title,
+                  description: input.description,
+                  activityType: input.activityType,
+                  activityDetails: input.details,
+                  expectedAttendees,
+                  requestedResources,
+                  supportNotes: input.supportNotes,
+                  termsAccepted: true,
+                  startTime: occ.start,
+                  endTime: occ.end,
+                  status: "APPROVED",
+                  reviewedById: adminId,
+                  reviewedAt: now,
+                },
+                include: adminReservationInclude,
+              }),
+            );
+          }
+          return { series, reservations };
+        },
+        { timeout: 30_000 },
+      );
+    } catch (error) {
+      if (isOverlapViolation(error)) {
+        throw new AppError(409, "RESERVATION_CONFLICT", "A sala acabou de ser ocupada nesse horário. Recarregue e tente de novo.");
+      }
+      throw error;
+    }
+
+    const ids = result.reservations.map((r) => r.id);
+    sendInBackground("reserva feita pelo SAD", () => approvedMails(ids, { notifyRequester: false }));
+    res.status(201).json(result);
+  }),
+);
 
 // ----------------------------------------------------------------------------
 // Alterar. Diferente da alteração pelo solicitante: não volta para análise
