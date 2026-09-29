@@ -157,7 +157,14 @@ export interface Reservation {
   modifiedByRequesterAt: string | null;
   /** Como estava antes da alteração, para o SAD comparar. */
   previousSnapshot: ReservationSnapshot | null;
+  /** Quem cancelou (o solicitante ou alguém do SAD) e, se foi o SAD, o motivo. */
+  cancelledById: string | null;
+  cancellationReason: string | null;
+  /** Última alteração feita pelo SAD (não devolve a reserva para análise). */
+  modifiedByAdminAt: string | null;
   room: Room | null;
+  /** Quem pediu (útil para o SAD ao alterar). */
+  user?: { name: string; email: string };
 }
 
 /** Reserva como aparece na fila do Admin (GET /api/admin/reservations). */
@@ -167,6 +174,7 @@ export interface AdminReservation extends Omit<Reservation, "room"> {
   series: { id: string; rrule: string; untilDate: string | null } | null;
   reviewedBy: { id: string; name: string } | null;
   reviewedAt: string | null;
+  cancelledBy: { id: string; name: string } | null;
 }
 
 /** "single": só a ocorrência; "series": todas as ocorrências futuras pendentes da série. */
@@ -196,4 +204,30 @@ export interface BusyInterval {
   type: "reservation" | "block";
   status?: ReservationStatus;
   reason?: string;
+  /** Reserva: título e tipo de atividade aparecem para todos. */
+  id?: string;
+  title?: string;
+  activityType?: ActivityType | null;
+  /** Só para o SAD: o resto da reserva. */
+  requester?: { name: string; email: string };
+  expectedAttendees?: number;
+  description?: string;
+  supportNotes?: string | null;
+  seriesId?: string | null;
+  modified?: boolean;
+  resources?: string[];
+}
+
+/** Regulamento (portarias) aceito no formulário de reserva. */
+export interface Regulation {
+  title: string;
+  body: string;
+  updatedAt: string;
+}
+
+export interface RegulationFile {
+  id: string;
+  fileName: string;
+  size: number;
+  createdAt: string;
 }

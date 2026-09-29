@@ -7,6 +7,7 @@ import { prisma } from "../lib/prisma";
 import { requireAdmin, requireAuth } from "../middleware/auth";
 import { roomPhotosInclude } from "../photos/include";
 import { renderPhotoVersions } from "../photos/storage";
+import { parseRequestedResources } from "../reservations/requested-resources";
 import { CAPACITY_REQUIRED_MESSAGE, createRoomSchema, photoCaptionSchema, photoOrderSchema, updateRoomSchema } from "../schemas/room";
 
 export const roomsRouter = Router();
@@ -77,7 +78,9 @@ const availabilityQuerySchema = z.object({
 });
 
 // Intervalos ocupados (reservas ativas + bloqueios) de uma sala num período —
-// usado pelo calendário do solicitante (Fase 5) para colorir dias/horários indisponíveis.
+// usado pelo calendário da sala para colorir os dias e listar o que ocupa cada um.
+// Todos veem o título e o tipo de atividade; o SAD vê a reserva inteira
+// (solicitante, participantes, recursos, observações).
 // Não substitui a checagem de conflito feita em POST /api/reservations (que roda
 // dentro de uma transação com lock); isto é só leitura para orientar a busca.
 roomsRouter.get(
@@ -99,7 +102,8 @@ roomsRouter.get(
           startTime: { lt: rangeEnd },
           endTime: { gt: rangeStart },
         },
-        select: { startTime: true, endTime: true, status: true },
+        include: { user: { select: { name: true, email: true } } },
+        orderBy: { startTime: "asc" },
       }),
       prisma.roomBlock.findMany({
         where: { roomId: req.params.id, startTime: { lt: rangeEnd }, endTime: { gt: rangeStart } },
@@ -107,8 +111,35 @@ roomsRouter.get(
       }),
     ]);
 
+    const isAdmin = req.user?.role === "ADMIN";
+    const resourceIds = [...new Set(reservations.flatMap((r) => parseRequestedResources(r.requestedResources).map((x) => x.resourceId)))];
+    const resourceNames = new Map(
+      isAdmin && resourceIds.length > 0
+        ? (await prisma.resource.findMany({ where: { id: { in: resourceIds } }, select: { id: true, name: true } })).map((r) => [r.id, r.name])
+        : [],
+    );
+
     const busy = [
-      ...reservations.map((r) => ({ start: r.startTime, end: r.endTime, type: "reservation" as const, status: r.status })),
+      ...reservations.map((r) => ({
+        start: r.startTime,
+        end: r.endTime,
+        type: "reservation" as const,
+        status: r.status,
+        id: r.id,
+        title: r.title,
+        activityType: r.activityType,
+        ...(isAdmin && {
+          requester: r.user,
+          expectedAttendees: r.expectedAttendees,
+          description: r.description,
+          supportNotes: r.supportNotes,
+          seriesId: r.seriesId,
+          modified: r.modifiedByRequesterAt !== null && r.status === "PENDING",
+          resources: parseRequestedResources(r.requestedResources).map(
+            (x) => `${resourceNames.get(x.resourceId) ?? "recurso removido"}${x.quantity ? ` (${x.quantity})` : ""}${x.detail ? `: ${x.detail}` : ""}`,
+          ),
+        }),
+      })),
       ...blocks.map((b) => ({ start: b.startTime, end: b.endTime, type: "block" as const, reason: b.reason })),
     ].sort((a, b) => a.start.getTime() - b.start.getTime());
 

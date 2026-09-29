@@ -2,8 +2,8 @@
 # serviço web só. O banco é um PostgreSQL externo (Neon, plano grátis): cole a
 # connection string em DATABASE_URL ao criar o Blueprint.
 #
-# É a configuração da DEMONSTRAÇÃO: login de teste liberado (DEMO_MODE), site
-# protegido por código de acesso (ACCESS_CODE) e e-mails desligados.
+# É a configuração da DEMONSTRAÇÃO: login de teste liberado (DEMO_MODE) e site
+# protegido por código de acesso (ACCESS_CODE).
 services:
   - type: web
     name: reservas-fmusp
@@ -34,12 +34,13 @@ services:
         value: "true"
       - key: COOKIE_SECURE
         value: "true"
+      # E-mails: o envio é pelo Brevo (grátis). No painel do Render, em
+      # Environment, defina BREVO_API_KEY, MAIL_FROM (remetente verificado no
+      # Brevo), MAIL_REDIRECT_TO (quem recebe os e-mails das contas de teste) e,
+      # se quiser que a TI receba de verdade, TI_EMAIL_ADDRESS e
+      # MAIL_REDIRECT_EXCEPT. Sem MAIL_REDIRECT_TO, as contas de teste não recebem nada.
       - key: MAIL_ENABLED
-        value: "false"
-      - key: MAIL_FROM
-        value: Reserva de Salas FMUSP <no-reply@fm.usp.br>
-      - key: TI_EMAIL_ADDRESS
-        value: ti@fm.usp.br
+        value: "true"
       - key: ADMIN_EMAILS
         value: admin@fm.usp.br
       - key: APP_TIMEZONE

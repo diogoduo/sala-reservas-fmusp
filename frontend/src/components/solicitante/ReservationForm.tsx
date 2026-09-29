@@ -14,17 +14,21 @@ import {
   WrenchIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ACTIVITY_TYPE_LABELS, ACTIVITY_TYPES } from "../../lib/activities";
 import { api, ApiError } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { capitalizeFirst, formatShortDate, plural } from "../../lib/format";
 import { ACTIVITY_ICONS, resourceIcon } from "../../lib/icons";
 import { previewWeeklyDates } from "../../lib/recurrence";
-import { isEditable } from "../../lib/reservations";
+import { isEditable, notifyReservationsChanged } from "../../lib/reservations";
+import { sortRooms } from "../../lib/rooms";
 import { validateReservationTimes } from "../../lib/reservationValidation";
 import { useToast } from "../../lib/toast";
-import type { ActivityType, Reservation, Resource, ReviewScope } from "../../lib/types";
+import { ROOM_TYPE_LABELS } from "../../lib/types";
+import type { ActivityType, Reservation, Resource, ReviewScope, Room } from "../../lib/types";
+import { isAdminActionable } from "../admin/ReservationActions";
+import { RegulationDialog, useRegulationTitle } from "../regulation/Regulation";
 import { RoomsPreview } from "../rooms/RoomsPreview";
 import { Button } from "../ui/Button";
 import { Alert, CardListSkeleton, EmptyState } from "../ui/Feedback";
@@ -97,6 +101,44 @@ export function EditReservationPage() {
     );
   }
   return <ReservationForm editing={reservation} />;
+}
+
+/**
+ * "Alterar reserva" do SAD (/admin/reservas/:id/editar?voltar=…): o mesmo
+ * formulário, sem as travas do solicitante. Ao salvar, volta para `voltar`.
+ */
+export function AdminEditReservationPage() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const returnTo = params.get("voltar")?.startsWith("/admin/") ? params.get("voltar")! : "/admin/solicitacoes";
+  const [reservation, setReservation] = useState<Reservation | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<{ reservation: Reservation }>(`/reservations/${id}`)
+      .then((res) => setReservation(res.reservation))
+      .catch((e: Error) => setError(e.message));
+  }, [id]);
+
+  const back = (
+    <Button variant="secondary" icon={ArrowLeftIcon} onClick={() => navigate(returnTo)}>
+      Voltar
+    </Button>
+  );
+  if (error) return <EmptyState icon={CalendarBlankIcon} title="Reserva não encontrada" description={error} action={back} />;
+  if (!reservation) return <CardListSkeleton count={2} />;
+  if (!isAdminActionable(reservation)) {
+    return (
+      <EmptyState
+        icon={CalendarBlankIcon}
+        title="Esta reserva não pode ser alterada"
+        description="Só dá para alterar reservas pendentes ou aprovadas que ainda não terminaram."
+        action={back}
+      />
+    );
+  }
+  return <ReservationForm editing={reservation} asAdmin={{ returnTo }} />;
 }
 
 /** Envolve o formulário com uma `key`: "Nova solicitação" remonta tudo do zero. */
@@ -205,9 +247,15 @@ interface ReservationFormProps {
   onReset?: () => void;
   /** Reserva existente a alterar (em vez de criar uma nova). */
   editing?: Reservation;
+  /**
+   * Alteração feita pelo SAD: sem a antecedência de 3 dias, pode trocar o tipo
+   * de atividade e a sala (de uma aprovada), não volta para análise e, ao
+   * salvar, retorna para `returnTo`.
+   */
+  asAdmin?: { returnTo: string };
 }
 
-function ReservationForm({ onReset, editing }: ReservationFormProps) {
+function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
   const navigate = useNavigate();
   const toast = useToast();
   const [resources, setResources] = useState<Resource[]>([]);
@@ -224,21 +272,34 @@ function ReservationForm({ onReset, editing }: ReservationFormProps) {
     initial?.selectedResources ?? {},
   );
 
-  const [date, setDate] = useState(initial?.date ?? todayPlus(4));
-  const [startTimeStr, setStartTimeStr] = useState(initial?.start ?? "14:00");
-  const [endTimeStr, setEndTimeStr] = useState(initial?.end ?? "16:00");
+  // Tudo começa em branco numa reserva nova (nada de data/horário sugeridos).
+  const [date, setDate] = useState(initial?.date ?? "");
+  const [startTimeStr, setStartTimeStr] = useState(initial?.start ?? "");
+  const [endTimeStr, setEndTimeStr] = useState(initial?.end ?? "");
   // Alteração de uma data de série: só ela, ou ela e as próximas.
   const [scope, setScope] = useState<ReviewScope>("single");
   const [savedCount, setSavedCount] = useState<number | null>(null);
+  const [showRegulation, setShowRegulation] = useState(false);
+  const regulationTitle = useRegulationTitle();
+  // Só o SAD troca a sala, e só de uma reserva aprovada.
+  const [roomId, setRoomId] = useState(editing?.roomId ?? "");
+  const [activeRooms, setActiveRooms] = useState<Room[]>([]);
 
   const [recurrenceEnabled, setRecurrenceEnabled] = useState(false);
   const [interval, setInterval_] = useState<"1" | "2">("1");
   const [weekdays, setWeekdays] = useState<Set<string>>(new Set());
-  const [until, setUntil] = useState(todayPlus(60));
+  const [until, setUntil] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
   const [submitErrors, setSubmitErrors] = useState<string[]>([]);
   const [result, setResult] = useState<Reservation[] | null>(null);
+
+  useEffect(() => {
+    if (asAdmin && editing?.status === "APPROVED") {
+      api<{ rooms: Room[] }>("/rooms?status=ACTIVE").then((res) => setActiveRooms(sortRooms(res.rooms)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     // Itens só de inventário (nobreak, splitter…) não são pedidos pelo solicitante.
@@ -247,7 +308,12 @@ function ReservationForm({ onReset, editing }: ReservationFormProps) {
 
   const startDate = useMemo(() => (date && startTimeStr ? new Date(`${date}T${startTimeStr}:00`) : null), [date, startTimeStr]);
   const endDate = useMemo(() => (date && endTimeStr ? new Date(`${date}T${endTimeStr}:00`) : null), [date, endTimeStr]);
-  const clientErrors = useMemo(() => validateReservationTimes(startDate, endDate), [startDate, endDate]);
+  const clientErrors = useMemo(
+    () => validateReservationTimes(startDate, endDate, { requireAdvance: !asAdmin }),
+    [startDate, endDate, asAdmin],
+  );
+  // O aviso de horário só aparece depois que data, início e término foram preenchidos.
+  const timesFilled = Boolean(date && startTimeStr && endTimeStr);
 
   const previewDates = useMemo(
     () => (recurrenceEnabled ? previewWeeklyDates(date, until, weekdays, Number(interval)) : []),
@@ -315,7 +381,19 @@ function ReservationForm({ onReset, editing }: ReservationFormProps) {
         endTime: endDate!.toISOString(),
       };
 
-      if (editing) {
+      if (editing && asAdmin) {
+        const res = await api<{ updatedIds: string[] }>(`/admin/reservations/${editing.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ ...payload, scope, roomId: roomId || null }),
+        });
+        toast.success(
+          res.updatedIds.length === 1 ? "Reserva alterada" : `${res.updatedIds.length} datas alteradas`,
+          "O solicitante foi avisado por e-mail.",
+        );
+        notifyReservationsChanged();
+        navigate(asAdmin.returnTo);
+        return;
+      } else if (editing) {
         const res = await api<{ updatedIds: string[] }>(`/reservations/${editing.id}`, {
           method: "PUT",
           body: JSON.stringify({ ...payload, scope }),
@@ -397,18 +475,23 @@ function ReservationForm({ onReset, editing }: ReservationFormProps) {
   const ActivityIcon = ACTIVITY_ICONS[activityType];
   const attendees = attendeesOf(activityType, details);
   const chosenResources = resources.filter((r) => selectedResources[r.id]);
+  const dayOnly = date ? new Date(`${date}T12:00:00`) : null;
   const dateLabel =
-    startDate && !Number.isNaN(startDate.getTime())
-      ? capitalizeFirst(startDate.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" }))
-      : "—";
+    dayOnly && !Number.isNaN(dayOnly.getTime())
+      ? capitalizeFirst(dayOnly.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" }))
+      : "Data a definir";
 
   // O tipo de atividade não muda numa alteração (só nas reservas antigas, que ainda não tinham tipo).
-  const activityLocked = editing?.activityType != null;
+  const activityLocked = !asAdmin && editing?.activityType != null;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
-        {editing ? (
+        {asAdmin ? (
+          <Button variant="ghost" size="sm" icon={ArrowLeftIcon} onClick={() => navigate(asAdmin.returnTo)} className="-ml-3">
+            Voltar
+          </Button>
+        ) : editing ? (
           <Button variant="ghost" size="sm" icon={ArrowLeftIcon} onClick={() => navigate("/minhas-reservas")} className="-ml-3">
             Minhas reservas
           </Button>
@@ -419,14 +502,21 @@ function ReservationForm({ onReset, editing }: ReservationFormProps) {
         )}
       </div>
       <PageHeader
-        title={editing ? "Alterar reserva" : "Reservar uma sala"}
+        title={asAdmin ? "Alterar reserva (SAD)" : editing ? "Alterar reserva" : "Reservar uma sala"}
         description={
           editing
-            ? `${ACTIVITY_TYPE_LABELS[activityType]} — ${editing.title}`
+            ? `${ACTIVITY_TYPE_LABELS[activityType]} — ${editing.title}${asAdmin && editing.user ? ` · de ${editing.user.name}` : ""}`
             : `${ACTIVITY_TYPE_LABELS[activityType]} — preencha os dados e envie para o SAD.`
         }
       />
-      {editing && (
+      {asAdmin && editing && (
+        <Alert tone="info" title="O solicitante recebe um e-mail com a alteração">
+          {editing.status === "APPROVED"
+            ? "A reserva continua aprovada. Se mudar a sala ou o horário, o sistema confere se a sala está livre antes de salvar."
+            : "A reserva continua em análise; a sala é escolhida na aprovação."}
+        </Alert>
+      )}
+      {editing && !asAdmin && (
         <Alert tone={editing.status === "APPROVED" ? "warning" : "info"} title="Ao salvar, a reserva volta para análise do SAD">
           {editing.status === "APPROVED" && editing.room
             ? `Ela está aprovada na ${editing.room.name}. Com a alteração, fica marcada como alterada e a sala é liberada até o SAD aprovar de novo.`
@@ -443,14 +533,38 @@ function ReservationForm({ onReset, editing }: ReservationFormProps) {
           }}
           className="min-w-0 space-y-6"
         >
-          <FormSection step={1} title="Quando" description="Funcionamento das 07:30 às 22:30, com no mínimo 3 dias de antecedência.">
+          <FormSection
+            step={1}
+            title="Quando"
+            description={asAdmin ? "Funcionamento das 07:30 às 22:30." : "Funcionamento das 07:30 às 22:30, com no mínimo 3 dias de antecedência."}
+          >
             <div className="grid gap-4 sm:grid-cols-3">
-              <Input label="Data" type="date" required value={date} min={todayPlus(3)} onChange={(e) => setDate(e.target.value)} />
+              <Input label="Data" type="date" required value={date} min={asAdmin ? todayPlus(0) : todayPlus(3)} onChange={(e) => setDate(e.target.value)} />
               <Input label="Início" type="time" required step={300} value={startTimeStr} onChange={(e) => setStartTimeStr(e.target.value)} />
               <Input label="Término" type="time" required step={300} value={endTimeStr} onChange={(e) => setEndTimeStr(e.target.value)} />
             </div>
 
-            {clientErrors.length > 0 && (
+            {asAdmin && editing?.status === "APPROVED" && (
+              <Select
+                label="Sala"
+                value={roomId}
+                onChange={(e) => setRoomId(e.target.value)}
+                hint="Trocar a sala vale para todas as datas alteradas. Se ela estiver ocupada, o sistema avisa ao salvar."
+                containerClassName="mt-4"
+              >
+                {editing.room && !activeRooms.some((r) => r.id === editing.room!.id) && (
+                  <option value={editing.room.id}>{editing.room.name} (atual)</option>
+                )}
+                {activeRooms.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                    {r.id === editing.roomId ? " (atual)" : ""} — {ROOM_TYPE_LABELS[r.roomType]}, até {r.capacity ?? "?"} pessoas
+                  </option>
+                ))}
+              </Select>
+            )}
+
+            {timesFilled && clientErrors.length > 0 && (
               <Alert tone="warning" className="mt-4">
                 <ul className="space-y-0.5">
                   {clientErrors.map((err) => (
@@ -527,10 +641,12 @@ function ReservationForm({ onReset, editing }: ReservationFormProps) {
                         ]}
                       />
                     </div>
-                    <Input label="Repetir até" type="date" value={until} min={date} onChange={(e) => setUntil(e.target.value)} />
+                    <Input label="Repetir até" type="date" required value={until} min={date} onChange={(e) => setUntil(e.target.value)} />
                   </div>
                   {weekdays.size === 0 ? (
                     <Alert tone="warning">Escolha ao menos um dia da semana.</Alert>
+                  ) : !until ? (
+                    <Alert tone="info">Escolha até quando a reserva se repete.</Alert>
                   ) : previewDates.length === 0 ? (
                     <Alert tone="warning">Nenhuma data cai nesse período. Ajuste o "Repetir até" ou os dias.</Alert>
                   ) : (
@@ -582,7 +698,9 @@ function ReservationForm({ onReset, editing }: ReservationFormProps) {
             </div>
           </FormSection>
 
-          <RoomsPreview attendees={Number(attendees) || 0} date={startDate && !Number.isNaN(startDate.getTime()) ? startDate : undefined} />
+          {!asAdmin && (
+            <RoomsPreview attendees={Number(attendees) || 0} date={startDate && !Number.isNaN(startDate.getTime()) ? startDate : undefined} />
+          )}
 
           <FormSection step={3} title="Recursos" description="Marque o que vai precisar. Não precisa de nada? É só seguir em frente.">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -693,7 +811,7 @@ function ReservationForm({ onReset, editing }: ReservationFormProps) {
                 <dd>
                   <span>{dateLabel}</span>
                   <span className="block text-muted tabular-nums">
-                    {startTimeStr}–{endTimeStr}
+                    {startTimeStr && endTimeStr ? `${startTimeStr}–${endTimeStr}` : "Horário a definir"}
                     {recurrenceEnabled && previewDates.length > 0 && ` · ${plural(previewDates.length, "data", "datas")}`}
                   </span>
                 </dd>
@@ -730,19 +848,38 @@ function ReservationForm({ onReset, editing }: ReservationFormProps) {
         </aside>
 
         <Card className="space-y-4 p-5 sm:p-6 lg:col-start-1">
-          <label className="flex items-start gap-3 text-sm">
-            <input
-              type="checkbox"
-              form={FORM_ID}
-              required
-              checked={termsAccepted}
-              onChange={(e) => setTermsAccepted(e.target.checked)}
-              className="mt-0.5 size-5 shrink-0"
+          {!asAdmin && (
+            <label className="flex items-start gap-3 text-sm">
+              <input
+                type="checkbox"
+                form={FORM_ID}
+                required
+                checked={termsAccepted}
+                onChange={(e) => setTermsAccepted(e.target.checked)}
+                className="mt-0.5 size-5 shrink-0"
+              />
+              <span>
+                Li e concordo com o{" "}
+                <button
+                  type="button"
+                  onClick={() => setShowRegulation(true)}
+                  className="font-semibold text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                >
+                  {regulationTitle}
+                </button>
+                .
+              </span>
+            </label>
+          )}
+          {showRegulation && (
+            <RegulationDialog
+              onClose={() => setShowRegulation(false)}
+              onAccept={() => {
+                setTermsAccepted(true);
+                setShowRegulation(false);
+              }}
             />
-            <span>
-              Li e concordo com o <strong>Regulamento de Uso dos Espaços da FMUSP</strong>.
-            </span>
-          </label>
+          )}
           {submitErrors.length > 0 && (
             <Alert tone="danger" title="Revise a solicitação">
               <ul className="list-disc space-y-0.5 pl-4">

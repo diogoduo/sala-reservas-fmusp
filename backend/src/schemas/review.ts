@@ -19,3 +19,9 @@ export const rejectReservationSchema = z.object({
 });
 
 export type ReviewScope = z.infer<typeof reviewScopeSchema>;
+
+// O SAD cancela qualquer reserva ativa, sempre com o motivo (vai no e-mail ao solicitante).
+export const adminCancelReservationSchema = z.object({
+  reason: z.string().trim().min(1, "Informe o motivo do cancelamento.").max(2000),
+  scope: reviewScopeSchema,
+});

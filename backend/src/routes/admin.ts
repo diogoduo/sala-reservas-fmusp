@@ -19,10 +19,11 @@ import { approveReservationSchema, rejectReservationSchema, reviewScopeSchema, t
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
 
-const adminReservationInclude = {
+export const adminReservationInclude = {
   room: true,
   user: { select: { id: true, name: true, email: true } },
   reviewedBy: { select: { id: true, name: true } },
+  cancelledBy: { select: { id: true, name: true } },
   series: { select: { id: true, rrule: true, untilDate: true } },
 } satisfies Prisma.ReservationInclude;
 

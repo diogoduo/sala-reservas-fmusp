@@ -63,10 +63,18 @@ const schema = z
     SMTP_SECURE: bool("false"),
     SMTP_USER: z.string().optional(),
     SMTP_PASS: z.string().optional(),
-    MAIL_FROM: z.string().min(1),
+    MAIL_FROM: z.string().min(1).default("Reserva de Salas FMUSP <no-reply@fm.usp.br>"),
     // false = não envia e-mails (só registra no log). Útil numa demonstração sem SMTP.
     MAIL_ENABLED: bool("true"),
-    TI_EMAIL_ADDRESS: z.string().email(),
+    // Com a chave da API do Brevo (plano grátis), envia por HTTPS em vez de SMTP
+    // (hospedagens grátis costumam bloquear SMTP). O remetente de MAIL_FROM
+    // precisa estar verificado no Brevo.
+    BREVO_API_KEY: optionalText(z.string()),
+    // Demonstração: todo e-mail vai para este endereço (o assunto diz para quem
+    // iria), menos os de MAIL_REDIRECT_EXCEPT. Evita escrever para as contas de teste.
+    MAIL_REDIRECT_TO: optionalText(z.string().email()),
+    MAIL_REDIRECT_EXCEPT: csv(""),
+    TI_EMAIL_ADDRESS: z.string().email().default("ti@fm.usp.br"),
   })
   .superRefine((cfg, ctx) => {
     const requireKeys = (keys: (keyof typeof cfg)[], reason: string) => {

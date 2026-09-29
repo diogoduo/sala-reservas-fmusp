@@ -31,6 +31,7 @@ import { CardListSkeleton, EmptyState } from "../ui/Feedback";
 import { Input } from "../ui/Field";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Card, IconTile, PageHeader } from "../ui/Surface";
+import { AdminReservationActions, isAdminActionable } from "./ReservationActions";
 import { ReviewDrawer } from "./ReviewPanel";
 
 // "MODIFIED" não é um status do banco: são as pendentes que o solicitante alterou.
@@ -47,7 +48,7 @@ const STATUS_FILTERS: { value: Filter; label: string; icon: Icon; empty: string 
   { value: "MODIFIED", label: "Alteradas", icon: PencilSimpleLineIcon, empty: "Nenhuma reserva alterada pelos solicitantes esperando análise." },
   { value: "APPROVED", label: "Aprovadas", icon: CheckCircleIcon, empty: "Nenhuma solicitação aprovada ainda." },
   { value: "REJECTED", label: "Rejeitadas", icon: XCircleIcon, empty: "Nenhuma solicitação rejeitada." },
-  { value: "CANCELLED", label: "Canceladas", icon: ProhibitIcon, empty: "Nenhuma reserva cancelada pelos solicitantes." },
+  { value: "CANCELLED", label: "Canceladas", icon: ProhibitIcon, empty: "Nenhuma reserva cancelada." },
 ];
 
 function Chip({ icon: ChipIcon, children }: { icon: Icon; children: ReactNode }) {
@@ -149,6 +150,8 @@ export function RequestsAdmin() {
             const ActivityIcon = first.activityType ? ACTIVITY_ICONS[first.activityType] : CalendarBlankIcon;
             const rooms = [...new Set(group.flatMap((r) => (r.room ? [r.room.name] : [])))];
             const last = group[group.length - 1]!;
+            // Numa série, "Alterar"/"Cancelar" partem da próxima data que ainda pode mudar.
+            const actionTarget = group.find((r) => isAdminActionable(r));
             return (
               <li key={key} className="animate-fade-in-up" style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}>
                 <Card className="p-4 transition-shadow duration-200 hover:shadow-md sm:p-5">
@@ -199,21 +202,33 @@ export function RequestsAdmin() {
                   </div>
 
                   <p className="mt-3 line-clamp-2 text-sm text-muted">{first.description}</p>
+                  {first.status === "CANCELLED" && first.cancellationReason && (
+                    <p className="mt-2 text-sm">
+                      <span className="font-medium">Cancelada pelo SAD:</span> <span className="text-muted">{first.cancellationReason}</span>
+                    </p>
+                  )}
 
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
                     <p className="text-xs text-muted">
                       {isModifiedPending(first) && first.modifiedByRequesterAt
                         ? `Alterada pelo solicitante em ${new Date(first.modifiedByRequesterAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}`
-                        : `Enviada em ${new Date(first.createdAt).toLocaleDateString("pt-BR")}`}
+                        : first.modifiedByAdminAt
+                          ? `Alterada pelo SAD em ${new Date(first.modifiedByAdminAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}`
+                          : `Enviada em ${new Date(first.createdAt).toLocaleDateString("pt-BR")}`}
                     </p>
-                    <Button
-                      size="sm"
-                      variant={isPending ? "primary" : "secondary"}
-                      iconRight={ArrowRightIcon}
-                      onClick={() => setOpenKey(key)}
-                    >
-                      {isPending ? "Analisar" : "Ver detalhes"}
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-1">
+                      {actionTarget && (
+                        <AdminReservationActions reservation={actionTarget} returnTo="/admin/solicitacoes" onChanged={() => void load()} />
+                      )}
+                      <Button
+                        size="sm"
+                        variant={isPending ? "primary" : "secondary"}
+                        iconRight={ArrowRightIcon}
+                        onClick={() => setOpenKey(key)}
+                      >
+                        {isPending ? "Analisar" : "Ver detalhes"}
+                      </Button>
+                    </div>
                   </div>
                 </Card>
               </li>

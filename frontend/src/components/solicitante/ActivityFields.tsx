@@ -16,7 +16,8 @@ import { Input, Select, Switch, Textarea } from "../ui/Field";
  */
 export type DetailValues = Record<string, string | boolean>;
 
-export const INITIAL_DETAIL_VALUES: DetailValues = { free: false, linkedToCcex: false };
+// Formulário começa em branco: nada vem marcado (a pessoa escolhe "Sim"/"Não").
+export const INITIAL_DETAIL_VALUES: DetailValues = { free: false };
 
 /** Nº de pessoas informado no formulário de cada tipo (para o resumo lateral). */
 export function attendeesOf(type: ActivityType, values: DetailValues): string {
@@ -190,7 +191,8 @@ export function ActivityFields({ type, values, onChange }: Props) {
           <ChoicePills
             legend="Vinculada à CCEx"
             name="linkedToCcex"
-            value={values.linkedToCcex === true ? "yes" : "no"}
+            required
+            value={values.linkedToCcex === true ? "yes" : values.linkedToCcex === false ? "no" : undefined}
             onChange={(value) => onChange("linkedToCcex", value === "yes")}
             options={[
               ["yes", "Sim"],

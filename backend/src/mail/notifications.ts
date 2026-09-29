@@ -114,15 +114,20 @@ export async function approvedMails(ids: string[]): Promise<Mail[]> {
     }),
   ];
 
+  // A TI recebe quando há recursos pedidos OU observações para ela (mesmo sem recursos).
   const resources = await describeResources(first.requestedResources);
-  if (resources) {
+  if (resources || first.supportNotes) {
     mails.push(
       mail([env.TI_EMAIL_ADDRESS], `Preparar recursos: ${first.title}`, {
-        heading: "Reserva aprovada com recursos técnicos",
-        paragraphs: ["Uma reserva aprovada pede equipamentos. Confira o que preparar em cada data."],
+        heading: resources ? "Reserva aprovada com recursos técnicos" : "Reserva aprovada com observações para a TI",
+        paragraphs: [
+          resources
+            ? "Uma reserva aprovada pede equipamentos. Confira o que preparar em cada data."
+            : "Uma reserva aprovada tem observações para a TI/infraestrutura.",
+        ],
         details: [
           ["Sala", rooms],
-          ["Recursos", resources],
+          ...(resources ? [["Recursos", resources] as [string, string]] : []),
           ...(first.supportNotes ? [["Observações", first.supportNotes] as [string, string]] : []),
           ["Solicitante", requesterOf(first)],
         ],
@@ -248,6 +253,92 @@ export async function cancelledMails(ids: string[]): Promise<Mail[]> {
       mail([env.TI_EMAIL_ADDRESS], `Recursos dispensados: ${first.title}`, {
         heading: "Reserva cancelada: não é mais preciso preparar os recursos",
         paragraphs: ["O solicitante cancelou uma reserva aprovada que pedia equipamentos."],
+        details: [
+          ["Sala", roomsOf(wereApproved)],
+          ["Recursos", resources],
+        ],
+        dates: wereApproved.map(formatSlot),
+      }),
+    );
+  }
+  return mails;
+}
+
+// ----------------------------------------------------------------------------
+// Ações do SAD sobre uma reserva já feita (alterar e cancelar)
+// ----------------------------------------------------------------------------
+
+/** Como a reserva estava antes da alteração do SAD (para o e-mail mostrar "antes"). */
+export interface AdminEditBefore {
+  startTime: Date;
+  endTime: Date;
+  roomName: string | null;
+}
+
+/** Alteração pelo SAD: aviso ao solicitante e, se estava aprovada com recursos, à TI. */
+export async function adminModifiedMails(ids: string[], before: AdminEditBefore | null): Promise<Mail[]> {
+  const list = await load(ids);
+  const first = list[0];
+  if (!first) return [];
+  const rooms = roomsOf(list);
+  const beforeDetails: [string, string][] = before
+    ? [["Antes", `${formatSlot(before)}${before.roomName ? ` · ${before.roomName}` : ""}`]]
+    : [];
+
+  const mails = [
+    mail([first.user.email], `Reserva alterada pelo SAD: ${first.title}`, {
+      heading: "O SAD alterou a sua reserva",
+      paragraphs: [
+        `Olá, ${first.user.name}. O SAD alterou a reserva "${first.title}". Confira como ficou.`,
+        first.status === "APPROVED" ? "Ela continua aprovada." : "Ela continua em análise.",
+      ],
+      details: [...beforeDetails, ...(rooms ? [["Sala", rooms] as [string, string]] : [])],
+      dates: list.map(formatSlot),
+    }),
+  ];
+
+  const resources = first.status === "APPROVED" ? await describeResources(first.requestedResources) : null;
+  if (resources || (first.status === "APPROVED" && first.supportNotes)) {
+    mails.push(
+      mail([env.TI_EMAIL_ADDRESS], `Reserva alterada: ${first.title}`, {
+        heading: "Reserva aprovada alterada pelo SAD",
+        paragraphs: ["Confira as novas datas, a sala e o que preparar."],
+        details: [
+          ...beforeDetails,
+          ["Sala", rooms],
+          ...(resources ? [["Recursos", resources] as [string, string]] : []),
+          ...(first.supportNotes ? [["Observações", first.supportNotes] as [string, string]] : []),
+          ["Solicitante", requesterOf(first)],
+        ],
+        dates: list.map(formatSlot),
+      }),
+    );
+  }
+  return mails;
+}
+
+/** Cancelamento pelo SAD: motivo ao solicitante e, se estava aprovada com recursos, aviso à TI. */
+export async function adminCancelledMails(ids: string[]): Promise<Mail[]> {
+  const list = await load(ids);
+  const first = list[0];
+  if (!first) return [];
+  const wereApproved = list.filter((r) => r.reviewedAt !== null && r.roomId !== null);
+
+  const mails = [
+    mail([first.user.email], `Reserva cancelada pelo SAD: ${first.title}`, {
+      heading: "O SAD cancelou a sua reserva",
+      paragraphs: [`Olá, ${first.user.name}. A reserva "${first.title}" foi cancelada pelo SAD.`],
+      details: [["Motivo", first.cancellationReason ?? "—"]],
+      dates: list.map(formatSlot),
+    }),
+  ];
+
+  const resources = wereApproved.length > 0 ? await describeResources(first.requestedResources) : null;
+  if (resources) {
+    mails.push(
+      mail([env.TI_EMAIL_ADDRESS], `Recursos dispensados: ${first.title}`, {
+        heading: "Reserva cancelada: não é mais preciso preparar os recursos",
+        paragraphs: ["O SAD cancelou uma reserva aprovada que pedia equipamentos."],
         details: [
           ["Sala", roomsOf(wereApproved)],
           ["Recursos", resources],

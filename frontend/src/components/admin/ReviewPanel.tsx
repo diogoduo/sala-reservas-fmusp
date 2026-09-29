@@ -43,7 +43,7 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
 }
 
 /** Todos os dados do pedido, em lista rótulo/valor. */
-function RequestDetails({ group, resources }: { group: AdminReservation[]; resources: Resource[] }) {
+export function RequestDetails({ group, resources }: { group: AdminReservation[]; resources: Resource[] }) {
   const first = group[0]!;
   const rooms = [...new Set(group.flatMap((r) => (r.room ? [`${r.room.name} — ${r.room.building}, ${r.room.floor}`] : [])))];
   return (
@@ -101,7 +101,16 @@ function RequestDetails({ group, resources }: { group: AdminReservation[]; resou
             {first.reviewedBy.name} em {new Date(first.reviewedAt).toLocaleString("pt-BR")}
           </DetailRow>
         )}
-        {first.cancelledAt && <DetailRow label="Cancelada em">{new Date(first.cancelledAt).toLocaleString("pt-BR")}</DetailRow>}
+        {first.cancelledAt && (
+          <DetailRow label="Cancelada em">
+            {new Date(first.cancelledAt).toLocaleString("pt-BR")}
+            {first.cancelledBy && first.cancelledBy.id !== first.user.id ? ` pelo SAD (${first.cancelledBy.name})` : " pelo solicitante"}
+          </DetailRow>
+        )}
+        {first.cancellationReason && <DetailRow label="Motivo">{first.cancellationReason}</DetailRow>}
+        {first.modifiedByAdminAt && (
+          <DetailRow label="Alterada pelo SAD">{new Date(first.modifiedByAdminAt).toLocaleString("pt-BR")}</DetailRow>
+        )}
         <DetailRow label="Enviada em">{new Date(first.createdAt).toLocaleString("pt-BR")}</DetailRow>
       </dl>
     </section>

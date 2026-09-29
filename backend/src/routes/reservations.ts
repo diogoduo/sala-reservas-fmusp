@@ -19,6 +19,8 @@ export const reservationsRouter = Router();
 const reservationInclude = {
   // "Outros equipamentos" é inventário interno do SAD.
   room: { omit: { equipmentNotes: true }, include: { photos: roomPhotosInclude } },
+  // Nome de quem pediu: o SAD usa ao abrir uma reserva para alterar.
+  user: { select: { name: true, email: true } },
 } satisfies Prisma.ReservationInclude;
 
 // ----------------------------------------------------------------------------
@@ -178,7 +180,7 @@ reservationsRouter.post(
       const ids = targets.map((t) => t.id);
       const updated = await tx.reservation.updateMany({
         where: { id: { in: ids }, status: { in: CANCELLABLE_STATUSES } },
-        data: { status: "CANCELLED", cancelledAt: now },
+        data: { status: "CANCELLED", cancelledAt: now, cancelledById: userId },
       });
       if (updated.count !== ids.length) {
         throw new AppError(409, "RESERVATION_NOT_CANCELLABLE", "A situação desta reserva mudou enquanto você cancelava. Recarregue a lista.");

@@ -139,3 +139,10 @@ export const cancelReservationSchema = z.object({ scope: reviewScopeSchema });
 // criação, mais o escopo. A recorrência não muda por aqui — `recurrence`, se
 // vier, é ignorado.
 export const updateReservationSchema = z.intersection(createReservationSchema, z.object({ scope: reviewScopeSchema }));
+
+// Alteração pelo SAD: os mesmos campos, mais a sala (troca a sala de uma reserva
+// aprovada; null/ausente = mantém a atual).
+export const adminUpdateReservationSchema = z.intersection(
+  createReservationSchema,
+  z.object({ scope: reviewScopeSchema, roomId: z.string().uuid().nullish() }),
+);

@@ -28,7 +28,8 @@ function partsInTimeZone(date: Date) {
   };
 }
 
-export function validateReservationTimes(start: Date | null, end: Date | null): string[] {
+/** `requireAdvance: false` = sem os 3 dias de antecedência (alteração feita pelo SAD). */
+export function validateReservationTimes(start: Date | null, end: Date | null, { requireAdvance = true } = {}): string[] {
   const errors: string[] = [];
   if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     return ["Informe data e horários válidos."];
@@ -50,8 +51,10 @@ export function validateReservationTimes(start: Date | null, end: Date | null): 
     errors.push("Reservas só são permitidas entre 07:30 e 22:30.");
   }
 
-  if (start.getTime() - Date.now() < MIN_ADVANCE_MS) {
+  if (requireAdvance && start.getTime() - Date.now() < MIN_ADVANCE_MS) {
     errors.push("A solicitação deve ser enviada com no mínimo 3 dias de antecedência.");
+  } else if (!requireAdvance && start.getTime() <= Date.now()) {
+    errors.push("Escolha um horário que ainda não passou.");
   }
 
   return errors;

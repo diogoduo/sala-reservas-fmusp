@@ -88,10 +88,11 @@ model User {
   icalToken String?  @unique @map("ical_token") // segredo do feed .ics; gerado sob demanda
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  reservations         Reservation[]       @relation("ReservationRequester")
-  reviewedReservations Reservation[]       @relation("ReservationReviewer")
-  series               ReservationSeries[]
-  roomBlocks           RoomBlock[]
+  reservations          Reservation[]       @relation("ReservationRequester")
+  reviewedReservations  Reservation[]       @relation("ReservationReviewer")
+  cancelledReservations Reservation[]       @relation("ReservationCanceller")
+  series                ReservationSeries[]
+  roomBlocks            RoomBlock[]
 
   @@map("users")
 }
@@ -101,27 +102,27 @@ model User {
 // ----------------------------------------------------------------------------
 
 model Room {
-  id        String     @id @default(uuid()) @db.Uuid
-  name      String // nome/número da sala
-  building  String // prédio/bloco
-  floor     String // andar/pavimento (texto: "Térreo", "2º andar"...)
+  id             String     @id @default(uuid()) @db.Uuid
+  name           String // nome/número da sala
+  building       String // prédio/bloco
+  floor          String // andar/pavimento (texto: "Térreo", "2º andar"...)
   /// Cadeiras da plateia. Pode ficar sem valor ("a definir") só em sala que
   /// não está Ativa (ex.: em reforma) — CHECK rooms_active_capacity_check.
-  capacity  Int?
-  roomType  RoomType   @map("room_type")
-  status    RoomStatus @default(ACTIVE)
+  capacity       Int?
+  roomType       RoomType   @map("room_type")
+  status         RoomStatus @default(ACTIVE)
   /// Cadeiras de rodinha / professor / bancos, além das cadeiras da plateia (capacity).
-  extraSeats     Int?     @map("extra_seats")
+  extraSeats     Int?       @map("extra_seats")
   /// Largura × comprimento, como na planilha da FMUSP (ex.: "10,30 × 9,60 m").
   dimensions     String?
   /// Outros equipamentos da sala, em texto livre. Só o SAD vê.
-  equipmentNotes String?  @map("equipment_notes")
+  equipmentNotes String?    @map("equipment_notes")
   seatTypes      SeatType[] @default([]) @map("seat_types")
   /// Porta de 900 mm.
-  wideDoor       Boolean  @default(false) @map("wide_door")
+  wideDoor       Boolean    @default(false) @map("wide_door")
   /// Sala preparada para atendimento especial.
-  specialNeeds   Boolean  @default(false) @map("special_needs")
-  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  specialNeeds   Boolean    @default(false) @map("special_needs")
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
 
   resources    RoomResource[]
   photos       RoomPhoto[]
@@ -135,11 +136,11 @@ model Room {
 }
 
 model Resource {
-  id          String  @id @default(uuid()) @db.Uuid
-  name        String  @unique
-  description String?
+  id               String   @id @default(uuid()) @db.Uuid
+  name             String   @unique
+  description      String?
   /// O formulário de solicitação pede a quantidade (ex.: Computador, Chromebook).
-  requestsQuantity Boolean @default(false) @map("requests_quantity")
+  requestsQuantity Boolean  @default(false) @map("requests_quantity")
   /// Aparece no formulário de reserva. Itens de infraestrutura (nobreak, splitter…)
   /// ficam só no inventário das salas.
   requestable      Boolean  @default(true)
@@ -156,9 +157,9 @@ model Resource {
 }
 
 model RoomResource {
-  roomId     String @map("room_id") @db.Uuid
-  resourceId String @map("resource_id") @db.Uuid
-  quantity   Int    @default(1)
+  roomId     String  @map("room_id") @db.Uuid
+  resourceId String  @map("resource_id") @db.Uuid
+  quantity   Int     @default(1)
   /// Modelo e patrimônio(s) do equipamento nesta sala — só o SAD vê.
   model      String?
   assetTags  String? @map("asset_tags")
@@ -223,43 +224,50 @@ model ReservationSeries {
 }
 
 model Reservation {
-  id                 String            @id @default(uuid()) @db.Uuid
-  seriesId           String?           @map("series_id") @db.Uuid
-  userId             String            @map("user_id") @db.Uuid
+  id                    String            @id @default(uuid()) @db.Uuid
+  seriesId              String?           @map("series_id") @db.Uuid
+  userId                String            @map("user_id") @db.Uuid
   /// Sala pretendida/alocada. Nula quando o solicitante não indicou preferência;
   /// nesse caso nada é pré-bloqueado e o Admin precisa alocar antes de aprovar.
-  roomId             String?           @map("room_id") @db.Uuid
-  title              String
-  description        String
+  roomId                String?           @map("room_id") @db.Uuid
+  title                 String
+  description           String
   /// Tipo de atividade e os campos específicos do formulário daquele tipo
   /// (validados por zod em src/schemas/reservation.ts). Nulos nas solicitações
   /// feitas antes dos formulários por tipo.
-  activityType       ActivityType?     @map("activity_type")
-  activityDetails    Json?             @map("activity_details")
-  expectedAttendees  Int               @map("expected_attendees")
-  requestedResources Json              @default("[]") @map("requested_resources") // [{ resourceId, quantity?, detail? }]
-  supportNotes       String?           @map("support_notes")
-  termsAccepted      Boolean           @map("terms_accepted")
-  startTime          DateTime          @map("start_time") @db.Timestamptz(3)
-  endTime            DateTime          @map("end_time") @db.Timestamptz(3)
-  status             ReservationStatus @default(PENDING)
-  rejectionReason    String?           @map("rejection_reason")
-  reviewedById       String?           @map("reviewed_by_id") @db.Uuid
-  reviewedAt         DateTime?         @map("reviewed_at") @db.Timestamptz(3)
-  cancelledAt        DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  activityType          ActivityType?     @map("activity_type")
+  activityDetails       Json?             @map("activity_details")
+  expectedAttendees     Int               @map("expected_attendees")
+  requestedResources    Json              @default("[]") @map("requested_resources") // [{ resourceId, quantity?, detail? }]
+  supportNotes          String?           @map("support_notes")
+  termsAccepted         Boolean           @map("terms_accepted")
+  startTime             DateTime          @map("start_time") @db.Timestamptz(3)
+  endTime               DateTime          @map("end_time") @db.Timestamptz(3)
+  status                ReservationStatus @default(PENDING)
+  rejectionReason       String?           @map("rejection_reason")
+  reviewedById          String?           @map("reviewed_by_id") @db.Uuid
+  reviewedAt            DateTime?         @map("reviewed_at") @db.Timestamptz(3)
+  cancelledAt           DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  /// Quem cancelou: o próprio solicitante ou alguém do SAD (que precisa dar o motivo).
+  cancelledById         String?           @map("cancelled_by_id") @db.Uuid
+  cancellationReason    String?           @map("cancellation_reason")
+  /// Última alteração feita pelo SAD. Diferente da do solicitante, não devolve a
+  /// reserva para análise: uma aprovada continua aprovada.
+  modifiedByAdminAt     DateTime?         @map("modified_by_admin_at") @db.Timestamptz(3)
   /// Quando o solicitante alterou a reserva pela última vez. Alterar devolve a
   /// reserva para análise (PENDING); o SAD vê essas na aba "Alteradas".
-  modifiedByRequesterAt DateTime?      @map("modified_by_requester_at") @db.Timestamptz(3)
+  modifiedByRequesterAt DateTime?         @map("modified_by_requester_at") @db.Timestamptz(3)
   /// Como a reserva estava antes da alteração (status, horário, sala…), para o
   /// SAD comparar. Guarda o último estado revisado, não as edições intermediárias.
-  previousSnapshot   Json?             @map("previous_snapshot")
-  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt          DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  previousSnapshot      Json?             @map("previous_snapshot")
+  createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  series     ReservationSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
-  user       User               @relation("ReservationRequester", fields: [userId], references: [id], onDelete: Restrict)
-  room       Room?              @relation(fields: [roomId], references: [id], onDelete: Restrict)
-  reviewedBy User?              @relation("ReservationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  series      ReservationSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  user        User               @relation("ReservationRequester", fields: [userId], references: [id], onDelete: Restrict)
+  room        Room?              @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  reviewedBy  User?              @relation("ReservationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  cancelledBy User?              @relation("ReservationCanceller", fields: [cancelledById], references: [id], onDelete: SetNull)
 
   @@index([roomId, startTime])
   @@index([userId, startTime])
@@ -289,6 +297,35 @@ model Notebook {
   updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("notebooks")
+}
+
+// ----------------------------------------------------------------------------
+// Regulamento (portarias) — aceito no "Li e concordo" do formulário. O SAD
+// edita o texto e anexa os PDFs pela própria tela.
+// ----------------------------------------------------------------------------
+
+/// Linha única (id = 1, garantido por CHECK).
+model Regulation {
+  id          Int      @id @default(1)
+  title       String
+  /// Texto simples: parágrafos, "## título" e listas com "- ".
+  body        String
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedById String?  @map("updated_by_id") @db.Uuid
+
+  @@map("regulation")
+}
+
+model RegulationFile {
+  id        String   @id @default(uuid()) @db.Uuid
+  fileName  String   @map("file_name")
+  mimeType  String   @map("mime_type")
+  size      Int
+  data      Bytes
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("regulation_files")
 }
 
 /// Bloqueio administrativo/manutenção de uma sala em um intervalo.

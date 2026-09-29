@@ -1,8 +1,10 @@
 import {
   CalendarCheckIcon,
+  CalendarDotsIcon,
   CalendarPlusIcon,
   DoorOpenIcon,
   MagnifyingGlassIcon,
+  ScrollIcon,
   SignOutIcon,
   TrayIcon,
   WrenchIcon,
@@ -86,17 +88,21 @@ export function AppShell() {
 
   if (!user) return null;
 
+  // No celular a barra inferior divide a largura entre os itens: rótulos curtos.
   const items: NavItem[] = isAdmin
     ? [
-        { to: "/admin/solicitacoes", label: "Solicitações", shortLabel: "Solicitações", icon: TrayIcon, badge: pendingCount },
+        { to: "/admin/solicitacoes", label: "Solicitações", shortLabel: "Pedidos", icon: TrayIcon, badge: pendingCount },
+        { to: "/admin/agenda", label: "Agenda", shortLabel: "Agenda", icon: CalendarDotsIcon },
         { to: "/admin/salas-livres", label: "Salas livres", shortLabel: "Livres", icon: MagnifyingGlassIcon },
         { to: "/admin/salas", label: "Salas", shortLabel: "Salas", icon: DoorOpenIcon },
         { to: "/admin/recursos", label: "Recursos", shortLabel: "Recursos", icon: WrenchIcon },
+        { to: "/admin/regulamento", label: "Regulamento", shortLabel: "Regras", icon: ScrollIcon },
       ]
     : [
         { to: "/minhas-reservas", label: "Minhas reservas", shortLabel: "Reservas", icon: CalendarCheckIcon },
         { to: "/reservar", label: "Reservar uma sala", shortLabel: "Reservar", icon: CalendarPlusIcon },
         { to: "/salas", label: "Consultar salas", shortLabel: "Salas", icon: DoorOpenIcon },
+        { to: "/regulamento", label: "Regulamento", shortLabel: "Regras", icon: ScrollIcon },
       ];
 
   return (

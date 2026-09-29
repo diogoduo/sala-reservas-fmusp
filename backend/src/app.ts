@@ -9,10 +9,12 @@ import { attachUser } from "./middleware/auth";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler";
 import { accessRouter, requireAccessCode } from "./routes/access";
 import { adminRouter } from "./routes/admin";
+import { adminActionsRouter } from "./routes/admin-actions";
 import { authRouter } from "./routes/auth";
 import { healthRouter } from "./routes/health";
 import { notebooksRouter } from "./routes/notebooks";
 import { photosRouter } from "./routes/photos";
+import { regulationRouter } from "./routes/regulation";
 import { reservationsRouter } from "./routes/reservations";
 import { resourcesRouter } from "./routes/resources";
 import { roomsRouter } from "./routes/rooms";
@@ -49,8 +51,10 @@ export function createApp() {
   app.use("/api/resources", resourcesRouter);
   app.use("/api/reservations", reservationsRouter);
   app.use("/api/admin", adminRouter);
+  app.use("/api/admin", adminActionsRouter);
   app.use("/api/notebooks", notebooksRouter);
   app.use("/api/fotos", photosRouter);
+  app.use("/api/regulamento", regulationRouter);
   // Próximas fases: /api/calendar (.ics)
 
   const dist = frontendDist();

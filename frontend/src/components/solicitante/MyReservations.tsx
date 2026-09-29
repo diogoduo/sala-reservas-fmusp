@@ -49,6 +49,7 @@ function Situation({ reservation: r }: { reservation: Reservation }) {
           <MapPinIcon size={16} weight="fill" className="shrink-0 text-primary" aria-hidden />
           {room}
           {r.room && <RoomPhotosButton room={r.room} />}
+          {r.modifiedByAdminAt && <span className="w-full text-xs text-muted">Alterada pelo SAD em {new Date(r.modifiedByAdminAt).toLocaleDateString("pt-BR")}</span>}
         </span>
       );
     case "PENDING":
@@ -64,6 +65,15 @@ function Situation({ reservation: r }: { reservation: Reservation }) {
         </span>
       );
     case "CANCELLED":
+      // Com motivo = cancelada pelo SAD (o solicitante cancela sem precisar justificar).
+      if (r.cancellationReason) {
+        return (
+          <span className="text-danger-foreground">
+            <span className="font-medium">Cancelada pelo SAD{r.cancelledAt ? ` em ${new Date(r.cancelledAt).toLocaleDateString("pt-BR")}` : ""}:</span>{" "}
+            {r.cancellationReason}
+          </span>
+        );
+      }
       return <span className="text-muted">{r.cancelledAt ? `Cancelada em ${new Date(r.cancelledAt).toLocaleDateString("pt-BR")}` : "Cancelada"}</span>;
   }
 }

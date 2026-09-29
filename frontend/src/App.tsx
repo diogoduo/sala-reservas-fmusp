@@ -1,12 +1,14 @@
 import { Navigate, Route, Routes } from "react-router";
+import { AgendaAdmin } from "./components/admin/AgendaAdmin";
 import { FreeRooms } from "./components/admin/FreeRooms";
 import { RequestsAdmin } from "./components/admin/RequestsAdmin";
 import { ResourcesAdmin } from "./components/admin/ResourcesAdmin";
 import { RoomsAdmin } from "./components/admin/RoomsAdmin";
 import { AppShell } from "./components/layout/AppShell";
 import { Login } from "./components/Login";
+import { RegulationPage } from "./components/regulation/Regulation";
 import { MyReservations } from "./components/solicitante/MyReservations";
-import { EditReservationPage, ReservationPage } from "./components/solicitante/ReservationForm";
+import { AdminEditReservationPage, EditReservationPage, ReservationPage } from "./components/solicitante/ReservationForm";
 import { RoomSearch } from "./components/solicitante/RoomSearch";
 import { LogoMark } from "./components/ui/Logo";
 import { useAuth } from "./lib/auth";
@@ -30,9 +32,12 @@ export default function App() {
         {user.role === "ADMIN" ? (
           <>
             <Route path="/admin/solicitacoes" element={<RequestsAdmin />} />
+            <Route path="/admin/agenda" element={<AgendaAdmin />} />
+            <Route path="/admin/reservas/:id/editar" element={<AdminEditReservationPage />} />
             <Route path="/admin/salas-livres" element={<FreeRooms />} />
             <Route path="/admin/salas" element={<RoomsAdmin />} />
             <Route path="/admin/recursos" element={<ResourcesAdmin />} />
+            <Route path="/admin/regulamento" element={<RegulationPage />} />
             <Route path="*" element={<Navigate to="/admin/solicitacoes" replace />} />
           </>
         ) : (
@@ -41,6 +46,7 @@ export default function App() {
             <Route path="/minhas-reservas/:id/editar" element={<EditReservationPage />} />
             <Route path="/reservar" element={<ReservationPage />} />
             <Route path="/salas" element={<RoomSearch />} />
+            <Route path="/regulamento" element={<RegulationPage />} />
             <Route path="*" element={<Navigate to="/minhas-reservas" replace />} />
           </>
         )}

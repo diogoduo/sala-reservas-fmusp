@@ -343,8 +343,12 @@ O modo demonstração é ligado por variáveis de ambiente:
 |---|---|---|
 | `ACCESS_CODE` | código combinado | Antes de qualquer tela, o site pede esse código. Sem ele, a API responde `ACCESS_CODE_REQUIRED` (só `/api/health` e `/api/access` ficam abertos). O cookie guarda um HMAC do código, e trocar o código derruba os acessos antigos. São 10 tentativas erradas por IP a cada 15 min. |
 | `DEMO_MODE` | `true` | Libera o login de teste (`AUTH_MODE=mock`) em produção, desde que `ACCESS_CODE` esteja definido. Sem essa combinação, o servidor não sobe. |
-| `MAIL_ENABLED` | `false` | Não envia e-mails, só registra no log. |
+| `BREVO_API_KEY` | chave do Brevo | Envia os e-mails pela API HTTP do Brevo (grátis, 300/dia), e não por SMTP, que hospedagens grátis costumam bloquear. O remetente de `MAIL_FROM` precisa estar verificado no Brevo. |
+| `MAIL_REDIRECT_TO` | seu e-mail | Todo e-mail da demonstração vai para este endereço, com o destinatário original no assunto, porque as contas de teste (`aluno@usp.br`…) podem ser caixas reais da USP. Com `DEMO_MODE` e sem esta variável, elas não recebem nada. |
+| `MAIL_REDIRECT_EXCEPT` | e-mail da TI | Endereços que recebem direto, sem redirecionar (ex.: o e-mail real da TI, também em `TI_EMAIL_ADDRESS`). |
 | `FRONTEND_URL` | (vazio) | Vem sozinho de `RENDER_EXTERNAL_URL`. |
+
+Para conferir a configuração de e-mail, use `POST /api/admin/test-email {"to": "..."}` (só o SAD). Ele envia na hora e devolve o erro do Brevo, se houver.
 
 **Passo a passo:**
 
@@ -412,6 +416,73 @@ A aba **Minhas reservas** passou a ser a tela inicial do solicitante
   - confirmação ao solicitante;
   - aviso ao SAD;
   - aviso à TI, se a reserva estava aprovada e tinha recursos pedidos.
+
+## O SAD altera e cancela qualquer reserva
+
+- Em **Solicitações**, na **Agenda** e no painel de uma reserva, o SAD tem
+  **Alterar** e **Cancelar** para toda reserva pendente ou aprovada que ainda
+  não terminou.
+- **Alterar** (`PUT /api/admin/reservations/:id`, tela
+  `/admin/reservas/:id/editar`): o mesmo formulário do solicitante, sem as
+  travas dele.
+  - Não precisa dos 3 dias de antecedência, só de um horário que ainda não
+    passou.
+  - Pode trocar o tipo de atividade e, numa reserva aprovada, a sala.
+  - **Não volta para análise**: a aprovada continua aprovada. Por isso vale a
+    mesma checagem de conflito e de capacidade da aprovação, com a sala
+    travada (`SELECT … FOR UPDATE`). Se a sala estiver ocupada, a API responde
+    `RESERVATION_CONFLICT`.
+  - Numa série, dá para alterar só a data ou esta e as próximas.
+  - Grava `modified_by_admin_at`. O solicitante recebe um e-mail com o "antes"
+    e o novo horário; a TI também, se a reserva estava aprovada com recursos.
+- **Cancelar** (`POST /api/admin/reservations/:id/cancel`) exige o **motivo**,
+  que vai para o solicitante por e-mail e aparece em Minhas reservas
+  ("Cancelada pelo SAD: …"). O horário fica livre na hora.
+  - `cancelled_by_id` registra quem cancelou: o solicitante ou o SAD.
+
+## Agenda (SAD)
+
+Tela `/admin/agenda`: tudo o que acontece num dia.
+
+- **Dia a dia**: setas, "Hoje", escolha da data e um calendário do mês com a
+  quantidade de reservas ativas em cada dia (em destaque os dias com
+  pendências).
+- **Reservas do dia**, filtradas por situação: pendentes, alteradas,
+  aprovadas, canceladas e rejeitadas. Cada uma abre o painel com todos os
+  dados, mais Analisar, Alterar e Cancelar.
+- **Salas no dia**: linha do tempo de 07h a 23h com cada sala ativa. Mostra as
+  reservas aprovadas, as pendentes com sala e os bloqueios, e separa as salas
+  ocupadas das livres o dia todo.
+- A data e a reserva aberta ficam na URL (`?data=2026-10-15&reserva=…`).
+- API (só o SAD): `GET /api/admin/agenda?date=AAAA-MM-DD` (o dia no fuso
+  `APP_TIMEZONE`) e `GET /api/admin/agenda/month?month=AAAA-MM` (contagem por
+  dia e situação).
+
+A **agenda de cada sala** (Consultar salas → Ver sala e agenda, e Salas
+livres) agora mostra a reserva inteira do dia escolhido:
+- todos veem o título e o tipo de atividade (Graduação, Cultura e Extensão…);
+- o SAD vê também o solicitante, os participantes, os recursos, as
+  observações e a descrição, com um atalho para a Agenda.
+
+## Regulamento (portarias)
+
+- O "Li e concordo" do formulário de reserva abre o **regulamento**, com o
+  texto e os PDFs das portarias. O botão "Li e concordo" do diálogo já marca o
+  aceite.
+- O SAD edita tudo em **Regulamento** (`/admin/regulamento`), sem depender de
+  deploy:
+  - o texto aceita parágrafos, títulos com `## `, listas com `- ` e
+    `**negrito**`;
+  - os PDFs das portarias são anexados ali mesmo e ficam guardados no banco.
+- O solicitante lê o regulamento em `/regulamento`.
+- API: `GET /api/regulamento`; só para o SAD, `PUT /api/regulamento`,
+  `POST /api/regulamento/files?nome=…` (o corpo é o PDF) e
+  `DELETE /api/regulamento/files/:id`. O PDF abre em
+  `GET /api/regulamento/files/:id`.
+
+O formulário de reserva começa **em branco**: sem data, sem horário e sem
+nenhuma opção pré-marcada. O aviso de horário só aparece depois que data,
+início e término são preenchidos.
 
 ## Catálogo real de salas e inventário
 
@@ -542,6 +613,13 @@ do `docker-compose` e aparecem em http://localhost:8025 — nada sai de verdade.
 | Alterada pelo solicitante | solicitante | confirmação, com o novo horário |
 | Alterada pelo solicitante | SAD | como estava e como ficou, para nova análise |
 | Alterada, e já estava aprovada com recursos | TI | aguardar a nova aprovação |
+| Alterada pelo SAD | solicitante | como estava e como ficou (continua aprovada/pendente) |
+| Alterada pelo SAD, aprovada com recursos ou observações | TI | novas datas, sala e o que preparar |
+| Cancelada pelo SAD | solicitante | o motivo |
+| Cancelada pelo SAD, e estava aprovada com recursos | TI | recursos dispensados |
+
+Na aprovação, a TI recebe o e-mail quando a reserva pede recursos **ou**
+quando tem observações para a TI/infraestrutura, mesmo sem recursos.
 
 - **Um e-mail por ação, não por data:** aprovar uma série de 10 datas gera um
   e-mail com as 10 datas.
@@ -569,8 +647,8 @@ claro e escuro.
   lateral sobre o `<dialog>` nativo (Esc fecha, o foco fica preso, o fundo
   fica inerte).
 - **Navegação com URL por tela** (react-router 7): `/minhas-reservas`,
-  `/reservar`, `/salas`; `/admin/solicitacoes`, `/admin/salas`,
-  `/admin/recursos`. Barra lateral a partir de 1024 px, barra inferior no
+  `/reservar`, `/salas`, `/regulamento`; `/admin/solicitacoes`, `/admin/agenda`,
+  `/admin/salas-livres`, `/admin/salas`, `/admin/recursos`, `/admin/regulamento`. Barra lateral a partir de 1024 px, barra inferior no
   celular. O Admin vê na navegação quantas solicitações estão pendentes.
   ⚠️ Em produção, o servidor estático precisa devolver o `index.html` para
   qualquer caminho desconhecido (fallback de SPA).

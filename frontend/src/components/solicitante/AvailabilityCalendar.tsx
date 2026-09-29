@@ -1,22 +1,108 @@
-import { CaretLeftIcon, CaretRightIcon, CheckCircleIcon, LockIcon, UsersIcon } from "@phosphor-icons/react";
+import {
+  ArrowRightIcon,
+  CalendarBlankIcon,
+  CaretLeftIcon,
+  CaretRightIcon,
+  CheckCircleIcon,
+  LockIcon,
+  PencilSimpleLineIcon,
+} from "@phosphor-icons/react";
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
+import { ACTIVITY_TYPE_LABELS } from "../../lib/activities";
 import { api } from "../../lib/api";
+import { useAuth } from "../../lib/auth";
 import { cn } from "../../lib/cn";
-import { capitalizeFirst, formatTimeRange } from "../../lib/format";
+import { capitalizeFirst, formatTimeRange, plural } from "../../lib/format";
+import { ACTIVITY_ICONS } from "../../lib/icons";
 import type { BusyInterval } from "../../lib/types";
-import { IconButton } from "../ui/Button";
+import { StatusBadge } from "../StatusBadge";
+import { Badge } from "../ui/Badge";
+import { Button, IconButton } from "../ui/Button";
 import { Skeleton } from "../ui/Feedback";
 
 const WEEKDAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** Uma reserva do dia: o que é, de que tipo e (para o SAD) de quem, com recursos e observações. */
+function ReservationItem({ interval, isAdmin, day }: { interval: BusyInterval; isAdmin: boolean; day: Date }) {
+  const navigate = useNavigate();
+  const ActivityIcon = interval.activityType ? ACTIVITY_ICONS[interval.activityType] : CalendarBlankIcon;
+  return (
+    <li className="rounded-lg bg-surface-muted p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="font-semibold tabular-nums">{formatTimeRange(interval.start, interval.end)}</span>
+        {interval.status && <StatusBadge status={interval.status} />}
+        {interval.modified && (
+          <Badge tone="info" icon={PencilSimpleLineIcon}>
+            Alterada
+          </Badge>
+        )}
+      </div>
+      {interval.title && <p className="mt-1.5 font-medium break-words">{interval.title}</p>}
+      {interval.activityType && (
+        <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
+          <ActivityIcon size={14} aria-hidden /> {ACTIVITY_TYPE_LABELS[interval.activityType]}
+        </p>
+      )}
+      {isAdmin && interval.requester && (
+        <dl className="mt-2.5 grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)] gap-x-3 gap-y-1 border-t border-border pt-2.5 text-xs">
+          <dt className="text-muted">Solicitante</dt>
+          <dd className="min-w-0 break-words">
+            {interval.requester.name} · {interval.requester.email}
+          </dd>
+          {interval.expectedAttendees !== undefined && (
+            <>
+              <dt className="text-muted">Participantes</dt>
+              <dd>{plural(interval.expectedAttendees, "pessoa", "pessoas")}</dd>
+            </>
+          )}
+          {interval.resources && interval.resources.length > 0 && (
+            <>
+              <dt className="text-muted">Recursos</dt>
+              <dd className="min-w-0 break-words">{interval.resources.join("; ")}</dd>
+            </>
+          )}
+          {interval.supportNotes && (
+            <>
+              <dt className="text-muted">Obs. para TI</dt>
+              <dd className="min-w-0 break-words whitespace-pre-line">{interval.supportNotes}</dd>
+            </>
+          )}
+          {interval.description && (
+            <>
+              <dt className="text-muted">Descrição</dt>
+              <dd className="line-clamp-3 min-w-0 break-words">{interval.description}</dd>
+            </>
+          )}
+        </dl>
+      )}
+      {isAdmin && interval.id && (
+        <Button
+          variant="ghost"
+          size="sm"
+          iconRight={ArrowRightIcon}
+          className="mt-2 -ml-3"
+          onClick={() => navigate(`/admin/agenda?data=${isoDay(day)}&reserva=${interval.id}`)}
+        >
+          Abrir na Agenda
+        </Button>
+      )}
+    </li>
+  );
+}
 
 /**
  * Calendário mensal da sala (GET /api/rooms/:id/availability): marca os dias
- * com algum horário ocupado e, ao clicar num dia, lista os horários ocupados.
- * Só orienta a consulta — quem garante que não há conflito é o back-end ao aprovar.
+ * com algum horário ocupado e, ao clicar num dia, lista as reservas do dia com
+ * título e tipo de atividade (o SAD vê a reserva inteira). Só orienta a
+ * consulta — quem garante que não há conflito é o back-end ao aprovar.
  */
 export function AvailabilityCalendar({ roomId, initialDate }: { roomId: string; /** Abre já neste dia. */ initialDate?: Date }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "ADMIN";
   const [monthOffset, setMonthOffset] = useState(() => {
     if (!initialDate) return 0;
     const now = new Date();
@@ -142,19 +228,17 @@ export function AvailabilityCalendar({ roomId, initialDate }: { roomId: string; 
           </p>
         ) : (
           <ul className="mt-3 space-y-2">
-            {selectedIntervals.map((interval, i) => (
-              <li key={i} className="flex items-center gap-3 rounded-lg bg-surface-muted px-3 py-2 text-sm">
-                {interval.type === "block" ? (
+            {selectedIntervals.map((interval, i) =>
+              interval.type === "block" ? (
+                <li key={i} className="flex items-center gap-3 rounded-lg bg-surface-muted px-3 py-2 text-sm">
                   <LockIcon size={18} className="shrink-0 text-danger-foreground" aria-hidden />
-                ) : (
-                  <UsersIcon size={18} className="shrink-0 text-warning-foreground" aria-hidden />
-                )}
-                <span className="font-medium tabular-nums">{formatTimeRange(interval.start, interval.end)}</span>
-                <span className="truncate text-muted">
-                  {interval.type === "block" ? `Bloqueado${interval.reason ? `: ${interval.reason}` : ""}` : interval.status === "APPROVED" ? "Reservado" : "Pré-reservado"}
-                </span>
-              </li>
-            ))}
+                  <span className="font-medium tabular-nums">{formatTimeRange(interval.start, interval.end)}</span>
+                  <span className="truncate text-muted">Bloqueado{interval.reason ? `: ${interval.reason}` : ""}</span>
+                </li>
+              ) : (
+                <ReservationItem key={interval.id ?? i} interval={interval} isAdmin={isAdmin} day={selected} />
+              ),
+            )}
           </ul>
         )}
       </div>
