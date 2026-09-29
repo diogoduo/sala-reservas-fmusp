@@ -14,6 +14,7 @@ import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { cn } from "../../lib/cn";
 import { capitalizeFirst, formatTimeRange, plural } from "../../lib/format";
+import { formatMinutes } from "../../lib/reservations";
 import { ACTIVITY_ICONS } from "../../lib/icons";
 import type { BusyInterval } from "../../lib/types";
 import { StatusBadge } from "../StatusBadge";
@@ -45,10 +46,17 @@ function ReservationItem({ interval, isAdmin, day }: { interval: BusyInterval; i
       {interval.activityType && (
         <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
           <ActivityIcon size={14} aria-hidden /> {ACTIVITY_TYPE_LABELS[interval.activityType]}
+          {interval.setupMinutes ? ` · inclui ${formatMinutes(interval.setupMinutes)} de montagem` : ""}
         </p>
       )}
       {isAdmin && interval.requester && (
         <dl className="mt-2.5 grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)] gap-x-3 gap-y-1 border-t border-border pt-2.5 text-xs">
+          {interval.protocol && (
+            <>
+              <dt className="text-muted">Protocolo</dt>
+              <dd className="tabular-nums">{interval.protocol}</dd>
+            </>
+          )}
           <dt className="text-muted">Solicitante</dt>
           <dd className="min-w-0 break-words">
             {interval.requester.name} · {interval.requester.email}

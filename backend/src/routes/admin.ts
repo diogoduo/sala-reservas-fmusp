@@ -11,7 +11,8 @@ import { roomPhotosInclude } from "../photos/include";
 import { rankRoomOptions } from "../reservations/allocation";
 import { findConflictingOccurrences, isOverlapViolation, loadBusyIntervals, lockRoomForUpdate } from "../reservations/conflicts";
 import { parseRequestedResources } from "../reservations/requested-resources";
-import { assertCapacity } from "../reservations/rules";
+import { assertCapacity, assertCoffeeBreakAllowed } from "../reservations/rules";
+import { approvalChecklistSchema } from "../schemas/reservation";
 import { approveReservationSchema, rejectReservationSchema, reviewScopeSchema, type ReviewScope } from "../schemas/review";
 
 // Fase 6 — fila de aprovação: o Admin vê as solicitações, escolhe a sala mais
@@ -24,6 +25,7 @@ export const adminReservationInclude = {
   user: { select: { id: true, name: true, email: true } },
   reviewedBy: { select: { id: true, name: true } },
   cancelledBy: { select: { id: true, name: true } },
+  noShowBy: { select: { id: true, name: true } },
   series: { select: { id: true, rrule: true, untilDate: true } },
 } satisfies Prisma.ReservationInclude;
 
@@ -162,7 +164,11 @@ adminRouter.get(
     );
 
     const options = rankRoomOptions(
-      { expectedAttendees: first.expectedAttendees, requestedResources: parseRequestedResources(first.requestedResources) },
+      {
+        expectedAttendees: first.expectedAttendees,
+        requestedResources: parseRequestedResources(first.requestedResources),
+        coffeeBreak: first.coffeeBreak,
+      },
       occurrences,
       rooms,
       busy,
@@ -197,7 +203,16 @@ adminRouter.post(
       if (room.status !== "ACTIVE") {
         throw new AppError(409, "ROOM_NOT_ACTIVE", "Só é possível alocar salas com status Ativa.");
       }
-      for (const target of targets) assertCapacity(target.expectedAttendees, room.capacity);
+      for (const target of targets) {
+        assertCapacity(target.expectedAttendees, room.capacity);
+        assertCoffeeBreakAllowed(target.coffeeBreak, room);
+      }
+      // Cultura e Extensão só é confirmada depois das etapas do Art. 20 §3º e da
+      // taxa paga ou isenção deferida (Art. 14 §3º, Art. 21 §2º).
+      const approvalChecklist =
+        targets[0]!.activityType === "CULTURE_EXTENSION"
+          ? { ...approvalChecklistSchema.parse(input.approvalChecklist ?? {}), checkedAt: now.toISOString() }
+          : undefined;
 
       const conflicting = await findConflictingOccurrences(
         tx,
@@ -224,7 +239,7 @@ adminRouter.post(
       try {
         updated = await tx.reservation.updateMany({
           where: { id: { in: freeIds }, status: "PENDING" },
-          data: { roomId: room.id, status: "APPROVED", reviewedById: reviewerId, reviewedAt: now },
+          data: { roomId: room.id, status: "APPROVED", reviewedById: reviewerId, reviewedAt: now, approvalChecklist },
         });
       } catch (error) {
         // Rede de segurança: a exclusion constraint pegou algo que a checagem acima não pegou.

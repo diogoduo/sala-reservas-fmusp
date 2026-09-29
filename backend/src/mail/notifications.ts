@@ -36,6 +36,13 @@ const roomsOf = (list: LoadedReservation[]) =>
 
 const requesterOf = (r: LoadedReservation) => `${r.user.name} (${r.user.email})`;
 
+/** Nº de protocolo do pedido (Portaria 2793, Art. 8º §1º, b). */
+const protocolOf = (r: LoadedReservation): [string, string] => ["Protocolo", r.protocol];
+
+/** "1 h de montagem", "30 min de montagem" (Art. 19). */
+const setupLabel = (minutes: number) =>
+  `${minutes >= 60 ? `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ""}` : `${minutes} min`} de montagem`;
+
 const mail = (to: string[], subject: string, content: MailContent): Mail => ({
   to,
   subject: `[Reservas FMUSP] ${subject}`,
@@ -70,15 +77,17 @@ export async function requestReceivedMails(ids: string[]): Promise<Mail[]> {
     mail([first.user.email], `Solicitação recebida: ${first.title}`, {
       heading: "Recebemos sua solicitação de reserva",
       paragraphs: [
-        `Olá, ${first.user.name}. A solicitação "${first.title}" foi registrada e está pendente.`,
+        `Olá, ${first.user.name}. A solicitação "${first.title}" foi registrada com o protocolo nº ${first.protocol} e está pendente. Anote o número para acompanhar o pedido.`,
         "O SAD (Serviço de Apoio Didático) vai escolher a sala mais adequada, e você recebe outro e-mail quando ela for aprovada ou rejeitada.",
       ],
+      details: [protocolOf(first)],
       dates,
     }),
     mail(await adminEmails(), `Nova solicitação: ${first.title}`, {
       heading: "Nova solicitação de reserva",
       paragraphs: ["Há uma nova solicitação aguardando análise na aba Solicitações."],
       details: [
+        protocolOf(first),
         ["Solicitante", requesterOf(first)],
         ...(first.activityType ? [["Atividade", ACTIVITY_TYPE_LABELS[first.activityType]] as [string, string]] : []),
         ["Participantes", String(first.expectedAttendees)],
@@ -114,8 +123,13 @@ export async function approvedMails(ids: string[], { notifyRequester = true } = 
         `Olá, ${first.user.name}. A reserva "${first.title}" foi aprovada.`,
         ...(stillPending === 1 ? ["1 data desta série continua em análise."] : []),
         ...(stillPending > 1 ? [`${stillPending} datas desta série continuam em análise.`] : []),
+        ...(first.setupMinutes > 0
+          ? [`O horário reservado já inclui ${setupLabel(first.setupMinutes)}, com a equipe técnica presente (Portaria 2793, Art. 19).`]
+          : []),
+        "No dia, o responsável deve comparecer ao SAD/NE 10 minutos antes do início para orientações e retirada das chaves (Portaria 2793, Art. 10).",
+        "Lembrete: não é permitido colocar cadeiras sobressalentes, nem haver comércio ou consumo de bebidas alcoólicas (Portaria 2793, Art. 5º §2º e Art. 23).",
       ],
-      details: [["Sala", rooms]],
+      details: [protocolOf(first), ["Sala", rooms]],
       dates,
     }),
   );
@@ -132,9 +146,13 @@ export async function approvedMails(ids: string[], { notifyRequester = true } = 
             : "Uma reserva aprovada tem observações para a TI/infraestrutura.",
         ],
         details: [
+          protocolOf(first),
           ["Sala", rooms],
           ...(resources ? [["Recursos", resources] as [string, string]] : []),
           ...(first.supportNotes ? [["Observações", first.supportNotes] as [string, string]] : []),
+          ...(first.setupMinutes > 0
+            ? [["Montagem", `${setupLabel(first.setupMinutes)} antes da atividade (equipe técnica obrigatória)`] as [string, string]]
+            : []),
           ["Solicitante", requesterOf(first)],
         ],
         dates,
@@ -157,7 +175,7 @@ export async function rejectedMails(ids: string[]): Promise<Mail[]> {
         `Olá, ${first.user.name}. A solicitação "${first.title}" não pôde ser aprovada.`,
         "Se quiser, faça uma nova solicitação com outra data ou horário.",
       ],
-      details: [["Justificativa", first.rejectionReason ?? "—"]],
+      details: [protocolOf(first), ["Justificativa", first.rejectionReason ?? "—"]],
       dates: list.map(formatSlot),
     }),
   ];
@@ -200,12 +218,14 @@ export async function modifiedMails(ids: string[]): Promise<Mail[]> {
         `Olá, ${first.user.name}. A reserva "${first.title}" foi alterada e voltou para análise do SAD.`,
         "Você recebe outro e-mail quando ela for aprovada ou rejeitada.",
       ],
+      details: [protocolOf(first)],
       dates,
     }),
     mail(await adminEmails(), `Reserva alterada: ${first.title}`, {
       heading: "Reserva alterada pelo solicitante",
       paragraphs: ["Ela voltou para análise e está na aba Alteradas, em Solicitações."],
       details: [
+        protocolOf(first),
         ["Solicitante", requesterOf(first)],
         ...(beforeLine ? [["Antes", beforeLine] as [string, string]] : []),
       ],
@@ -246,6 +266,7 @@ export async function cancelledMails(ids: string[]): Promise<Mail[]> {
       heading: "Reserva cancelada pelo solicitante",
       paragraphs: ["O horário já está livre para outras solicitações."],
       details: [
+        protocolOf(first),
         ["Solicitante", requesterOf(first)],
         ...(wereApproved.length > 0 ? [["Sala", roomsOf(wereApproved)] as [string, string]] : []),
       ],
@@ -298,7 +319,7 @@ export async function adminModifiedMails(ids: string[], before: AdminEditBefore 
         `Olá, ${first.user.name}. O SAD alterou a reserva "${first.title}". Confira como ficou.`,
         first.status === "APPROVED" ? "Ela continua aprovada." : "Ela continua em análise.",
       ],
-      details: [...beforeDetails, ...(rooms ? [["Sala", rooms] as [string, string]] : [])],
+      details: [protocolOf(first), ...beforeDetails, ...(rooms ? [["Sala", rooms] as [string, string]] : [])],
       dates: list.map(formatSlot),
     }),
   ];
@@ -334,7 +355,7 @@ export async function adminCancelledMails(ids: string[]): Promise<Mail[]> {
     mail([first.user.email], `Reserva cancelada pelo SAD: ${first.title}`, {
       heading: "O SAD cancelou a sua reserva",
       paragraphs: [`Olá, ${first.user.name}. A reserva "${first.title}" foi cancelada pelo SAD.`],
-      details: [["Motivo", first.cancellationReason ?? "—"]],
+      details: [protocolOf(first), ["Motivo", first.cancellationReason ?? "—"]],
       dates: list.map(formatSlot),
     }),
   ];

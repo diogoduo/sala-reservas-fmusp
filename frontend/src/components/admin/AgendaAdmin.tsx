@@ -7,13 +7,16 @@ import {
   CheckCircleIcon,
   ClockIcon,
   DoorOpenIcon,
+  HammerIcon,
   HourglassMediumIcon,
   ListBulletsIcon,
   LockIcon,
   MapPinIcon,
+  MoonIcon,
   PencilSimpleLineIcon,
   PlusIcon,
   ProhibitIcon,
+  UserMinusIcon,
   UsersIcon,
   XCircleIcon,
   type Icon,
@@ -25,7 +28,7 @@ import { api } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { capitalizeFirst, formatTimeRange, plural } from "../../lib/format";
 import { ACTIVITY_ICONS } from "../../lib/icons";
-import { isModifiedPending, onReservationsChanged } from "../../lib/reservations";
+import { formatMinutes, isModifiedPending, onReservationsChanged } from "../../lib/reservations";
 import { sortRooms } from "../../lib/rooms";
 import { useToast } from "../../lib/toast";
 import { ROOM_TYPE_LABELS } from "../../lib/types";
@@ -38,7 +41,7 @@ import { EmptyState, Skeleton } from "../ui/Feedback";
 import { Input } from "../ui/Field";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Card, PageHeader } from "../ui/Surface";
-import { AdminReservationActions } from "./ReservationActions";
+import { AdminReservationActions, NoShowButton } from "./ReservationActions";
 import { RequestDetails, ReviewDrawer } from "./ReviewPanel";
 
 interface AgendaRoom {
@@ -95,15 +98,26 @@ const shiftDay = (key: string, days: number) => {
   return isoDay(d);
 };
 
-// Linha do tempo das salas: das 07:00 às 23:00 (o funcionamento é 07:30–22:30).
-const TIMELINE_START = 7 * 60;
-const TIMELINE_END = 23 * 60;
-const HOURS = Array.from({ length: (TIMELINE_END - TIMELINE_START) / 60 + 1 }, (_, i) => 7 + i);
+// Linha do tempo das salas: o funcionamento regular, das 07h às 22h (Portaria
+// 2793, Art. 6º), estendido quando há reserva extraordinária fora dele.
+const REGULAR_START = 7 * 60;
+const REGULAR_END = 22 * 60;
 const minutesOf = (iso: string) => {
   const d = new Date(iso);
   return d.getHours() * 60 + d.getMinutes();
 };
-const percent = (minutes: number) => ((Math.min(Math.max(minutes, TIMELINE_START), TIMELINE_END) - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * 100;
+
+function timelineOf(items: { startTime: string; endTime: string }[]) {
+  let start = REGULAR_START;
+  let end = REGULAR_END;
+  for (const item of items) {
+    start = Math.min(start, Math.floor(minutesOf(item.startTime) / 60) * 60);
+    end = Math.max(end, Math.min(24 * 60, Math.ceil(minutesOf(item.endTime) / 60) * 60));
+  }
+  const hours = Array.from({ length: (end - start) / 60 + 1 }, (_, i) => start / 60 + i);
+  const percent = (minutes: number) => ((Math.min(Math.max(minutes, start), end) - start) / (end - start)) * 100;
+  return { hours, percent };
+}
 
 /** Reserva que ocupa a sala (pendente com sala ou aprovada). */
 const occupies = (r: AdminReservation) => r.roomId !== null && (r.status === "APPROVED" || r.status === "PENDING");
@@ -208,6 +222,24 @@ function ReservationRow({ reservation: r, onOpen }: { reservation: AdminReservat
           </div>
           <p className={cn("mt-1 font-semibold break-words", inactive && "line-through decoration-muted/60")}>{r.title}</p>
           <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
+            <span className="tabular-nums">Protocolo {r.protocol}</span>
+            {r.setupMinutes > 0 && (
+              <span className="inline-flex items-center gap-1">
+                <HammerIcon size={14} aria-hidden /> montagem {formatMinutes(r.setupMinutes)}
+              </span>
+            )}
+            {r.outsideRegularHours && (
+              <span className="inline-flex items-center gap-1">
+                <MoonIcon size={14} aria-hidden /> extraordinário
+              </span>
+            )}
+            {r.noShowAt && (
+              <span className="inline-flex items-center gap-1 text-danger-foreground">
+                <UserMinusIcon size={14} aria-hidden /> ausência
+              </span>
+            )}
+          </p>
+          <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
             {r.activityType && (
               <span className="inline-flex items-center gap-1">
                 <ActivityIcon size={14} aria-hidden /> {ACTIVITY_TYPE_LABELS[r.activityType]}
@@ -246,6 +278,7 @@ function RoomsTimeline({ day, onOpen, onBook }: { day: AgendaDay; onOpen: (r: Ad
     return map;
   }, [day]);
 
+  const { hours: HOURS, percent } = useMemo(() => timelineOf([...day.reservations.filter(occupies), ...day.blocks]), [day]);
   const busyRooms = rooms.filter((room) => busyByRoom.has(room.id));
   const freeRooms = rooms.filter((room) => !busyByRoom.has(room.id));
   const visible = filter === "BUSY" ? busyRooms : filter === "FREE" ? freeRooms : rooms;
@@ -278,7 +311,7 @@ function RoomsTimeline({ day, onOpen, onBook }: { day: AgendaDay; onOpen: (r: Ad
             <div className="grid grid-cols-[9.5rem_minmax(0,1fr)] sm:grid-cols-[13rem_minmax(0,1fr)] border-b border-border bg-surface-muted/60 text-[11px] text-muted">
               <div className="sticky left-0 z-10 bg-surface-muted px-4 py-2 font-medium">Sala</div>
               <div className="relative h-8">
-                {/* Rótulos de 07h a 22h; o 23h, na borda, ficaria cortado (a linha dele continua). */}
+                {/* Rótulos de hora em hora; o último, na borda, ficaria cortado (a linha dele continua). */}
                 {HOURS.slice(0, -1).map((h) => (
                   <span key={h} className={cn("absolute top-2 tabular-nums", h > HOURS[0]! && "-translate-x-1/2")} style={{ left: `${percent(h * 60)}%` }}>
                     {pad(h)}h
@@ -506,6 +539,7 @@ export function AgendaAdmin() {
           description={`${formatTimeRange(opened.startTime, opened.endTime)} · ${opened.room ? opened.room.name : "Sala a definir"}`}
           footer={
             <>
+              <NoShowButton reservation={opened} onChanged={load} />
               <AdminReservationActions
                 reservation={opened}
                 returnTo={returnTo}

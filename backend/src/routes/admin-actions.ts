@@ -13,9 +13,10 @@ import { roomPhotosInclude } from "../photos/include";
 import { summarizeActivity } from "../reservations/activities";
 import { findConflictingOccurrences, isOverlapViolation, lockRoomForUpdate } from "../reservations/conflicts";
 import { expandRecurrence, type Occurrence } from "../reservations/recurrence";
+import { nextProtocol, noShowsInLastYear, reservedWindow, withoutHolidays } from "../reservations/portaria";
 import { normalizeRequestedResources } from "../reservations/requested-resources";
-import { assertCapacity, assertValidDuration, assertWithinBusinessHours } from "../reservations/rules";
-import { adminCreateReservationSchema, adminUpdateReservationSchema } from "../schemas/reservation";
+import { assertCapacity, assertCoffeeBreakAllowed, assertValidDuration, checkAdminSchedule } from "../reservations/rules";
+import { adminCreateReservationSchema, adminUpdateReservationSchema, approvalChecklistSchema } from "../schemas/reservation";
 import { adminCancelReservationSchema } from "../schemas/review";
 import { adminReservationInclude } from "./admin";
 
@@ -50,8 +51,9 @@ async function resolveTargets(tx: Prisma.TransactionClient, id: string, scope: "
 // ----------------------------------------------------------------------------
 // Reservar (pelo próprio SAD). Não passa pela fila: já nasce APROVADA, na sala
 // escolhida. Sem os 3 dias de antecedência (só não pode ser no passado); valem
-// o horário de funcionamento, a capacidade e a checagem de conflito em todas
-// as datas, com a sala travada como na aprovação.
+// a capacidade e a checagem de conflito em todas as datas, com a sala travada
+// como na aprovação. Domingo, feriado ou fora das 07h–22h só com a autorização
+// da Divisão Acadêmica marcada (Portaria 2793, Art. 6º §1º).
 // ----------------------------------------------------------------------------
 
 adminActionsRouter.post(
@@ -62,17 +64,26 @@ adminActionsRouter.post(
     const adminId = req.user!.id;
 
     assertValidDuration(input.startTime, input.endTime);
-    assertWithinBusinessHours(input.startTime, input.endTime);
+    const window = reservedWindow(input);
+    assertValidDuration(window.start, window.end);
     const now = new Date();
-    if (input.startTime <= now) {
+    if (window.start <= now) {
       throw new AppError(400, "RESERVATION_IN_PAST", "Escolha um horário que ainda não passou.");
     }
+    // Cultura e Extensão já nasce confirmada: vale a mesma conferência da aprovação (Art. 20 §3º).
+    const approvalChecklist =
+      input.activityType === "CULTURE_EXTENSION"
+        ? { ...approvalChecklistSchema.parse(input.approvalChecklist ?? {}), checkedAt: now.toISOString() }
+        : undefined;
     const requestedResources = await normalizeRequestedResources(prisma, input.requestedResources);
 
-    const occurrences: Occurrence[] = input.recurrence
-      ? expandRecurrence(input.recurrence.rrule, input.startTime, input.endTime, input.recurrence.until)
-      : [{ start: input.startTime, end: input.endTime }];
-    for (const occ of occurrences) assertWithinBusinessHours(occ.start, occ.end);
+    let occurrences: Occurrence[] = input.recurrence
+      ? expandRecurrence(input.recurrence.rrule, window.start, window.end, input.recurrence.until)
+      : [window];
+    // Sem a autorização do Art. 6º §1º, os feriados de uma série ficam de fora.
+    let skippedDates: { date: string; holiday: string }[] = [];
+    if (input.recurrence && !input.extraordinaryAuthorized) ({ kept: occurrences, skipped: skippedDates } = withoutHolidays(occurrences));
+    const planned = occurrences.map((occ) => ({ ...occ, outside: checkAdminSchedule(occ.start, occ.end, input.extraordinaryAuthorized) }));
 
     let result;
     try {
@@ -83,15 +94,16 @@ adminActionsRouter.post(
           if (!room) throw new AppError(404, "ROOM_NOT_FOUND", "Sala não encontrada.");
           if (room.status !== "ACTIVE") throw new AppError(409, "ROOM_NOT_ACTIVE", "Só é possível reservar salas com status Ativa.");
           assertCapacity(expectedAttendees, room.capacity);
+          assertCoffeeBreakAllowed(input.coffeeBreak, room);
 
-          const conflicting = await findConflictingOccurrences(tx, room.id, occurrences);
+          const conflicting = await findConflictingOccurrences(tx, room.id, planned);
           if (conflicting.length > 0) {
             throw new AppError(
               409,
               "RESERVATION_CONFLICT",
-              occurrences.length === 1
+              planned.length === 1
                 ? `A sala ${room.name} já está ocupada nesse horário.`
-                : `A sala ${room.name} já está ocupada em ${conflicting.length} das ${occurrences.length} datas.`,
+                : `A sala ${room.name} já está ocupada em ${conflicting.length} das ${planned.length} datas.`,
               { conflictingDates: conflicting.map((c) => c.start) },
             );
           }
@@ -104,19 +116,21 @@ adminActionsRouter.post(
                   title,
                   description: input.description,
                   rrule: input.recurrence.rrule,
-                  startTime: input.startTime,
-                  endTime: input.endTime,
+                  startTime: window.start,
+                  endTime: window.end,
                   untilDate: input.recurrence.until,
                 },
               })
             : null;
 
+          const protocol = await nextProtocol(tx);
           // Sequencial: dentro de uma transação interativa as consultas dividem a mesma conexão.
           const reservations = [];
-          for (const occ of occurrences) {
+          for (const occ of planned) {
             reservations.push(
               await tx.reservation.create({
                 data: {
+                  protocol,
                   seriesId: series?.id,
                   userId: adminId,
                   roomId: room.id,
@@ -128,6 +142,11 @@ adminActionsRouter.post(
                   requestedResources,
                   supportNotes: input.supportNotes,
                   termsAccepted: true,
+                  noAlcoholCommitment: input.noAlcoholCommitment,
+                  coffeeBreak: input.coffeeBreak,
+                  setupMinutes: input.setupMinutes,
+                  outsideRegularHours: occ.outside,
+                  approvalChecklist,
                   startTime: occ.start,
                   endTime: occ.end,
                   status: "APPROVED",
@@ -138,7 +157,7 @@ adminActionsRouter.post(
               }),
             );
           }
-          return { series, reservations };
+          return { protocol, series, reservations, skippedDates };
         },
         { timeout: 30_000 },
       );
@@ -168,6 +187,8 @@ adminActionsRouter.put(
     const input = adminUpdateReservationSchema.parse(req.body);
     const { title, expectedAttendees } = summarizeActivity(input);
     assertValidDuration(input.startTime, input.endTime);
+    const window = reservedWindow(input);
+    assertValidDuration(window.start, window.end);
     const requestedResources = await normalizeRequestedResources(prisma, input.requestedResources);
 
     let before: AdminEditBefore | null = null;
@@ -176,18 +197,28 @@ adminActionsRouter.put(
       const { reservation, targets } = await resolveTargets(tx, req.params.id!, input.scope);
       before = { startTime: reservation.startTime, endTime: reservation.endTime, roomName: roomLabel(reservation.room) };
 
-      const shiftMs = input.startTime.getTime() - reservation.startTime.getTime();
-      const durationMs = input.endTime.getTime() - input.startTime.getTime();
+      const shiftMs = window.start.getTime() - reservation.startTime.getTime();
+      const durationMs = window.end.getTime() - window.start.getTime();
       const planned = targets.map((target) => {
         const start = new Date(target.startTime.getTime() + shiftMs);
         const end = new Date(start.getTime() + durationMs);
-        assertWithinBusinessHours(start, end);
-        if (start <= now) {
+        // Mudar o horário para domingo, feriado ou fora das 07h–22h só com a autorização do Art. 6º §1º.
+        const unchanged = start.getTime() === target.startTime.getTime() && end.getTime() === target.endTime.getTime();
+        const outside = checkAdminSchedule(start, end, input.extraordinaryAuthorized || (unchanged && target.outsideRegularHours));
+        if (start <= now && !unchanged) {
           throw new AppError(400, "RESERVATION_IN_PAST", "Não dá para mover uma reserva para um horário que já passou.");
         }
         // Só a reserva aprovada troca de sala; a pendente continua sem sala (é alocada ao aprovar).
         const roomId = target.status === "APPROVED" ? (input.roomId ?? target.roomId) : target.roomId;
-        return { id: target.id, start, end, roomId };
+        // Art. 12: realocar exige autorização da Divisão Acadêmica e da Diretoria.
+        if (target.status === "APPROVED" && roomId !== target.roomId && !input.relocationAuthorized) {
+          throw new AppError(
+            400,
+            "RELOCATION_NEEDS_AUTHORIZATION",
+            "Para realocar uma reserva aprovada em outra sala, confirme a autorização da Divisão Acadêmica e da Diretoria (Portaria 2793, Art. 12).",
+          );
+        }
+        return { id: target.id, start, end, roomId, outside };
       });
 
       // Conflito e capacidade, sala por sala (a sala é travada antes de checar).
@@ -201,6 +232,7 @@ adminActionsRouter.put(
           throw new AppError(409, "ROOM_NOT_ACTIVE", "Só é possível mover a reserva para uma sala Ativa.");
         }
         assertCapacity(expectedAttendees, room.capacity);
+        assertCoffeeBreakAllowed(input.coffeeBreak, room);
         const conflicting = await findConflictingOccurrences(tx, roomId, occurrences, planned.map((p) => p.id));
         if (conflicting.length > 0) {
           throw new AppError(
@@ -224,6 +256,9 @@ adminActionsRouter.put(
               expectedAttendees,
               requestedResources,
               supportNotes: input.supportNotes ?? null,
+              coffeeBreak: input.coffeeBreak,
+              setupMinutes: input.setupMinutes,
+              outsideRegularHours: p.outside,
               startTime: p.start,
               endTime: p.end,
               roomId: p.roomId,
@@ -274,6 +309,43 @@ adminActionsRouter.post(
 
     sendInBackground("reserva cancelada pelo SAD", () => adminCancelledMails(cancelledIds));
     res.json({ cancelledIds });
+  }),
+);
+
+// ----------------------------------------------------------------------------
+// Não comparecimento (Portaria 2793, Art. 9º §2º): o SAD registra quando o
+// espaço reservado não foi usado nem cancelado. 3 ou mais em 12 meses =
+// recorrência, sujeita a notificação e sanções (ver routes/sanctions.ts).
+// ----------------------------------------------------------------------------
+
+adminActionsRouter.post(
+  "/reservations/:id/no-show",
+  asyncHandler(async (req, res) => {
+    const reservation = await prisma.reservation.findUnique({ where: { id: req.params.id } });
+    if (!reservation) throw new AppError(404, "RESERVATION_NOT_FOUND", "Reserva não encontrada.");
+    if (reservation.status !== "APPROVED") {
+      throw new AppError(409, "NOT_APPROVED", "Só dá para registrar ausência em reserva aprovada.");
+    }
+    if (reservation.startTime > new Date()) {
+      throw new AppError(400, "NOT_STARTED", "A reserva ainda não começou.");
+    }
+    await prisma.reservation.update({
+      where: { id: reservation.id },
+      data: { noShowAt: reservation.noShowAt ?? new Date(), noShowById: reservation.noShowById ?? req.user!.id },
+    });
+    const noShows = await noShowsInLastYear(prisma, reservation.userId);
+    res.json({ noShowCount: noShows.length });
+  }),
+);
+
+adminActionsRouter.delete(
+  "/reservations/:id/no-show",
+  asyncHandler(async (req, res) => {
+    const reservation = await prisma.reservation.findUnique({ where: { id: req.params.id } });
+    if (!reservation) throw new AppError(404, "RESERVATION_NOT_FOUND", "Reserva não encontrada.");
+    await prisma.reservation.update({ where: { id: reservation.id }, data: { noShowAt: null, noShowById: null } });
+    const noShows = await noShowsInLastYear(prisma, reservation.userId);
+    res.json({ noShowCount: noShows.length });
   }),
 );
 

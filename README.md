@@ -118,8 +118,9 @@ A página inicial mostra o status da API e do banco — se ambos aparecerem como
 
 Tudo em `backend/src/reservations/` + `POST /api/reservations`:
 
-- **Regras** (`rules.ts`): horário 07:30–22:30 (calculado no fuso `APP_TIMEZONE`
-  via `Intl.DateTimeFormat`, testado manualmente contra os limites), duração
+- **Regras** (`rules.ts`): horário de funcionamento (hoje 07h–22h, de segunda a
+  sábado, fora feriados — ver [Portarias 2793 e 2794](#portarias-fmusp-nº-2793-e-27942026);
+  calculado no fuso `APP_TIMEZONE` via `Intl.DateTimeFormat`), duração
   30 min–15 h, e antecedência mínima — implementada como **72 horas corridas**
   até o início do evento (não como "3 dias de calendário"; ajuste em
   `MIN_ADVANCE_MS` se a intenção for outra).
@@ -383,8 +384,11 @@ A aba **Minhas reservas** passou a ser a tela inicial do solicitante
   (rejeitada) ou data do cancelamento.
 - `POST /api/reservations/:id/cancel` `{ scope }`: o solicitante cancela uma
   data (`single`) ou todas as próximas datas ativas da série (`series`).
-  - Vale só para reservas **pendentes ou aprovadas que ainda não começaram**
-    (`RESERVATION_IN_PAST` / `RESERVATION_NOT_CANCELLABLE` nos outros casos).
+  - A reserva **aprovada** é cancelada pelo sistema até **3 dias úteis antes**
+    da data (Portaria 2793, Art. 9º; `CANCEL_DEADLINE_PASSED` depois disso —
+    aí só o SAD cancela). O pedido ainda **pendente** pode ser retirado até o
+    horário começar. Numa série, as datas aprovadas fora do prazo continuam de
+    pé (`keptIds` na resposta).
   - Só o dono pode cancelar: para outras pessoas, a API responde 404, sem
     revelar que a reserva existe.
   - Cancelar **libera o horário da sala** na hora: a exclusion constraint só
@@ -394,8 +398,9 @@ A aba **Minhas reservas** passou a ser a tela inicial do solicitante
 
 ## Alterar uma reserva (solicitante)
 
-- Em **Minhas reservas**, cada reserva pendente ou aprovada que começa daqui a
-  pelo menos 3 dias tem o botão **Alterar**. Ele abre o mesmo formulário, já
+- Em **Minhas reservas**, cada reserva pendente ou aprovada tem o botão
+  **Alterar** até **3 dias úteis antes** da data (o mesmo prazo do
+  cancelamento, Portaria 2793, Art. 9º). Ele abre o mesmo formulário, já
   preenchido (`/minhas-reservas/:id/editar`).
 - `PUT /api/reservations/:id` recebe os campos do formulário mais `{ scope }`:
   - `single` altera só aquela data;
@@ -404,7 +409,7 @@ A aba **Minhas reservas** passou a ser a tela inicial do solicitante
 
   Valem as regras da criação (horário de funcionamento, antecedência), mais:
   - o tipo de atividade não muda (`ACTIVITY_TYPE_LOCKED`), nem a recorrência;
-  - com menos de 3 dias, a API recusa com `EDIT_TOO_SOON`.
+  - depois do prazo de 3 dias úteis, a API recusa com `EDIT_TOO_SOON`.
 - A reserva volta para **Pendente**, marcada como alterada
   (`modified_by_requester_at`), e a sala é liberada. `previous_snapshot` guarda
   como ela estava na última análise do SAD: status, horário, sala e
@@ -466,7 +471,8 @@ Tela `/admin/agenda`: tudo o que acontece num dia.
 - **Reservas do dia**, filtradas por situação: pendentes, alteradas,
   aprovadas, canceladas e rejeitadas. Cada uma abre o painel com todos os
   dados, mais Analisar, Alterar e Cancelar.
-- **Salas no dia**: linha do tempo de 07h a 23h com cada sala ativa. Mostra as
+- **Salas no dia**: linha do tempo de 07h a 22h (estendida quando há reserva
+  em horário extraordinário) com cada sala ativa. Mostra as
   reservas aprovadas, as pendentes com sala e os bloqueios, e separa as salas
   ocupadas das livres o dia todo.
 - A data e a reserva aberta ficam na URL (`?data=2026-10-15&reserva=…`).
@@ -499,6 +505,33 @@ livres) agora mostra a reserva inteira do dia escolhido:
 O formulário de reserva começa **em branco**: sem data, sem horário e sem
 nenhuma opção pré-marcada. O aviso de horário só aparece depois que data,
 início e término são preenchidos.
+
+## Portarias FMUSP nº 2793 e 2794/2026
+
+As duas portarias de 02/06/2026 — **2793** (uso dos espaços) e **2794**
+(valores de referência) — são as regras do sistema. O texto integral está no
+Regulamento (migration `20260929000000_portarias_2793_2794`, que só substitui o
+texto se o SAD ainda não o tiver editado pela tela). Onde cada regra está:
+
+| Regra | Como o sistema aplica |
+| --- | --- |
+| **Horário** (Art. 6º): dias úteis e sábados, 07h–22h | O solicitante não pede em domingo, feriado/ponto facultativo nem fora das 07h–22h. Numa série, os feriados ficam de fora (`skippedDates`). Feriados em `lib/calendar.ts` (nacionais, 9 de julho, 25 de janeiro, Carnaval, Sexta-feira Santa e Corpus Christi); pontos facultativos decretados a cada ano não entram. |
+| Horário extraordinário (Art. 6º §1º) | Só o SAD reserva, marcando a autorização prévia da Divisão Acadêmica e o custeio da equipe de apoio (`extraordinaryAuthorized`). A reserva fica com `outside_regular_hours`, que libera o CHECK de horário do banco. |
+| **Protocolo** (Art. 8º §1º, b) | Todo pedido recebe um nº (`000123/2026`, sequência `reservation_protocol_seq`); as datas de uma série compartilham o número. Aparece na confirmação, em Minhas reservas, na fila e na Agenda do SAD e em todos os e-mails; a busca da fila aceita o protocolo. |
+| Informações inexatas (Art. 8º, parágrafo único) | Aviso junto ao aceite do formulário. |
+| **Cancelamento** (Art. 9º): 3 dias úteis antes | Ver [Fase 8](#fase-8--minhas-reservas) e [Alterar](#alterar-uma-reserva-solicitante). Minhas reservas mostra até quando dá para cancelar. |
+| **Ausências** (Art. 9º §2º): 3 em 12 meses | O SAD registra "Não compareceu" (`POST/DELETE /api/admin/reservations/:id/no-show`) em reserva aprovada que já começou. O painel do pedido mostra as ausências do solicitante e avisa a recorrência. |
+| **Sanções** (Art. 9º §2º, 11, 17, 22) | Advertência, multa ou suspensão de novas reservas — até 1 ano ou "até a regularização" (inadimplência), podendo cancelar as reservas futuras (`POST /api/admin/users/:id/sanctions`, `POST /api/admin/sanctions/:id/lift`). Suspenso não pede nem altera (`USER_SUSPENDED`). Lista das suspensões em vigor em Solicitações. |
+| **Chaves** (Art. 10) | Confirmação, Minhas reservas ("retire as chaves às …") e e-mail de aprovação: comparecer ao SAD/NE 10 minutos antes. |
+| **Realocação** (Art. 12) | Trocar a sala de uma reserva aprovada exige marcar a autorização da Divisão Acadêmica e da Diretoria (`RELOCATION_NEEDS_AUTHORIZATION`). |
+| **Cadeiras sobressalentes** (Art. 5º §2º) | Capacidade = cadeiras da sala; as "cadeiras extras" deixam de aparecer para o solicitante e o formulário avisa. |
+| **Prioridades** (Art. 7º) | Cada pedido mostra a prioridade (1ª graduação … 8ª outras) na fila e no painel do SAD. Novo tipo **Reunião / Administrativo** (reuniões administrativas, Diretoria, Representação dos Funcionários). |
+| **Montagem** (Art. 19) | Campo "Montagem" (até 4 h): o período reservado começa antes da atividade (`setup_minutes`); entra no conflito, na taxa e no aviso à TI. |
+| **CCEx** (Art. 20–21) | Cultura e Extensão pede programação, público-alvo, entidade organizadora (Art. 4º; externas precisam de autorização da Divisão Acadêmica), contato do responsável, patrocínio e a situação na CCEx. Para aprovar (ou o SAD reservar), o SAD confirma autorização da CCEx, aprovação da Divisão Acadêmica e taxa paga/isenção (`approval_checklist`). |
+| **Taxas e isenções** (2793 Arts. 13–16; 2794 Arts. 2º–4º) | Estimativa em `frontend/src/lib/fees.ts`: Teatro R$ 625/h, anfiteatros R$ 375/h, salas R$ 125/h, mínimo de 2 h + 1 h antes e 1 h depois; áreas de apoio; 25% de desconto (Sistema FMUSP/HC, USP, SES, Adolfo Lutz); isenções e "pode ser isenta"; pagamento à FFM 30 dias antes. Os valores são reajustados todo ano pelo IPC-FIPE — atualize as constantes. |
+| **Coffee break** (2794 Art. 5º) | Pedido marca "coffee break"; salas de aula só 2366/2368, 2223 e 1357 (+20% na estimativa). As outras aparecem bloqueadas na aprovação (`COFFEE_BREAK_NOT_ALLOWED`). |
+| **Bebidas alcoólicas** (Art. 23) | Compromisso obrigatório no formulário (`no_alcohol_commitment`), inclusive na reserva feita pelo SAD. |
+| Equipe de áudio e vídeo (Art. 18) | Aviso no formulário para sábados, domingos e feriados (mínimo de 2 técnicos, pagos à FFM). |
 
 ## Catálogo real de salas e inventário
 

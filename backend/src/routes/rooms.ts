@@ -21,11 +21,13 @@ type RoomWithResources = Prisma.RoomGetPayload<{ include: typeof roomInclude }>;
 
 /**
  * Modelo, patrimônio e "outros equipamentos" são inventário interno: só o SAD
- * (Admin) vê. Para o solicitante, a sala mostra só os tipos de recurso.
+ * (Admin) vê. Para o solicitante, a sala mostra só os tipos de recurso. As
+ * cadeiras extras (professor, rodinha…) também ficam de fora: não contam como
+ * lugar e não pode haver cadeira sobressalente (Portaria 2793, Art. 5º §2º).
  */
 function forViewer(room: RoomWithResources, role: string | undefined) {
   if (role === "ADMIN") return room;
-  const { equipmentNotes: _notes, ...publicRoom } = room;
+  const { equipmentNotes: _notes, extraSeats: _extra, ...publicRoom } = room;
   return {
     ...publicRoom,
     resources: room.resources.map(({ model: _model, assetTags: _tags, ...link }) => link),
@@ -128,7 +130,9 @@ roomsRouter.get(
         id: r.id,
         title: r.title,
         activityType: r.activityType,
+        setupMinutes: r.setupMinutes,
         ...(isAdmin && {
+          protocol: r.protocol,
           requester: r.user,
           expectedAttendees: r.expectedAttendees,
           description: r.description,

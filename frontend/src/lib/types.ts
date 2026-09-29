@@ -7,7 +7,7 @@ export type RoomType =
   | "COMPUTER_LAB"
   | "BOARD_ROOM"
   | "THEATER";
-export type ActivityType = "UNDERGRADUATE" | "GRADUATE" | "CULTURE_EXTENSION" | "PUBLIC_EXAM" | "DEFENSE";
+export type ActivityType = "UNDERGRADUATE" | "GRADUATE" | "CULTURE_EXTENSION" | "PUBLIC_EXAM" | "DEFENSE" | "ADMINISTRATIVE";
 export type RoomStatus = "ACTIVE" | "MAINTENANCE" | "INACTIVE";
 export type SeatType = "SCHOOL" | "UNIVERSITY_FIXED" | "UNIVERSITY_MOBILE";
 export type NotebookLocation = "SAD" | "NIT";
@@ -86,8 +86,11 @@ export interface Room {
   wideDoor: boolean;
   /** Sala preparada para atendimento especial. */
   specialNeeds: boolean;
-  /** Cadeiras extras (professor, rodinha…) além da capacidade da plateia. */
-  extraSeats: number | null;
+  /**
+   * Cadeiras extras (professor, rodinha…) além da capacidade da plateia. Só vem
+   * para o SAD: não contam como lugar (Portaria 2793, Art. 5º §2º).
+   */
+  extraSeats?: number | null;
   /** Largura × comprimento, como na planilha (ex.: "10,30 × 9,60 m"). */
   dimensions: string | null;
   /** Outros equipamentos, em texto livre: só vem para o SAD. */
@@ -135,8 +138,19 @@ export const RESERVATION_STATUS_LABELS: Record<ReservationStatus, string> = {
   CANCELLED: "Cancelada",
 };
 
+/** Conferência do SAD ao confirmar Cultura e Extensão (Portaria 2793, Art. 20 §3º e Art. 14 §3º). */
+export interface ApprovalChecklist {
+  ccexAuthorized: boolean;
+  academicDivisionApproved: boolean;
+  feeSettled: boolean;
+  directorateHomologated: boolean;
+  checkedAt?: string;
+}
+
 export interface Reservation {
   id: string;
+  /** Nº de protocolo do pedido (Art. 8º §1º, b); o mesmo em todas as datas de uma série. */
+  protocol: string;
   seriesId: string | null;
   roomId: string | null;
   title: string;
@@ -147,8 +161,19 @@ export interface Reservation {
   expectedAttendees: number;
   requestedResources: RequestedResource[];
   supportNotes: string | null;
+  /** Início do período reservado — já inclui a montagem (a atividade começa setupMinutes depois). */
   startTime: string;
   endTime: string;
+  /** Montagem antes da atividade, reservada junto (Art. 19). */
+  setupMinutes: number;
+  /** Domingo, feriado ou fora das 07h–22h, com autorização da Divisão Acadêmica (Art. 6º §1º). */
+  outsideRegularHours: boolean;
+  /** Compromisso do Art. 23 (sem comércio nem consumo de bebidas alcoólicas). */
+  noAlcoholCommitment: boolean;
+  coffeeBreak: boolean;
+  approvalChecklist: ApprovalChecklist | null;
+  /** Ausência (não comparecimento sem cancelar) registrada pelo SAD (Art. 9º §2º). */
+  noShowAt: string | null;
   status: ReservationStatus;
   rejectionReason: string | null;
   cancelledAt: string | null;
@@ -175,6 +200,36 @@ export interface AdminReservation extends Omit<Reservation, "room"> {
   reviewedBy: { id: string; name: string } | null;
   reviewedAt: string | null;
   cancelledBy: { id: string; name: string } | null;
+  noShowBy: { id: string; name: string } | null;
+}
+
+export type SanctionType = "WARNING" | "FINE" | "SUSPENSION";
+
+export const SANCTION_TYPE_LABELS: Record<SanctionType, string> = {
+  WARNING: "Advertência",
+  FINE: "Multa",
+  SUSPENSION: "Suspensão de novas reservas",
+};
+
+export interface Sanction {
+  id: string;
+  userId: string;
+  type: SanctionType;
+  reason: string;
+  /** Suspensão: último dia ("AAAA-MM-DD..."); null = até a regularização. */
+  until: string | null;
+  createdAt: string;
+  createdBy: { id: string; name: string };
+  liftedAt: string | null;
+  liftedBy: { id: string; name: string } | null;
+}
+
+/** Situação de um solicitante para o SAD (ausências em 12 meses e sanções). */
+export interface RequesterStanding {
+  user: { id: string; name: string; email: string };
+  noShows: { id: string; title: string; startTime: string; protocol: string; room: { name: string } | null }[];
+  sanctions: Sanction[];
+  activeSuspensionId: string | null;
 }
 
 /** "single": só a ocorrência; "series": todas as ocorrências futuras pendentes da série. */
@@ -183,6 +238,8 @@ export type ReviewScope = "single" | "series";
 export interface RoomOption {
   room: Room;
   fitsCapacity: boolean;
+  /** Pedido com coffee break só vai para salas que permitem (Portaria 2794, Art. 5º). */
+  coffeeBreakAllowed: boolean;
   /** Recursos que a sala não tem (`available` = 0) ou tem em quantidade menor que a pedida. */
   missingResources: { resourceId: string; requested: number; available: number }[];
   conflictingDates: string[];
@@ -208,7 +265,9 @@ export interface BusyInterval {
   id?: string;
   title?: string;
   activityType?: ActivityType | null;
+  setupMinutes?: number;
   /** Só para o SAD: o resto da reserva. */
+  protocol?: string;
   requester?: { name: string; email: string };
   expectedAttendees?: number;
   description?: string;

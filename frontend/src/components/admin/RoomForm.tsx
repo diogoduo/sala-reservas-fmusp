@@ -55,7 +55,7 @@ function fromRoom(room: Room | null): RoomFormValues {
     building: room.building,
     floor: room.floor,
     capacity: room.capacity,
-    extraSeats: room.extraSeats,
+    extraSeats: room.extraSeats ?? null,
     dimensions: room.dimensions ?? "",
     equipmentNotes: room.equipmentNotes ?? "",
     roomType: room.roomType,
@@ -162,7 +162,7 @@ export function RoomForm({ room, resources, buildings, formId, onSubmit, onPhoto
           inputMode="numeric"
           min={0}
           placeholder="Opcional"
-          hint="Professor, rodinha, bancos."
+          hint="Professor, rodinha, bancos. Não contam na capacidade: não pode haver cadeira sobressalente (Art. 5º §2º)."
           value={values.extraSeats ?? ""}
           onChange={(e) => setValues({ ...values, extraSeats: e.target.value === "" ? null : Number(e.target.value) })}
         />

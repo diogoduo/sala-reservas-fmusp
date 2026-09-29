@@ -9,13 +9,17 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
-import { ACTIVITY_TYPE_LABELS, activityDetailRows } from "../../lib/activities";
+import { ACTIVITY_TYPE_LABELS, activityDetailRows, PRIORITY_LABELS, priorityOf } from "../../lib/activities";
 import { api, ApiError } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { formatDateTimeRange, formatShortDate, formatTimeRange, plural } from "../../lib/format";
+import { activityStart, formatMinutes } from "../../lib/reservations";
 import { useToast } from "../../lib/toast";
 import { RESERVATION_STATUS_LABELS, ROOM_TYPE_LABELS } from "../../lib/types";
-import type { AdminReservation, RequestedResource, Resource, ReviewScope, RoomOption } from "../../lib/types";
+import type { AdminReservation, ApprovalChecklist, RequestedResource, Resource, ReviewScope, RoomOption } from "../../lib/types";
+import { FeeEstimate } from "../solicitante/FeeEstimate";
+import { NoShowButton } from "./ReservationActions";
+import { RequesterStanding } from "./RequesterStanding";
 import { StatusBadge } from "../StatusBadge";
 import { Avatar } from "../ui/Avatar";
 import { Badge } from "../ui/Badge";
@@ -46,6 +50,8 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
 export function RequestDetails({ group, resources }: { group: AdminReservation[]; resources: Resource[] }) {
   const first = group[0]!;
   const rooms = [...new Set(group.flatMap((r) => (r.room ? [`${r.room.name} — ${r.room.building}, ${r.room.floor}`] : [])))];
+  const priority = priorityOf(first.activityType, first.activityDetails);
+  const checklist = first.approvalChecklist;
   return (
     <section aria-label="Dados da solicitação" className="space-y-4">
       <div className="flex items-center gap-3 rounded-xl bg-surface-muted p-3">
@@ -57,12 +63,20 @@ export function RequestDetails({ group, resources }: { group: AdminReservation[]
         <StatusBadge status={first.status} />
       </div>
 
+      <RequesterStanding userId={first.user.id} />
+
       {first.previousSnapshot && first.modifiedByRequesterAt && first.status === "PENDING" && (
         <ChangeSummary reservation={first} />
       )}
 
       <dl className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-sm">
+        <DetailRow label="Protocolo">
+          <span className="font-semibold tabular-nums">{first.protocol}</span>
+        </DetailRow>
         {first.activityType && <DetailRow label="Atividade">{ACTIVITY_TYPE_LABELS[first.activityType]}</DetailRow>}
+        <DetailRow label="Prioridade">
+          {priority}ª — {PRIORITY_LABELS[priority]} <span className="text-muted">(Art. 7º)</span>
+        </DetailRow>
         <DetailRow label="Participantes">{first.expectedAttendees}</DetailRow>
         <DetailRow label={group.length > 1 ? `Datas (${group.length})` : "Data"}>
           {group.length === 1 ? (
@@ -79,6 +93,19 @@ export function RequestDetails({ group, resources }: { group: AdminReservation[]
               </ul>
             </>
           )}
+        </DetailRow>
+        {first.setupMinutes > 0 && (
+          <DetailRow label="Montagem">
+            {formatMinutes(first.setupMinutes)} antes da atividade, que começa às{" "}
+            {activityStart(first).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} (Art. 19; equipe técnica obrigatória)
+          </DetailRow>
+        )}
+        {first.outsideRegularHours && (
+          <DetailRow label="Horário">Extraordinário — domingo, feriado ou fora das 07h–22h (Art. 6º §1º)</DetailRow>
+        )}
+        {first.coffeeBreak && <DetailRow label="Coffee break">Sim — só em sala que permite (Portaria 2794, Art. 5º)</DetailRow>}
+        <DetailRow label="Bebidas alcoólicas">
+          {first.noAlcoholCommitment ? "Compromisso de não haver comércio nem consumo assumido (Art. 23)" : "Pedido anterior às portarias de 2026"}
         </DetailRow>
         <DetailRow label="Descrição">{first.description}</DetailRow>
         {first.activityType &&
@@ -99,6 +126,24 @@ export function RequestDetails({ group, resources }: { group: AdminReservation[]
         {first.reviewedBy && first.reviewedAt && (
           <DetailRow label="Revisada por">
             {first.reviewedBy.name} em {new Date(first.reviewedAt).toLocaleString("pt-BR")}
+          </DetailRow>
+        )}
+        {checklist && (
+          <DetailRow label="Conferência">
+            {[
+              checklist.ccexAuthorized && "autorização da CCEx",
+              checklist.academicDivisionApproved && "aprovação da Divisão Acadêmica",
+              checklist.feeSettled && "taxa paga ou isenção",
+              checklist.directorateHomologated && "homologação da Diretoria",
+            ]
+              .filter(Boolean)
+              .join("; ")}
+          </DetailRow>
+        )}
+        {first.noShowAt && (
+          <DetailRow label="Ausência">
+            Registrada em {new Date(first.noShowAt).toLocaleString("pt-BR")}
+            {first.noShowBy ? ` por ${first.noShowBy.name}` : ""} (Art. 9º §2º)
           </DetailRow>
         )}
         {first.cancelledAt && (
@@ -184,6 +229,8 @@ interface ReviewDrawerProps {
   resources: Resource[];
   onClose: () => void;
   onDone: (message: string) => void;
+  /** Recarregar a lista depois de registrar uma ausência (pedidos já revisados). */
+  onChanged?: () => void;
 }
 
 /**
@@ -192,7 +239,7 @@ interface ReviewDrawerProps {
  * justificativa. Numa série, dá para decidir todas as datas ou uma específica.
  * Para pedidos já revisados, mostra só os dados.
  */
-export function ReviewDrawer({ group, resources, onClose, onDone }: ReviewDrawerProps) {
+export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: ReviewDrawerProps) {
   const toast = useToast();
   const first = group[0]!;
   const isPending = first.status === "PENDING";
@@ -203,6 +250,15 @@ export function ReviewDrawer({ group, resources, onClose, onDone }: ReviewDrawer
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [mode, setMode] = useState<"approve" | "reject">("approve");
   const [rejectReason, setRejectReason] = useState("");
+  // Cultura e Extensão: etapas do Art. 20 §3º e taxa (Art. 14 §3º / Art. 21 §2º) antes de confirmar.
+  const needsChecklist = first.activityType === "CULTURE_EXTENSION";
+  const [checklist, setChecklist] = useState<ApprovalChecklist>({
+    ccexAuthorized: false,
+    academicDivisionApproved: false,
+    feeSettled: false,
+    directorateHomologated: false,
+  });
+  const checklistOk = !needsChecklist || (checklist.ccexAuthorized && checklist.academicDivisionApproved && checklist.feeSettled);
   const [busy, setBusy] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -220,7 +276,7 @@ export function ReviewDrawer({ group, resources, onClose, onDone }: ReviewDrawer
         setOccurrenceCount(res.occurrences.length);
         // Numa alteração, se a sala em que estava aprovada ainda serve, ela vem marcada;
         // senão, a mais adequada (a API já devolve essa primeiro).
-        const usable = (o: RoomOption) => o.fitsCapacity && o.conflictingDates.length < res.occurrences.length;
+        const usable = (o: RoomOption) => o.fitsCapacity && o.coffeeBreakAllowed && o.conflictingDates.length < res.occurrences.length;
         const previous = res.options.find((o) => o.room.id === previousRoomId && usable(o));
         const best = res.options[0];
         if (previous) setSelectedRoomId(previous.room.id);
@@ -236,7 +292,7 @@ export function ReviewDrawer({ group, resources, onClose, onDone }: ReviewDrawer
   const selected = options?.find((o) => o.room.id === selectedRoomId) ?? null;
   const partial = selected !== null && selected.conflictingDates.length > 0;
   const freeCount = selected ? occurrenceCount - selected.conflictingDates.length : 0;
-  const recommendedId = options?.find((o) => o.fitsCapacity && o.conflictingDates.length < occurrenceCount)?.room.id;
+  const recommendedId = options?.find((o) => o.fitsCapacity && o.coffeeBreakAllowed && o.conflictingDates.length < occurrenceCount)?.room.id;
   const resourceName = (id: string) => resources.find((r) => r.id === id)?.name ?? "recurso removido";
 
   async function approve() {
@@ -245,7 +301,12 @@ export function ReviewDrawer({ group, resources, onClose, onDone }: ReviewDrawer
     try {
       const res = await api<{ approved: AdminReservation[]; skipped: unknown[] }>(`/admin/reservations/${reservationId}/approve`, {
         method: "POST",
-        body: JSON.stringify({ roomId: selected.room.id, scope, skipConflicting: partial }),
+        body: JSON.stringify({
+          roomId: selected.room.id,
+          scope,
+          skipConflicting: partial,
+          approvalChecklist: needsChecklist ? checklist : undefined,
+        }),
       });
       onDone(
         `${plural(res.approved.length, "data aprovada", "datas aprovadas")} em ${selected.room.name}` +
@@ -281,9 +342,12 @@ export function ReviewDrawer({ group, resources, onClose, onDone }: ReviewDrawer
   }
 
   const footer = !isPending ? (
-    <Button variant="secondary" onClick={onClose}>
-      Fechar
-    </Button>
+    <>
+      {onChanged && <NoShowButton reservation={first} onChanged={onChanged} />}
+      <Button variant="secondary" onClick={onClose}>
+        Fechar
+      </Button>
+    </>
   ) : mode === "reject" ? (
     <>
       <Button variant="secondary" onClick={() => setMode("approve")} disabled={busy}>
@@ -298,7 +362,7 @@ export function ReviewDrawer({ group, resources, onClose, onDone }: ReviewDrawer
       <Button variant="danger-soft" icon={XCircleIcon} onClick={() => setMode("reject")} disabled={busy} className="sm:mr-auto">
         Rejeitar
       </Button>
-      <Button icon={SealCheckIcon} loading={busy} disabled={!selected} onClick={() => void approve()}>
+      <Button icon={SealCheckIcon} loading={busy} disabled={!selected || !checklistOk} onClick={() => void approve()}>
         {/* Um só nó de texto: o gap do botão não entra entre "Aprovar" e "em …". */}
         <span>
           {approveLabel}
@@ -362,7 +426,7 @@ export function ReviewDrawer({ group, resources, onClose, onDone }: ReviewDrawer
                 {options.map((option) => {
                   const conflicts = option.conflictingDates.length;
                   const allBusy = conflicts >= occurrenceCount;
-                  const disabled = !option.fitsCapacity || allBusy;
+                  const disabled = !option.fitsCapacity || !option.coffeeBreakAllowed || allBusy;
                   const isSelected = selectedRoomId === option.room.id;
                   return (
                     <label
@@ -404,9 +468,10 @@ export function ReviewDrawer({ group, resources, onClose, onDone }: ReviewDrawer
                             <Check state="ok">Comporta {first.expectedAttendees}</Check>
                           ) : (
                             <Check state="bad">
-                              Comporta só {option.room.capacity} (pedido: {first.expectedAttendees})
+                              Comporta só {option.room.capacity} (pedido: {first.expectedAttendees}; sem cadeiras extras)
                             </Check>
                           )}
+                          {!option.coffeeBreakAllowed && <Check state="bad">Coffee break não permitido</Check>}
                           {conflicts === 0 ? (
                             <Check state="ok">{occurrenceCount > 1 ? "Livre em todas as datas" : "Livre no horário"}</Check>
                           ) : occurrenceCount === 1 ? (
@@ -443,6 +508,48 @@ export function ReviewDrawer({ group, resources, onClose, onDone }: ReviewDrawer
                 {plural(selected.conflictingDates.length, "data já está ocupada", "datas já estão ocupadas")} nesta sala e vai continuar
                 pendente — dá para alocar em outra sala depois.
               </Alert>
+            )}
+
+            {needsChecklist && first.activityDetails && (
+              <div className="space-y-4 rounded-xl border border-border p-4">
+                <div>
+                  <h3 className="text-base font-semibold">Antes de confirmar</h3>
+                  <p className="text-sm text-muted">Atividade de Cultura e Extensão (Portaria 2793, Art. 20 §3º, Art. 14 §3º e Art. 21 §2º).</p>
+                </div>
+                <FeeEstimate
+                  type="CULTURE_EXTENSION"
+                  details={first.activityDetails}
+                  reservedMinutes={(new Date(first.endTime).getTime() - new Date(first.startTime).getTime()) / 60_000}
+                  dates={Math.max(occurrenceCount, 1)}
+                  firstDate={new Date(first.startTime)}
+                  coffeeBreak={first.coffeeBreak}
+                  room={selected?.room ?? null}
+                  compact
+                />
+                <div className="space-y-2.5 text-sm">
+                  {(
+                    [
+                      ["ccexAuthorized", "Autorização da CCEx conferida (Art. 20 §3º, a)", true],
+                      ["academicDivisionApproved", "Aprovação da Divisão Acadêmica (Art. 20 §3º, c)", true],
+                      ["feeSettled", "Comprovante de pagamento da taxa entregue ao SAD/NE, ou atividade isenta", true],
+                      ["directorateHomologated", "Homologação da Diretoria, quando aplicável (Art. 20 §3º, d)", false],
+                    ] as [keyof ApprovalChecklist, string, boolean][]
+                  ).map(([key, label, required]) => (
+                    <label key={key} className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 size-5 shrink-0"
+                        checked={Boolean(checklist[key])}
+                        onChange={(e) => setChecklist((c) => ({ ...c, [key]: e.target.checked }))}
+                      />
+                      <span>
+                        {label}
+                        {!required && <span className="text-muted"> — opcional</span>}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
             )}
           </section>
         )}

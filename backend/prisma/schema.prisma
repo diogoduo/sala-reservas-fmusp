@@ -71,6 +71,7 @@ enum ActivityType {
   CULTURE_EXTENSION // Cultura e Extensão
   PUBLIC_EXAM // Concurso
   DEFENSE // Defesa/Dissertação
+  ADMINISTRATIVE // Reunião / Administrativo (Portaria 2793, Art. 7º, itens 3 e 7)
 
   @@map("activity_type")
 }
@@ -93,6 +94,10 @@ model User {
   cancelledReservations Reservation[]       @relation("ReservationCanceller")
   series                ReservationSeries[]
   roomBlocks            RoomBlock[]
+  noShowsMarked         Reservation[]       @relation("ReservationNoShowMarker")
+  sanctions             UserSanction[]      @relation("SanctionedUser")
+  sanctionsApplied      UserSanction[]      @relation("SanctionApplier")
+  sanctionsLifted       UserSanction[]      @relation("SanctionLifter")
 
   @@map("users")
 }
@@ -225,6 +230,9 @@ model ReservationSeries {
 
 model Reservation {
   id                    String            @id @default(uuid()) @db.Uuid
+  /// Nº de protocolo do pedido ("000123/2026"), gerado ao registrar (Portaria
+  /// 2793, Art. 8º §1º, b). As datas de uma série compartilham o mesmo número.
+  protocol              String
   seriesId              String?           @map("series_id") @db.Uuid
   userId                String            @map("user_id") @db.Uuid
   /// Sala pretendida/alocada. Nula quando o solicitante não indicou preferência;
@@ -241,8 +249,25 @@ model Reservation {
   requestedResources    Json              @default("[]") @map("requested_resources") // [{ resourceId, quantity?, detail? }]
   supportNotes          String?           @map("support_notes")
   termsAccepted         Boolean           @map("terms_accepted")
+  /// Início e fim do uso do espaço. O início inclui a montagem (setupMinutes).
   startTime             DateTime          @map("start_time") @db.Timestamptz(3)
   endTime               DateTime          @map("end_time") @db.Timestamptz(3)
+  /// Montagem antes da atividade, reservada junto (Portaria 2793, Art. 19):
+  /// a atividade começa em startTime + setupMinutes.
+  setupMinutes          Int               @default(0) @map("setup_minutes")
+  /// Domingo, feriado, ponto facultativo ou fora das 07h–22h: só o SAD reserva,
+  /// com autorização da Divisão Acadêmica (Art. 6º §1º). Libera o CHECK de horário.
+  outsideRegularHours   Boolean           @default(false) @map("outside_regular_hours")
+  /// Compromisso de não haver comércio nem consumo de bebidas alcoólicas (Art. 23).
+  noAlcoholCommitment   Boolean           @default(false) @map("no_alcohol_commitment")
+  /// Haverá coffee break/alimentação (Portaria 2794, Art. 5º: só em algumas salas).
+  coffeeBreak           Boolean           @default(false) @map("coffee_break")
+  /// Conferência do SAD ao confirmar Cultura e Extensão (CCEx, Divisão
+  /// Acadêmica, taxa paga ou isenção — Art. 20 §3º, Art. 14 §3º, Art. 21 §2º).
+  approvalChecklist     Json?             @map("approval_checklist")
+  /// Não comparecimento sem cancelamento, registrado pelo SAD (Art. 9º §2º).
+  noShowAt              DateTime?         @map("no_show_at") @db.Timestamptz(3)
+  noShowById            String?           @map("no_show_by_id") @db.Uuid
   status                ReservationStatus @default(PENDING)
   rejectionReason       String?           @map("rejection_reason")
   reviewedById          String?           @map("reviewed_by_id") @db.Uuid
@@ -268,12 +293,47 @@ model Reservation {
   room        Room?              @relation(fields: [roomId], references: [id], onDelete: Restrict)
   reviewedBy  User?              @relation("ReservationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   cancelledBy User?              @relation("ReservationCanceller", fields: [cancelledById], references: [id], onDelete: SetNull)
+  noShowBy    User?              @relation("ReservationNoShowMarker", fields: [noShowById], references: [id], onDelete: SetNull)
 
   @@index([roomId, startTime])
   @@index([userId, startTime])
   @@index([status])
   @@index([seriesId])
+  @@index([protocol])
   @@map("reservations")
+}
+
+// ----------------------------------------------------------------------------
+// Sanções aos solicitantes (Portaria 2793, Art. 9º §2º, Art. 11, Art. 17 e Art. 22)
+// ----------------------------------------------------------------------------
+
+enum SanctionType {
+  WARNING // Advertência
+  FINE // Multa
+  SUSPENSION // Suspensão/bloqueio de novas reservas
+
+  @@map("sanction_type")
+}
+
+model UserSanction {
+  id          String       @id @default(uuid()) @db.Uuid
+  userId      String       @map("user_id") @db.Uuid
+  type        SanctionType
+  reason      String
+  /// Suspensão: último dia (inclusive). Nulo = até a regularização.
+  until       DateTime?    @db.Date
+  createdById String       @map("created_by_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// Suspensão retirada antes do fim.
+  liftedAt    DateTime?    @map("lifted_at") @db.Timestamptz(3)
+  liftedById  String?      @map("lifted_by_id") @db.Uuid
+
+  user      User  @relation("SanctionedUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy User  @relation("SanctionApplier", fields: [createdById], references: [id], onDelete: Restrict)
+  liftedBy  User? @relation("SanctionLifter", fields: [liftedById], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@map("user_sanctions")
 }
 
 // ----------------------------------------------------------------------------

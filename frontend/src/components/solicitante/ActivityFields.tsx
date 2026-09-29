@@ -1,11 +1,18 @@
 import type { ChangeEvent } from "react";
 import {
+  ADMINISTRATIVE_KIND_LABELS,
+  CCEX_STATUS_LABELS,
   COURSE_YEARS,
   CULTURE_KIND_LABELS,
   DEFENSE_LEVEL_LABELS,
+  EXTERNAL_ENTITIES,
+  ORGANIZER_ENTITY_GROUPS,
+  STUDENT_ENTITIES,
   UNDERGRADUATE_CLASS_TYPE_LABELS,
 } from "../../lib/activities";
+import { formatBRL, SUPPORT_AREAS } from "../../lib/fees";
 import type { ActivityType } from "../../lib/types";
+import { Alert } from "../ui/Feedback";
 import { Input, Select, Switch, Textarea } from "../ui/Field";
 
 /**
@@ -21,7 +28,14 @@ export const INITIAL_DETAIL_VALUES: DetailValues = { free: false };
 
 /** Nº de pessoas informado no formulário de cada tipo (para o resumo lateral). */
 export function attendeesOf(type: ActivityType, values: DetailValues): string {
-  const field = { UNDERGRADUATE: "studentCount", GRADUATE: "studentCount", CULTURE_EXTENSION: "participantCount", PUBLIC_EXAM: "audience", DEFENSE: "audience" }[type];
+  const field = {
+    UNDERGRADUATE: "studentCount",
+    GRADUATE: "studentCount",
+    CULTURE_EXTENSION: "participantCount",
+    PUBLIC_EXAM: "audience",
+    DEFENSE: "audience",
+    ADMINISTRATIVE: "participantCount",
+  }[type];
   const value = values[field];
   return typeof value === "string" ? value : "";
 }
@@ -142,7 +156,10 @@ export function ActivityFields({ type, values, onChange }: Props) {
         </>
       );
 
-    case "CULTURE_EXTENSION":
+    case "CULTURE_EXTENSION": {
+      const entity = typeof values.entity === "string" ? values.entity : "";
+      const areas = typeof values.supportAreas === "string" && values.supportAreas ? values.supportAreas.split(",") : [];
+      const yesNo = (name: string) => (values[name] === true ? "yes" : values[name] === false ? "no" : undefined);
       return (
         <>
           <div className="space-y-3 sm:col-span-2">
@@ -165,17 +182,42 @@ export function ActivityFields({ type, values, onChange }: Props) {
             )}
           </div>
           <Input label="Título da atividade" required {...text("activityTitle")} containerClassName="sm:col-span-2" />
+          <div className="space-y-3 sm:col-span-2">
+            <Select label="Entidade organizadora" required {...text("entity")} hint="Quem promove a atividade (Portaria 2793, Art. 4º).">
+              <option value="">Selecione</option>
+              {ORGANIZER_ENTITY_GROUPS.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.options.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </Select>
+            {EXTERNAL_ENTITIES.includes(entity) && (
+              <Alert tone="warning" className="animate-fade-in">
+                Entidades externas à FMUSP dependem de autorização expressa da Divisão Acadêmica (Portaria 2793, Art. 4º §1º).
+              </Alert>
+            )}
+          </div>
           <Input label="Nº de participantes" required type="number" inputMode="numeric" min={1} {...text("participantCount")} />
           <Input
-            label="Valor da taxa (R$)"
-            required={!values.free}
-            disabled={values.free === true}
-            type="number"
-            inputMode="decimal"
-            min={0.01}
-            step={0.01}
-            placeholder={values.free ? "Gratuita" : "0,00"}
-            {...text("fee")}
+            label="Público-alvo"
+            required
+            placeholder="Ex.: alunos de graduação, residentes, comunidade externa"
+            maxLength={200}
+            {...text("targetAudience")}
+          />
+          <Textarea
+            label="Programação completa"
+            required
+            rows={4}
+            maxLength={4000}
+            placeholder={"Ex.:\n09:00 Abertura\n09:30 Palestra — Prof. Fulano\n11:00 Mesa-redonda"}
+            hint="Horários e atividades de cada parte (Portaria 2793, Art. 20 §1º)."
+            {...text("program")}
+            containerClassName="sm:col-span-2"
           />
           <div className="rounded-xl border border-border p-4 sm:col-span-2">
             <Switch
@@ -185,22 +227,116 @@ export function ActivityFields({ type, values, onChange }: Props) {
                 if (checked) onChange("fee", "");
               }}
               label="Atividade gratuita"
-              description="Sem taxa de inscrição para os participantes."
+              description="Sem inscrição paga pelos participantes."
             />
           </div>
-          <ChoicePills
-            legend="Vinculada à CCEx"
-            name="linkedToCcex"
-            required
-            value={values.linkedToCcex === true ? "yes" : values.linkedToCcex === false ? "no" : undefined}
-            onChange={(value) => onChange("linkedToCcex", value === "yes")}
-            options={[
-              ["yes", "Sim"],
-              ["no", "Não"],
-            ]}
+          <Input
+            label="Valor da inscrição (R$)"
+            required={!values.free}
+            disabled={values.free === true}
+            type="number"
+            inputMode="decimal"
+            min={0.01}
+            step={0.01}
+            placeholder={values.free ? "Gratuita" : "0,00"}
+            {...text("fee")}
           />
+          {!values.free && STUDENT_ENTITIES.includes(entity) ? (
+            <ChoicePills
+              legend="A inscrição serve só para custear o evento?"
+              name="costOnly"
+              required
+              value={yesNo("costOnly")}
+              onChange={(value) => onChange("costOnly", value === "yes")}
+              options={[
+                ["yes", "Sim"],
+                ["no", "Não"],
+              ]}
+            />
+          ) : (
+            <span className="hidden sm:block" aria-hidden />
+          )}
+          <div className="sm:col-span-2">
+            <ChoicePills
+              legend="A atividade tem patrocínio?"
+              name="sponsored"
+              required
+              value={yesNo("sponsored")}
+              onChange={(value) => onChange("sponsored", value === "yes")}
+              options={[
+                ["no", "Não"],
+                ["yes", "Sim"],
+              ]}
+            />
+            <p className="mt-1.5 text-xs text-muted">Qualquer forma: dinheiro, cessão de produtos, serviços ou espaços por terceiros.</p>
+          </div>
+          <div className="space-y-3 rounded-xl border border-border p-4 sm:col-span-2">
+            <ChoicePills
+              legend="Autorização prévia da CCEx"
+              name="ccexStatus"
+              required
+              value={values.ccexStatus}
+              onChange={(value) => onChange("ccexStatus", value)}
+              options={Object.entries(CCEX_STATUS_LABELS)}
+            />
+            <Input label="Nº do processo ou protocolo na CCEx" maxLength={120} {...text("ccexProcess")} containerClassName="max-w-sm" />
+            <p className="text-xs text-muted">
+              Toda atividade fora do currículo, dos programas de pós, da residência e da pesquisa precisa da autorização da Comissão de
+              Cultura e Extensão (Portaria 2793, Art. 20). A reserva só é confirmada depois dela e da aprovação da Divisão Acadêmica.
+            </p>
+          </div>
+          <fieldset className="sm:col-span-2">
+            <legend className="text-sm font-medium">Áreas de apoio que pretende usar</legend>
+            <p className="text-xs text-muted">Opcional. Cobradas à parte (Portaria 2794, Art. 3º).</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {SUPPORT_AREAS.map((area) => {
+                const checked = areas.includes(area.code);
+                return (
+                  <label
+                    key={area.code}
+                    className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary-soft/50"
+                  >
+                    <input
+                      type="checkbox"
+                      className="size-4 shrink-0"
+                      checked={checked}
+                      onChange={() =>
+                        onChange("supportAreas", (checked ? areas.filter((a) => a !== area.code) : [...areas, area.code]).join(","))
+                      }
+                    />
+                    <span className="min-w-0 flex-1">{area.label}</span>
+                    <span className="shrink-0 text-xs text-muted tabular-nums">
+                      {formatBRL(area.price)}/{area.unit === "hour" ? "h" : "dia"}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
           <Input label="Responsável" required {...text("responsible")} />
-          {department}
+          <Input label="Contato do responsável" required placeholder="E-mail ou telefone" maxLength={200} {...text("responsibleContact")} />
+          <Input label="Departamento, setor ou entidade" required {...text("department")} containerClassName="sm:col-span-2" />
+        </>
+      );
+    }
+
+    case "ADMINISTRATIVE":
+      return (
+        <>
+          <div className="sm:col-span-2">
+            <ChoicePills
+              legend="Tipo"
+              name="kind"
+              required
+              value={values.kind}
+              onChange={(value) => onChange("kind", value)}
+              options={Object.entries(ADMINISTRATIVE_KIND_LABELS)}
+            />
+          </div>
+          <Input label="Assunto" required {...text("meetingTitle")} containerClassName="sm:col-span-2" />
+          <Input label="Nº de participantes" required type="number" inputMode="numeric" min={1} {...text("participantCount")} />
+          <Input label="Responsável" required {...text("responsible")} />
+          <Input label="Setor ou departamento" required {...text("department")} containerClassName="sm:col-span-2" />
         </>
       );
 

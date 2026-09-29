@@ -1,7 +1,8 @@
-import type { Prisma, ReservationStatus } from "@prisma/client";
+import { Prisma, type ReservationStatus } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../lib/async-handler";
+import { formatDayMonth } from "../lib/calendar";
 import { AppError } from "../lib/errors";
 import { prisma } from "../lib/prisma";
 import { sendInBackground } from "../mail/mailer";
@@ -9,16 +10,23 @@ import { cancelledMails, modifiedMails, requestReceivedMails } from "../mail/not
 import { requireAuth } from "../middleware/auth";
 import { roomPhotosInclude } from "../photos/include";
 import { summarizeActivity } from "../reservations/activities";
+import { activeSuspension, assertNotSuspended, nextProtocol, noShowsInLastYear, reservedWindow, withoutHolidays } from "../reservations/portaria";
 import { expandRecurrence, type Occurrence } from "../reservations/recurrence";
 import { normalizeRequestedResources } from "../reservations/requested-resources";
-import { assertMinAdvance, assertValidDuration, assertWithinBusinessHours } from "../reservations/rules";
-import { cancelReservationSchema, createReservationSchema, updateReservationSchema } from "../schemas/reservation";
+import {
+  assertMinAdvance,
+  assertRegularSchedule,
+  assertValidDuration,
+  isWithinRequesterDeadline,
+  requesterDeadline,
+} from "../reservations/rules";
+import { cancelReservationSchema, requesterCreateSchema, updateReservationSchema } from "../schemas/reservation";
 
 export const reservationsRouter = Router();
 
 const reservationInclude = {
-  // "Outros equipamentos" é inventário interno do SAD.
-  room: { omit: { equipmentNotes: true }, include: { photos: roomPhotosInclude } },
+  // "Outros equipamentos" é inventário interno do SAD; cadeiras extras não contam (Art. 5º §2º).
+  room: { omit: { equipmentNotes: true, extraSeats: true }, include: { photos: roomPhotosInclude } },
   // Nome de quem pediu: o SAD usa ao abrir uma reserva para alterar.
   user: { select: { name: true, email: true } },
 } satisfies Prisma.ReservationInclude;
@@ -32,28 +40,36 @@ const reservationInclude = {
 // sentido checar conflito/capacidade contra uma sala específica, então essa
 // lógica (lock de linha, exclusion constraint, etc.) mora em
 // src/reservations/conflicts.ts para ser reaproveitada lá.
+//
+// Portaria 2793: o pedido só vale depois de gerado o protocolo (Art. 8º §1º, b);
+// só em dias úteis e sábados, das 07h às 22h (Art. 6º); a montagem entra no
+// período reservado (Art. 19); quem está suspenso não pede (Art. 9º, 11, 17).
 // ----------------------------------------------------------------------------
 
 reservationsRouter.post(
   "/",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const input = createReservationSchema.parse(req.body);
+    const input = requesterCreateSchema.parse(req.body);
+    await assertNotSuspended(prisma, req.user!.id);
     const { title, expectedAttendees } = summarizeActivity(input);
 
     assertValidDuration(input.startTime, input.endTime);
-    assertWithinBusinessHours(input.startTime, input.endTime);
-    assertMinAdvance(input.startTime);
+    const window = reservedWindow(input);
+    assertValidDuration(window.start, window.end);
+    assertMinAdvance(window.start);
 
     const requestedResources = await normalizeRequestedResources(prisma, input.requestedResources);
 
-    const occurrences: Occurrence[] = input.recurrence
-      ? expandRecurrence(input.recurrence.rrule, input.startTime, input.endTime, input.recurrence.until)
-      : [{ start: input.startTime, end: input.endTime }];
+    let occurrences: Occurrence[] = input.recurrence
+      ? expandRecurrence(input.recurrence.rrule, window.start, window.end, input.recurrence.until)
+      : [window];
+    // Numa série, os feriados ficam de fora; num pedido de uma data só, o feriado é recusado abaixo.
+    let skippedDates: { date: string; holiday: string }[] = [];
+    if (input.recurrence) ({ kept: occurrences, skipped: skippedDates } = withoutHolidays(occurrences));
+    for (const occ of occurrences) assertRegularSchedule(occ.start, occ.end);
 
-    // Cada ocorrência recorrente precisa respeitar o mesmo horário de funcionamento.
-    for (const occ of occurrences) assertWithinBusinessHours(occ.start, occ.end);
-
+    const protocol = await nextProtocol(prisma);
     const series = input.recurrence
       ? await prisma.reservationSeries.create({
           data: {
@@ -62,8 +78,8 @@ reservationsRouter.post(
             title,
             description: input.description,
             rrule: input.recurrence.rrule,
-            startTime: input.startTime,
-            endTime: input.endTime,
+            startTime: window.start,
+            endTime: window.end,
             untilDate: input.recurrence.until,
           },
         })
@@ -73,6 +89,7 @@ reservationsRouter.post(
       occurrences.map((occ) =>
         prisma.reservation.create({
           data: {
+            protocol,
             seriesId: series?.id,
             userId: req.user!.id,
             roomId: null,
@@ -84,6 +101,9 @@ reservationsRouter.post(
             requestedResources,
             supportNotes: input.supportNotes,
             termsAccepted: input.termsAccepted,
+            noAlcoholCommitment: input.noAlcoholCommitment,
+            coffeeBreak: input.coffeeBreak,
+            setupMinutes: input.setupMinutes,
             startTime: occ.start,
             endTime: occ.end,
           },
@@ -94,7 +114,7 @@ reservationsRouter.post(
 
     const createdIds = reservations.map((r) => r.id);
     sendInBackground("solicitação recebida", () => requestReceivedMails(createdIds));
-    res.status(201).json({ series, reservations });
+    res.status(201).json({ protocol, series, reservations, skippedDates });
   }),
 );
 
@@ -121,6 +141,22 @@ reservationsRouter.get(
   }),
 );
 
+/** Situação do próprio solicitante: suspensão em vigor e ausências em 12 meses. */
+reservationsRouter.get(
+  "/me/standing",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const [suspension, noShows] = await Promise.all([
+      activeSuspension(prisma, req.user!.id),
+      noShowsInLastYear(prisma, req.user!.id),
+    ]);
+    res.json({
+      suspension: suspension ? { until: suspension.until, reason: suspension.reason } : null,
+      noShowCount: noShows.length,
+    });
+  }),
+);
+
 reservationsRouter.get(
   "/:id",
   requireAuth,
@@ -138,12 +174,23 @@ reservationsRouter.get(
 );
 
 // ----------------------------------------------------------------------------
-// Cancelamento pelo próprio solicitante (Fase 8). Vale para reservas pendentes
-// ou aprovadas que ainda não começaram. Cancelar libera o horário da sala: a
-// exclusion constraint só considera PENDING/APPROVED.
+// Cancelamento pelo próprio solicitante (Fase 8). Cancelar libera o horário da
+// sala: a exclusion constraint só considera PENDING/APPROVED.
+//
+// Portaria 2793, Art. 9º: a reserva aprovada é cancelada pelo sistema com no
+// mínimo 3 dias úteis de antecedência; depois disso, só com o SAD/NE. O pedido
+// ainda pendente (sem sala) pode ser retirado até o horário começar.
 // ----------------------------------------------------------------------------
 
 const CANCELLABLE_STATUSES: ReservationStatus[] = ["PENDING", "APPROVED"];
+
+const deadlineMessage = (start: Date, action: "cancelar" | "alterar") =>
+  `O prazo para ${action} pelo sistema terminou em ${formatDayMonth(requesterDeadline(start))}: é preciso pedir com no mínimo 3 dias úteis de antecedência (Portaria 2793, Art. 9º). Fale com o SAD/NE.`;
+
+function canCancel(r: { status: ReservationStatus; startTime: Date }, now: Date): boolean {
+  if (r.status === "PENDING") return r.startTime > now;
+  return r.status === "APPROVED" && isWithinRequesterDeadline(r.startTime, now);
+}
 
 reservationsRouter.post(
   "/:id/cancel",
@@ -152,7 +199,7 @@ reservationsRouter.post(
     const { scope } = cancelReservationSchema.parse(req.body ?? {});
     const userId = req.user!.id;
 
-    const cancelledIds = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const now = new Date();
       const reservation = await tx.reservation.findUnique({ where: { id: req.params.id } });
       // 404 (não 403) pelo mesmo motivo do GET /:id. Nem o Admin cancela por aqui.
@@ -162,19 +209,23 @@ reservationsRouter.post(
       if (!CANCELLABLE_STATUSES.includes(reservation.status)) {
         throw new AppError(409, "RESERVATION_NOT_CANCELLABLE", "Esta reserva já foi rejeitada ou cancelada.");
       }
+      if (reservation.startTime <= now) {
+        throw new AppError(400, "RESERVATION_IN_PAST", "Não é possível cancelar uma reserva que já começou ou terminou.");
+      }
 
       // "series": todas as próximas datas ainda ativas da série (sem série, vale só esta).
-      const targets =
+      const candidates =
         scope === "series" && reservation.seriesId
           ? await tx.reservation.findMany({
               where: { seriesId: reservation.seriesId, userId, status: { in: CANCELLABLE_STATUSES }, startTime: { gt: now } },
-              select: { id: true },
+              select: { id: true, status: true, startTime: true },
             })
-          : reservation.startTime > now
-            ? [{ id: reservation.id }]
-            : [];
+          : [reservation];
+      const targets = candidates.filter((c) => canCancel(c, now));
+      // Datas aprovadas dentro do prazo de 3 dias úteis continuam de pé (só o SAD cancela).
+      const kept = candidates.filter((c) => !canCancel(c, now));
       if (targets.length === 0) {
-        throw new AppError(400, "RESERVATION_IN_PAST", "Não é possível cancelar uma reserva que já começou ou terminou.");
+        throw new AppError(400, "CANCEL_DEADLINE_PASSED", deadlineMessage(kept[0]?.startTime ?? reservation.startTime, "cancelar"));
       }
 
       const ids = targets.map((t) => t.id);
@@ -185,23 +236,21 @@ reservationsRouter.post(
       if (updated.count !== ids.length) {
         throw new AppError(409, "RESERVATION_NOT_CANCELLABLE", "A situação desta reserva mudou enquanto você cancelava. Recarregue a lista.");
       }
-      return ids;
+      return { cancelledIds: ids, keptIds: kept.map((k) => k.id) };
     });
 
-    sendInBackground("reserva cancelada", () => cancelledMails(cancelledIds));
-    res.json({ cancelledIds });
+    sendInBackground("reserva cancelada", () => cancelledMails(result.cancelledIds));
+    res.json(result);
   }),
 );
 
 // ----------------------------------------------------------------------------
-// Alteração pelo próprio solicitante. Vale para reservas pendentes ou
-// aprovadas com pelo menos 3 dias de antecedência (a mesma regra de um pedido
-// novo). A reserva volta para análise (PENDING) marcada como alterada, e a sala
-// é liberada: o novo horário pode não caber nela. O SAD vê essas reservas na
-// aba "Alteradas", com o retrato de como estavam antes.
+// Alteração pelo próprio solicitante. Vale para reservas pendentes ou aprovadas
+// até o 3º dia útil antes da data (a mesma regra do cancelamento, Art. 9º — a
+// alteração libera a sala). A reserva volta para análise (PENDING) marcada como
+// alterada. O SAD vê essas reservas na aba "Alteradas", com o retrato de como
+// estavam antes. A nova data segue as regras de um pedido novo.
 // ----------------------------------------------------------------------------
-
-const MIN_EDIT_ADVANCE_MS = 3 * 24 * 60 * 60 * 1000; // mesma antecedência de assertMinAdvance
 
 reservationsRouter.put(
   "/:id",
@@ -209,13 +258,15 @@ reservationsRouter.put(
   asyncHandler(async (req, res) => {
     const input = updateReservationSchema.parse(req.body);
     const userId = req.user!.id;
+    await assertNotSuspended(prisma, userId);
     const { title, expectedAttendees } = summarizeActivity(input);
     assertValidDuration(input.startTime, input.endTime);
+    const window = reservedWindow(input);
+    assertValidDuration(window.start, window.end);
     const requestedResources = await normalizeRequestedResources(prisma, input.requestedResources);
 
     const updatedIds = await prisma.$transaction(async (tx) => {
       const now = new Date();
-      const editableFrom = new Date(now.getTime() + MIN_EDIT_ADVANCE_MS);
       const reservation = await tx.reservation.findUnique({ where: { id: req.params.id } });
       if (!reservation || reservation.userId !== userId) {
         throw new AppError(404, "RESERVATION_NOT_FOUND", "Reserva não encontrada.");
@@ -223,18 +274,14 @@ reservationsRouter.put(
       if (!CANCELLABLE_STATUSES.includes(reservation.status)) {
         throw new AppError(409, "RESERVATION_NOT_EDITABLE", "Esta reserva já foi rejeitada ou cancelada e não pode ser alterada.");
       }
-      if (reservation.startTime < editableFrom) {
-        throw new AppError(
-          400,
-          "EDIT_TOO_SOON",
-          "Faltam menos de 3 dias para esta reserva: não dá mais para alterar. Se precisar, cancele e faça uma nova solicitação.",
-        );
+      if (!isWithinRequesterDeadline(reservation.startTime, now)) {
+        throw new AppError(400, "EDIT_TOO_SOON", deadlineMessage(reservation.startTime, "alterar"));
       }
       if (reservation.activityType && reservation.activityType !== input.activityType) {
         throw new AppError(400, "ACTIVITY_TYPE_LOCKED", "O tipo de atividade não muda numa alteração. Cancele e faça uma nova solicitação.");
       }
 
-      // "series": esta e as próximas datas ativas da série que ainda podem ser alteradas.
+      // "series": esta e as próximas datas ativas da série (todas depois desta, então também no prazo).
       const targets =
         input.scope === "series" && reservation.seriesId
           ? await tx.reservation.findMany({
@@ -251,13 +298,13 @@ reservationsRouter.put(
 
       // Mover a data/horário da data escolhida move todas as outras do mesmo jeito
       // (ex.: "a aula passa das 10h para as 14h" ou "passa de quinta para sexta").
-      const shiftMs = input.startTime.getTime() - reservation.startTime.getTime();
-      const durationMs = input.endTime.getTime() - input.startTime.getTime();
+      const shiftMs = window.start.getTime() - reservation.startTime.getTime();
+      const durationMs = window.end.getTime() - window.start.getTime();
 
       for (const target of targets) {
         const start = new Date(target.startTime.getTime() + shiftMs);
         const end = new Date(start.getTime() + durationMs);
-        assertWithinBusinessHours(start, end);
+        assertRegularSchedule(start, end);
         assertMinAdvance(start, now);
 
         // Guarda o último estado revisado: se já era uma alteração pendente, mantém o retrato original.
@@ -284,6 +331,10 @@ reservationsRouter.put(
             expectedAttendees,
             requestedResources,
             supportNotes: input.supportNotes ?? null,
+            noAlcoholCommitment: input.noAlcoholCommitment,
+            coffeeBreak: input.coffeeBreak,
+            setupMinutes: input.setupMinutes,
+            outsideRegularHours: false,
             startTime: start,
             endTime: end,
             status: "PENDING",
@@ -291,6 +342,7 @@ reservationsRouter.put(
             reviewedById: null,
             reviewedAt: null,
             rejectionReason: null,
+            approvalChecklist: Prisma.DbNull,
             modifiedByRequesterAt: now,
             previousSnapshot,
           },

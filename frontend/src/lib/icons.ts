@@ -4,6 +4,7 @@ import {
   BackpackIcon,
   BatteryChargingIcon,
   BooksIcon,
+  BriefcaseIcon,
   CertificateIcon,
   ChalkboardSimpleIcon,
   ChalkboardTeacherIcon,
@@ -44,6 +45,7 @@ export const ACTIVITY_ICONS: Record<ActivityType, Icon> = {
   CULTURE_EXTENSION: MaskHappyIcon,
   PUBLIC_EXAM: ExamIcon,
   DEFENSE: CertificateIcon,
+  ADMINISTRATIVE: BriefcaseIcon,
 };
 
 export const ROOM_TYPE_ICONS: Record<RoomType, Icon> = {

@@ -57,10 +57,15 @@ function inline(text: string): ReactNode[] {
   );
 }
 
+const BULLET = /^\s*[-•]\s+/;
+// Itens numerados das portarias: "1.", "a)", "I." (o marcador fica no texto).
+const ENUMERATED = /^\s*(?:\d{1,2}|[a-z]|[IVX]{1,4})[.)]\s+/;
+const isItem = (line: string) => BULLET.test(line) || ENUMERATED.test(line);
+
 /**
  * Texto simples do regulamento: linha em branco separa parágrafos; "## " vira
- * título; linhas com "- " viram lista; **negrito**. O SAD escreve sem precisar
- * de editor especial.
+ * título; linhas com "- " viram lista (e "1.", "a)", "I." lista numerada);
+ * **negrito**. O SAD escreve sem precisar de editor especial.
  */
 export function RegulationText({ body }: { body: string }) {
   const blocks = body.replace(/\r\n/g, "\n").split(/\n{2,}/);
@@ -78,17 +83,25 @@ export function RegulationText({ body }: { body: string }) {
             </div>
           );
         }
-        if (lines.every((line) => /^\s*[-•]\s+/.test(line))) {
+        if (lines.every(isItem)) {
           return (
-            <ul key={i} className="list-disc space-y-1 pl-5">
-              {lines.map((line, j) => (
-                <li key={j}>{inline(line.replace(/^\s*[-•]\s+/, ""))}</li>
-              ))}
+            <ul key={i} className="space-y-1 pl-5">
+              {lines.map((line, j) =>
+                BULLET.test(line) ? (
+                  <li key={j} className="list-disc">
+                    {inline(line.replace(BULLET, ""))}
+                  </li>
+                ) : (
+                  <li key={j} className="-ml-1 list-none pl-5 -indent-5">
+                    {inline(line.trim())}
+                  </li>
+                ),
+              )}
             </ul>
           );
         }
         // Parágrafo seguido de lista no mesmo bloco ("Você se compromete a:\n- …").
-        const firstItem = lines.findIndex((line) => /^\s*[-•]\s+/.test(line));
+        const firstItem = lines.findIndex(isItem);
         if (firstItem > 0) {
           return (
             <div key={i} className="space-y-1">

@@ -7,10 +7,16 @@ import {
   CheckCircleIcon,
   CheckIcon,
   CircleIcon,
+  CoffeeIcon,
+  HammerIcon,
+  HashIcon,
+  KeyIcon,
   MapPinIcon,
   PaperPlaneTiltIcon,
   PencilSimpleLineIcon,
   PlusIcon,
+  ProhibitIcon,
+  ScrollIcon,
   UsersIcon,
   WrenchIcon,
 } from "@phosphor-icons/react";
@@ -18,16 +24,18 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ACTIVITY_TYPE_LABELS, ACTIVITY_TYPES } from "../../lib/activities";
 import { api, ApiError } from "../../lib/api";
+import { formatDayMonth, holidayName, weekdayOf } from "../../lib/calendar";
 import { cn } from "../../lib/cn";
+import { coffeeBreakAllowed } from "../../lib/fees";
 import { capitalizeFirst, formatShortDate, plural } from "../../lib/format";
 import { ACTIVITY_ICONS, resourceIcon } from "../../lib/icons";
 import { previewWeeklyDates } from "../../lib/recurrence";
-import { isEditable, notifyReservationsChanged } from "../../lib/reservations";
+import { formatMinutes, isEditable, notifyReservationsChanged } from "../../lib/reservations";
 import { sortRooms } from "../../lib/rooms";
-import { validateReservationTimes } from "../../lib/reservationValidation";
+import { regularScheduleIssue, validateReservationTimes } from "../../lib/reservationValidation";
 import { useToast } from "../../lib/toast";
 import { ROOM_TYPE_LABELS } from "../../lib/types";
-import type { ActivityType, Reservation, Resource, ReviewScope, Room } from "../../lib/types";
+import type { ActivityType, ApprovalChecklist, Reservation, Resource, ReviewScope, Room } from "../../lib/types";
 import { isAdminActionable } from "../admin/ReservationActions";
 import { RegulationDialog, useRegulationTitle } from "../regulation/Regulation";
 import { RoomsPreview } from "../rooms/RoomsPreview";
@@ -38,6 +46,7 @@ import { QuantityStepper } from "../ui/QuantityStepper";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Card, IconTile, PageHeader } from "../ui/Surface";
 import { ActivityFields, attendeesOf, INITIAL_DETAIL_VALUES, type DetailValues } from "./ActivityFields";
+import { FeeEstimate } from "./FeeEstimate";
 
 const WEEKDAYS: { code: string; label: string; full: string }[] = [
   { code: "MO", label: "Seg", full: "Segunda" },
@@ -52,12 +61,18 @@ const WEEKDAYS: { code: string; label: string; full: string }[] = [
 const ACTIVITY_DESCRIPTIONS: Record<ActivityType, string> = {
   UNDERGRADUATE: "Aulas, provas e atividades das disciplinas de graduação.",
   GRADUATE: "Disciplinas e seminários dos programas de pós-graduação.",
-  CULTURE_EXTENSION: "Congressos, cursos, palestras, ligas e eventos.",
+  CULTURE_EXTENSION: "Congressos, cursos, palestras, ligas e eventos (precisam de autorização da CCEx).",
   PUBLIC_EXAM: "Concursos docentes e processos seletivos.",
   DEFENSE: "Defesas de mestrado e doutorado.",
+  ADMINISTRATIVE: "Reuniões administrativas, atividades da Diretoria e da Representação dos Funcionários.",
 };
 
+/** Montagem antes da atividade (Portaria 2793, Art. 19). */
+const SETUP_OPTIONS = [0, 30, 60, 90, 120, 180, 240];
+
 const FORM_ID = "formulario-reserva";
+
+const EMPTY_CHECKLIST: ApprovalChecklist = { ccexAuthorized: false, academicDivisionApproved: false, feeSettled: false, directorateHomologated: false };
 
 function todayPlus(days: number): string {
   const d = new Date();
@@ -96,7 +111,7 @@ export function EditReservationPage() {
       <EmptyState
         icon={CalendarBlankIcon}
         title="Esta reserva não pode mais ser alterada"
-        description="Só dá para alterar reservas pendentes ou aprovadas com pelo menos 3 dias de antecedência. Se precisar, cancele e faça uma nova solicitação."
+        description="Pelo sistema, só dá para alterar reservas pendentes ou aprovadas até 3 dias úteis antes da data (Portaria 2793, Art. 9º). Fale com o SAD/NE."
         action={back}
       />
     );
@@ -167,18 +182,63 @@ export function ReservationPage() {
   return <ReservationForm key={formKey} onReset={() => setFormKey((k) => k + 1)} />;
 }
 
-function ActivityPicker({ onPick }: { onPick: (type: ActivityType) => void }) {
+interface Standing {
+  suspension: { until: string | null; reason: string } | null;
+  noShowCount: number;
+}
+
+/** Suspensão de novas reservas em vigor (Portaria 2793, Arts. 9º, 11, 17 e 22). */
+function SuspensionNotice({ suspension }: { suspension: NonNullable<Standing["suspension"]> }) {
+  const until = suspension.until ? `até ${new Date(suspension.until).toLocaleDateString("pt-BR", { timeZone: "UTC" })}` : "até a regularização";
+  return (
+    <Alert tone="danger" title={`Suas novas reservas estão suspensas ${until}`}>
+      Motivo: {suspension.reason}. Enquanto isso não é possível fazer nem alterar pedidos. Fale com o SAD/NE.
+    </Alert>
+  );
+}
+
+/** O essencial das Portarias 2793 e 2794, antes de escolher o tipo de atividade. */
+function RulesSummary() {
+  const rules: { icon: typeof KeyIcon; text: ReactNode }[] = [
+    { icon: CalendarBlankIcon, text: "Dias úteis e sábados, das 07h às 22h. Domingos, feriados e outros horários só com autorização da Divisão Acadêmica." },
+    { icon: HashIcon, text: "O pedido só vale depois de gerado o número de protocolo — anote-o." },
+    { icon: ProhibitIcon, text: "Cancelamento pelo sistema até 3 dias úteis antes. Faltar sem cancelar 3 vezes em 12 meses gera sanções." },
+    { icon: KeyIcon, text: "No dia, o responsável vai ao SAD/NE 10 minutos antes para orientações e retirada das chaves." },
+    { icon: UsersIcon, text: "Sem cadeiras sobressalentes: todos os participantes precisam caber nas cadeiras da sala." },
+    { icon: HammerIcon, text: "A montagem de eventos é reservada junto e faz parte do uso do espaço." },
+    { icon: CoffeeIcon, text: "Coffee break não é permitido nas salas de aula (exceto 2366/2368, 2223 e 1357)." },
+    { icon: ScrollIcon, text: "Proibidos o comércio e o consumo de bebidas alcoólicas. Eventos precisam de autorização da CCEx e podem ter taxa." },
+  ];
+  return (
+    <Card className="p-5">
+      <h2 className="text-base font-semibold">Regras das Portarias FMUSP nº 2793 e 2794</h2>
+      <ul className="mt-3 grid gap-x-6 gap-y-2.5 text-sm sm:grid-cols-2">
+        {rules.map(({ icon: RuleIcon, text }, i) => (
+          <li key={i} className="flex gap-2.5">
+            <RuleIcon size={18} className="mt-0.5 shrink-0 text-primary" aria-hidden />
+            <span>{text}</span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function ActivityPicker({ onPick, standing, asAdmin }: { onPick: (type: ActivityType) => void; standing: Standing | null; asAdmin: boolean }) {
+  const suspended = !asAdmin && standing?.suspension;
   return (
     <div className="space-y-6">
       <PageHeader title="Reservar uma sala" description="Comece pelo tipo de atividade — cada uma tem um formulário próprio." />
+      {suspended && <SuspensionNotice suspension={standing.suspension!} />}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {ACTIVITY_TYPES.map((type, index) => (
           <button
             key={type}
             type="button"
+            disabled={Boolean(suspended)}
             onClick={() => onPick(type)}
             style={{ animationDelay: `${index * 50}ms` }}
-            className="group flex animate-fade-in-up flex-col gap-4 rounded-2xl border border-border bg-surface p-5 text-left shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+            className="group flex animate-fade-in-up flex-col gap-4 rounded-2xl border border-border bg-surface p-5 text-left shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md disabled:pointer-events-none disabled:opacity-50"
           >
             <div className="flex items-start justify-between">
               <IconTile icon={ACTIVITY_ICONS[type]} size="lg" />
@@ -195,9 +255,10 @@ function ActivityPicker({ onPick }: { onPick: (type: ActivityType) => void }) {
           </button>
         ))}
       </div>
+      {!asAdmin && <RulesSummary />}
       <Alert tone="info" title="Como funciona">
-        Você descreve o que precisa; o SAD (Serviço de Apoio Didático) escolhe a sala disponível mais adequada ao aprovar, e você
-        recebe a resposta por e-mail.
+        Você descreve o que precisa e recebe um número de protocolo; o SAD (Serviço de Apoio Didático) escolhe a sala disponível mais
+        adequada ao aprovar, e você recebe a resposta por e-mail.
       </Alert>
     </div>
   );
@@ -232,13 +293,31 @@ function ChecklistItem({ ok, children }: { ok: boolean; children: ReactNode }) {
   );
 }
 
+/** Caixa de confirmação obrigatória (compromissos e autorizações das portarias). */
+function Confirm({ checked, onChange, children, required = true }: { checked: boolean; onChange: (v: boolean) => void; children: ReactNode; required?: boolean }) {
+  return (
+    <label className="flex items-start gap-3 text-sm">
+      <input
+        type="checkbox"
+        form={FORM_ID}
+        required={required}
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 size-5 shrink-0"
+      />
+      <span>{children}</span>
+    </label>
+  );
+}
+
 /**
  * Formulário de solicitação de reserva. Começa pela escolha do tipo de
- * atividade (Graduação, Pós, Cultura e Extensão, Concurso, Defesa): cada tipo
- * tem seus próprios campos; datas e recursos são iguais para todos. Não pede
- * sala — o Admin aloca a mais adequada ao aprovar.
+ * atividade (Graduação, Pós, Cultura e Extensão, Concurso, Defesa,
+ * Reunião/Administrativo): cada tipo tem seus próprios campos; datas e recursos
+ * são iguais para todos. Não pede sala — o Admin aloca a mais adequada ao aprovar.
  */
 const pad2 = (n: number) => String(n).padStart(2, "0");
+const timeOf = (d: Date) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 
 /** Converte uma reserva salva nos valores do formulário (para alterá-la). */
 function formValuesFrom(r: Reservation) {
@@ -247,7 +326,8 @@ function formValuesFrom(r: Reservation) {
     if (typeof value === "boolean") details[key] = value;
     else if (value !== null && value !== undefined) details[key] = String(value);
   }
-  const start = new Date(r.startTime);
+  // A reserva começa na montagem; o formulário mostra o início da atividade.
+  const start = new Date(new Date(r.startTime).getTime() + r.setupMinutes * 60_000);
   const end = new Date(r.endTime);
   return {
     activityType: r.activityType,
@@ -258,8 +338,11 @@ function formValuesFrom(r: Reservation) {
       r.requestedResources.map((x) => [x.resourceId, { quantity: String(x.quantity ?? 1), detail: x.detail ?? "" }]),
     ),
     date: `${start.getFullYear()}-${pad2(start.getMonth() + 1)}-${pad2(start.getDate())}`,
-    start: `${pad2(start.getHours())}:${pad2(start.getMinutes())}`,
-    end: `${pad2(end.getHours())}:${pad2(end.getMinutes())}`,
+    start: timeOf(start),
+    end: timeOf(end),
+    setupMinutes: String(r.setupMinutes),
+    coffeeBreak: r.coffeeBreak,
+    noAlcoholCommitment: r.noAlcoholCommitment,
   };
 }
 
@@ -274,6 +357,12 @@ interface ReservationFormProps {
    * e já sai aprovada. Ao salvar, volta para `returnTo`.
    */
   asAdmin?: { returnTo: string; prefill?: { date?: string; start?: string; end?: string; roomId?: string } };
+}
+
+interface CreatedResult {
+  protocol: string;
+  reservations: Reservation[];
+  skippedDates: { date: string; holiday: string }[];
 }
 
 function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
@@ -291,6 +380,9 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
   const [supportNotes, setSupportNotes] = useState(initial?.supportNotes ?? "");
   // Numa alteração, o regulamento já tinha sido aceito no pedido original; o SAD não precisa aceitar.
   const [termsAccepted, setTermsAccepted] = useState(editing !== undefined || Boolean(asAdmin));
+  // Portaria 2793, Art. 23: compromisso no formulário (o SAD também assume ao reservar).
+  const [noAlcohol, setNoAlcohol] = useState(initial?.noAlcoholCommitment ?? false);
+  const [coffeeBreak, setCoffeeBreak] = useState(initial?.coffeeBreak ?? false);
   // Recursos marcados (a chave é o id), com a quantidade/detalhe como digitados.
   const [selectedResources, setSelectedResources] = useState<Record<string, { quantity: string; detail: string }>>(
     initial?.selectedResources ?? {},
@@ -300,6 +392,7 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
   const [date, setDate] = useState(initial?.date ?? prefill?.date ?? "");
   const [startTimeStr, setStartTimeStr] = useState(initial?.start ?? prefill?.start ?? "");
   const [endTimeStr, setEndTimeStr] = useState(initial?.end ?? prefill?.end ?? "");
+  const [setupMinutes, setSetupMinutes] = useState(initial?.setupMinutes ?? "0");
   // Alteração de uma data de série: só ela, ou ela e as próximas.
   const [scope, setScope] = useState<ReviewScope>("single");
   const [savedCount, setSavedCount] = useState<number | null>(null);
@@ -309,6 +402,11 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
   const [roomId, setRoomId] = useState(editing?.roomId ?? prefill?.roomId ?? "");
   const [activeRooms, setActiveRooms] = useState<Room[]>([]);
   const choosesRoom = adminCreating || Boolean(asAdmin && editing?.status === "APPROVED");
+  // SAD: autorizações que as portarias exigem para seguir (Art. 6º §1º, Art. 12, Art. 20 §3º).
+  const [extraordinaryAuthorized, setExtraordinaryAuthorized] = useState(false);
+  const [relocationAuthorized, setRelocationAuthorized] = useState(false);
+  const [checklist, setChecklist] = useState<ApprovalChecklist>(EMPTY_CHECKLIST);
+  const [standing, setStanding] = useState<Standing | null>(null);
 
   const [recurrenceEnabled, setRecurrenceEnabled] = useState(false);
   const [interval, setInterval_] = useState<"1" | "2">("1");
@@ -317,11 +415,16 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
 
   const [submitting, setSubmitting] = useState(false);
   const [submitErrors, setSubmitErrors] = useState<string[]>([]);
-  const [result, setResult] = useState<Reservation[] | null>(null);
+  const [result, setResult] = useState<CreatedResult | null>(null);
 
   useEffect(() => {
     if (choosesRoom) {
       api<{ rooms: Room[] }>("/rooms?status=ACTIVE").then((res) => setActiveRooms(sortRooms(res.rooms)));
+    }
+    if (!asAdmin) {
+      api<Standing>("/reservations/me/standing")
+        .then(setStanding)
+        .catch(() => setStanding(null));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -331,26 +434,44 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
     api<{ resources: Resource[] }>("/resources").then((res) => setResources(res.resources.filter((r) => r.requestable)));
   }, []);
 
+  const setup = Number(setupMinutes) || 0;
   const startDate = useMemo(() => (date && startTimeStr ? new Date(`${date}T${startTimeStr}:00`) : null), [date, startTimeStr]);
   const endDate = useMemo(() => (date && endTimeStr ? new Date(`${date}T${endTimeStr}:00`) : null), [date, endTimeStr]);
-  const clientErrors = useMemo(
-    () => validateReservationTimes(startDate, endDate, { requireAdvance: !asAdmin }),
-    [startDate, endDate, asAdmin],
-  );
+  // Início do período reservado: a atividade menos a montagem (Art. 19).
+  const reservedStart = useMemo(() => (startDate ? new Date(startDate.getTime() - setup * 60_000) : null), [startDate, setup]);
+  const clientErrors = useMemo(() => {
+    const errors = validateReservationTimes(reservedStart, endDate, { asAdmin: Boolean(asAdmin) });
+    if (startDate && endDate && endDate.getTime() - startDate.getTime() < 30 * 60_000 && endDate > startDate) {
+      errors.push("A atividade deve durar no mínimo 30 minutos (sem contar a montagem).");
+    }
+    return errors;
+  }, [reservedStart, startDate, endDate, asAdmin]);
   // O aviso de horário só aparece depois que data, início e término foram preenchidos.
   const timesFilled = Boolean(date && startTimeStr && endTimeStr);
+  // SAD: domingo, feriado ou fora das 07h–22h pede a autorização do Art. 6º §1º.
+  const scheduleIssue =
+    asAdmin && reservedStart && endDate && clientErrors.length === 0 ? regularScheduleIssue(reservedStart, endDate) : null;
+  const unchangedExtraordinary =
+    editing?.outsideRegularHours && reservedStart?.getTime() === new Date(editing.startTime).getTime() && endDate?.getTime() === new Date(editing.endTime).getTime();
+  const needsExtraordinary = Boolean(scheduleIssue) && !unchangedExtraordinary;
 
   const previewDates = useMemo(
     () => (recurrenceEnabled ? previewWeeklyDates(date, until, weekdays, Number(interval)) : []),
     [recurrenceEnabled, date, until, weekdays, interval],
   );
+  // Numa série, os feriados ficam de fora (Art. 6º) — só o SAD, com autorização, mantém.
+  const keepsHolidays = Boolean(asAdmin) && extraordinaryAuthorized;
+  const holidayDates = previewDates.filter((d) => holidayName(d));
+  const effectiveDates = keepsHolidays ? previewDates : previewDates.filter((d) => !holidayName(d));
+  const dateCount = recurrenceEnabled ? effectiveDates.length : 1;
+  const weekdayOptions = asAdmin ? WEEKDAYS : WEEKDAYS.filter((w) => w.code !== "SU");
 
   // Ao ligar a recorrência, já marca o dia da semana da data escolhida.
   function toggleRecurrence(enabled: boolean) {
     setRecurrenceEnabled(enabled);
     if (enabled && weekdays.size === 0 && date) {
       const code = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"][new Date(`${date}T12:00:00`).getDay()]!;
-      setWeekdays(new Set([code]));
+      if (asAdmin || code !== "SU") setWeekdays(new Set([code]));
     }
   }
 
@@ -376,8 +497,28 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
     setSelectedResources((prev) => ({ ...prev, [id]: { ...prev[id]!, ...patch } }));
   }
 
-  const recurrenceOk = !recurrenceEnabled || (weekdays.size > 0 && previewDates.length > 0);
-  const canSubmit = clientErrors.length === 0 && recurrenceOk && termsAccepted && (!adminCreating || Boolean(roomId)) && !submitting;
+  const chosenRoom = activeRooms.find((r) => r.id === roomId) ?? (editing?.room && editing.room.id === roomId ? editing.room : null);
+  const coffeeBlocked = Boolean(asAdmin && coffeeBreak && chosenRoom && !coffeeBreakAllowed(chosenRoom));
+  const relocating = Boolean(asAdmin && editing?.status === "APPROVED" && roomId && roomId !== editing.roomId);
+  const needsChecklist = adminCreating && activityType === "CULTURE_EXTENSION";
+  const checklistOk = !needsChecklist || (checklist.ccexAuthorized && checklist.academicDivisionApproved && checklist.feeSettled);
+  // O compromisso do Art. 23 é assumido em todo pedido; na alteração do SAD fica o que já foi assumido.
+  const asksCommitment = !(asAdmin && editing);
+  const suspended = !asAdmin && Boolean(standing?.suspension);
+
+  const recurrenceOk = !recurrenceEnabled || (weekdays.size > 0 && effectiveDates.length > 0);
+  const canSubmit =
+    clientErrors.length === 0 &&
+    recurrenceOk &&
+    termsAccepted &&
+    (!asksCommitment || noAlcohol) &&
+    (!needsExtraordinary || extraordinaryAuthorized) &&
+    (!relocating || relocationAuthorized) &&
+    checklistOk &&
+    !coffeeBlocked &&
+    !suspended &&
+    (!adminCreating || Boolean(roomId)) &&
+    !submitting;
 
   async function submit() {
     setSubmitting(true);
@@ -402,22 +543,31 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
           })),
         supportNotes: supportNotes || undefined,
         termsAccepted: true,
+        // Início e término da atividade; o back-end reserva a montagem antes.
         startTime: startDate!.toISOString(),
         endTime: endDate!.toISOString(),
+        setupMinutes: setup,
+        coffeeBreak,
       };
+      const recurrence = rrule ? { rrule, until: new Date(`${until}T23:59:59`).toISOString() } : undefined;
 
       if (adminCreating && asAdmin) {
-        const res = await api<{ reservations: { id: string }[] }>("/admin/reservations", {
+        const res = await api<CreatedResult>("/admin/reservations", {
           method: "POST",
           body: JSON.stringify({
             ...payload,
             roomId,
-            recurrence: rrule ? { rrule, until: new Date(`${until}T23:59:59`).toISOString() } : undefined,
+            noAlcoholCommitment: noAlcohol,
+            extraordinaryAuthorized,
+            approvalChecklist: needsChecklist ? checklist : undefined,
+            recurrence,
           }),
         });
         toast.success(
-          res.reservations.length === 1 ? "Sala reservada" : `${res.reservations.length} datas reservadas`,
-          "A reserva já está aprovada.",
+          `${res.reservations.length === 1 ? "Sala reservada" : `${res.reservations.length} datas reservadas`} · protocolo ${res.protocol}`,
+          res.skippedDates.length > 0
+            ? `A reserva já está aprovada. ${plural(res.skippedDates.length, "feriado ficou", "feriados ficaram")} de fora.`
+            : "A reserva já está aprovada.",
         );
         notifyReservationsChanged();
         navigate(asAdmin.returnTo);
@@ -425,7 +575,13 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
       } else if (editing && asAdmin) {
         const res = await api<{ updatedIds: string[] }>(`/admin/reservations/${editing.id}`, {
           method: "PUT",
-          body: JSON.stringify({ ...payload, scope, roomId: roomId || null }),
+          body: JSON.stringify({
+            ...payload,
+            scope,
+            roomId: roomId || null,
+            extraordinaryAuthorized: needsExtraordinary ? extraordinaryAuthorized : false,
+            relocationAuthorized,
+          }),
         });
         toast.success(
           res.updatedIds.length === 1 ? "Reserva alterada" : `${res.updatedIds.length} datas alteradas`,
@@ -437,15 +593,15 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
       } else if (editing) {
         const res = await api<{ updatedIds: string[] }>(`/reservations/${editing.id}`, {
           method: "PUT",
-          body: JSON.stringify({ ...payload, scope }),
+          body: JSON.stringify({ ...payload, scope, noAlcoholCommitment: noAlcohol }),
         });
         setSavedCount(res.updatedIds.length);
       } else {
-        const res = await api<{ reservations: Reservation[] }>("/reservations", {
+        const res = await api<CreatedResult>("/reservations", {
           method: "POST",
-          body: JSON.stringify({ ...payload, recurrence: rrule ? { rrule, until: new Date(`${until}T23:59:59`).toISOString() } : undefined }),
+          body: JSON.stringify({ ...payload, noAlcoholCommitment: noAlcohol, recurrence }),
         });
-        setResult(res.reservations);
+        setResult(res);
       }
       window.scrollTo({ top: 0 });
     } catch (e) {
@@ -473,6 +629,11 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
           {savedCount === 1 ? "aparece" : "aparecem"} como <strong className="text-foreground">alterada</strong>. Você recebe um
           e-mail quando o SAD aprovar ou rejeitar.
         </p>
+        {editing && (
+          <p className="mt-3 text-sm text-muted">
+            Protocolo nº <strong className="text-foreground tabular-nums">{editing.protocol}</strong>
+          </p>
+        )}
         <div className="mt-8 flex justify-center">
           <Button icon={CalendarCheckIcon} onClick={() => navigate("/minhas-reservas")}>
             Ver minhas reservas
@@ -483,23 +644,56 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
   }
 
   if (result) {
+    const first = result.reservations[0];
+    const isCulture = first?.activityType === "CULTURE_EXTENSION";
     return (
-      <Card className="mx-auto max-w-lg animate-fade-in-up p-8 text-center">
+      <Card className="mx-auto max-w-xl animate-fade-in-up p-8 text-center">
         <span className="mx-auto grid size-16 animate-pop place-items-center rounded-full bg-success-soft text-success-foreground">
           <CheckCircleIcon size={40} weight="fill" aria-hidden />
         </span>
-        <h1 className="mt-5 text-2xl font-bold tracking-tight">Solicitação enviada!</h1>
-        <p className="mt-2 text-muted">
-          {result.length === 1 ? "Sua solicitação foi registrada" : `${result.length} datas foram registradas`} como{" "}
-          <strong className="text-foreground">pendente</strong>. Você recebe um e-mail quando o SAD aprovar ou rejeitar.
+        <h1 className="mt-5 text-2xl font-bold tracking-tight">Solicitação registrada!</h1>
+        <div className="mx-auto mt-4 max-w-xs rounded-xl border-2 border-dashed border-primary/40 bg-primary-soft px-4 py-3">
+          <p className="text-xs font-semibold tracking-wide text-primary-soft-foreground/80 uppercase">Número de protocolo</p>
+          <p className="mt-1 font-display text-2xl font-bold text-primary-soft-foreground tabular-nums" data-testid="protocolo">
+            {result.protocol}
+          </p>
+        </div>
+        <p className="mt-2 text-sm text-muted">Anote este número para acompanhar o pedido (Portaria 2793, Art. 8º).</p>
+        <p className="mt-4 text-muted">
+          {result.reservations.length === 1 ? "A solicitação está" : `As ${result.reservations.length} datas estão`}{" "}
+          <strong className="text-foreground">{result.reservations.length === 1 ? "pendente" : "pendentes"}</strong>. Você recebe um e-mail
+          quando o SAD aprovar ou rejeitar.
         </p>
         <ul className="mt-5 flex flex-wrap justify-center gap-2">
-          {result.slice(0, 12).map((r) => (
+          {result.reservations.slice(0, 12).map((r) => (
             <li key={r.id} className="rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-primary-soft-foreground tabular-nums">
               {formatShortDate(r.startTime)}
             </li>
           ))}
-          {result.length > 12 && <li className="px-2 py-1 text-xs text-muted">+{result.length - 12}</li>}
+          {result.reservations.length > 12 && <li className="px-2 py-1 text-xs text-muted">+{result.reservations.length - 12}</li>}
+        </ul>
+        {result.skippedDates.length > 0 && (
+          <p className="mt-3 text-sm text-muted">
+            Ficaram de fora por serem feriados ou pontos facultativos:{" "}
+            {result.skippedDates.map((s) => `${formatDayMonth(s.date)} (${s.holiday})`).join(", ")}.
+          </p>
+        )}
+        <ul className="mt-6 space-y-2 rounded-xl bg-surface-muted p-4 text-left text-sm">
+          <li className="flex gap-2">
+            <KeyIcon size={18} className="mt-0.5 shrink-0 text-primary" aria-hidden />
+            No dia, o responsável vai ao SAD/NE 10 minutos antes do início para orientações e retirada das chaves.
+          </li>
+          <li className="flex gap-2">
+            <ProhibitIcon size={18} className="mt-0.5 shrink-0 text-primary" aria-hidden />
+            Se não for usar, cancele pelo sistema até 3 dias úteis antes da data.
+          </li>
+          {isCulture && (
+            <li className="flex gap-2">
+              <ScrollIcon size={18} className="mt-0.5 shrink-0 text-primary" aria-hidden />
+              A reserva só é confirmada depois da autorização da CCEx, da aprovação da Divisão Acadêmica e, se houver taxa, do comprovante de
+              pagamento à FFM (até 30 dias antes) entregue ao SAD/NE.
+            </li>
+          )}
         </ul>
         <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:justify-center">
           <Button icon={CalendarCheckIcon} onClick={() => navigate("/minhas-reservas")}>
@@ -514,7 +708,7 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
   }
 
   // 1º passo: escolher o tipo de atividade, que define o formulário.
-  if (!activityType) return <ActivityPicker onPick={setActivityType} />;
+  if (!activityType) return <ActivityPicker onPick={setActivityType} standing={standing} asAdmin={Boolean(asAdmin)} />;
 
   const ActivityIcon = ACTIVITY_ICONS[activityType];
   const attendees = attendeesOf(activityType, details);
@@ -524,10 +718,15 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
     dayOnly && !Number.isNaN(dayOnly.getTime())
       ? capitalizeFirst(dayOnly.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" }))
       : "Data a definir";
+  const reservedMinutes = reservedStart && endDate ? Math.max(0, (endDate.getTime() - reservedStart.getTime()) / 60_000) : 0;
+  // Aos sábados (e, com o SAD, domingos e feriados), áudio e vídeo exige 2 técnicos (Art. 18 §1º).
+  const weekendDate = date ? weekdayOf(date) === 6 || weekdayOf(date) === 0 || holidayName(date) !== null : false;
 
   // O tipo de atividade não muda numa alteração (só nas reservas antigas, que ainda não tinham tipo).
   const activityLocked = !asAdmin && editing?.activityType != null;
   const submitLabel = editing ? "Salvar alteração" : adminCreating ? "Reservar" : "Enviar solicitação";
+  let step = 0;
+  const nextStep = () => ++step;
 
   return (
     <div className="space-y-6">
@@ -550,16 +749,17 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
         title={adminCreating ? "Nova reserva (SAD)" : asAdmin ? "Alterar reserva (SAD)" : editing ? "Alterar reserva" : "Reservar uma sala"}
         description={
           editing
-            ? `${ACTIVITY_TYPE_LABELS[activityType]} — ${editing.title}${asAdmin && editing.user ? ` · de ${editing.user.name}` : ""}`
+            ? `${ACTIVITY_TYPE_LABELS[activityType]} — ${editing.title} · protocolo ${editing.protocol}${asAdmin && editing.user ? ` · de ${editing.user.name}` : ""}`
             : adminCreating
               ? `${ACTIVITY_TYPE_LABELS[activityType]} — escolha a sala; a reserva já sai aprovada.`
               : `${ACTIVITY_TYPE_LABELS[activityType]} — preencha os dados e envie para o SAD.`
         }
       />
+      {suspended && <SuspensionNotice suspension={standing!.suspension!} />}
       {adminCreating && (
         <Alert tone="success" title="Reserva do SAD não passa pela fila">
-          Ela é gravada já aprovada, na sala escolhida. O sistema confere se a sala está livre em todas as datas e se comporta o número de
-          pessoas.
+          Ela é gravada já aprovada, na sala escolhida, com número de protocolo. O sistema confere se a sala está livre em todas as datas e se
+          comporta o número de pessoas.
         </Alert>
       )}
       {asAdmin && editing && (
@@ -587,14 +787,42 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
           className="min-w-0 space-y-6"
         >
           <FormSection
-            step={1}
+            step={nextStep()}
             title="Quando"
-            description={asAdmin ? "Funcionamento das 07:30 às 22:30." : "Funcionamento das 07:30 às 22:30, com no mínimo 3 dias de antecedência."}
+            description={
+              asAdmin
+                ? "Funcionamento regular: dias úteis e sábados, das 07h às 22h. Fora disso, só com autorização da Divisão Acadêmica (Art. 6º §1º)."
+                : "Dias úteis e sábados, das 07h às 22h, com no mínimo 3 dias de antecedência (Portaria 2793, Art. 6º)."
+            }
           >
             <div className="grid gap-4 sm:grid-cols-3">
               <Input label="Data" type="date" required value={date} min={asAdmin ? todayPlus(0) : todayPlus(3)} onChange={(e) => setDate(e.target.value)} />
               <Input label="Início" type="time" required step={300} value={startTimeStr} onChange={(e) => setStartTimeStr(e.target.value)} />
               <Input label="Término" type="time" required step={300} value={endTimeStr} onChange={(e) => setEndTimeStr(e.target.value)} />
+            </div>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-3">
+              <Select
+                label="Montagem"
+                value={setupMinutes}
+                onChange={(e) => setSetupMinutes(e.target.value)}
+                containerClassName="sm:col-span-1"
+              >
+                {SETUP_OPTIONS.map((m) => (
+                  <option key={m} value={String(m)}>
+                    {m === 0 ? "Sem montagem" : formatMinutes(m)}
+                  </option>
+                ))}
+              </Select>
+              <p className="self-end pb-1 text-xs text-muted sm:col-span-2">
+                Tempo de montagem antes do início. Em eventos, a montagem é reservada junto e faz parte do uso do espaço, com a equipe técnica
+                presente (Art. 19).
+                {setup > 0 && reservedStart && endDate && !Number.isNaN(reservedStart.getTime()) && (
+                  <strong className="mt-0.5 block text-foreground">
+                    Período reservado: {timeOf(reservedStart)}–{endTimeStr} (montagem a partir de {timeOf(reservedStart)}).
+                  </strong>
+                )}
+              </p>
             </div>
 
             {choosesRoom && (
@@ -627,6 +855,15 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
               </Select>
             )}
 
+            {relocating && (
+              <div className="mt-4 rounded-xl border border-warning-foreground/30 bg-warning-soft p-4">
+                <Confirm checked={relocationAuthorized} onChange={setRelocationAuthorized}>
+                  <strong>Realocação autorizada</strong> pela Divisão Acadêmica e pela Diretoria (Portaria 2793, Art. 12). O solicitante é avisado
+                  por e-mail.
+                </Confirm>
+              </div>
+            )}
+
             {timesFilled && clientErrors.length > 0 && (
               <Alert tone="warning" className="mt-4">
                 <ul className="space-y-0.5">
@@ -634,6 +871,23 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
                     <li key={err}>{err}</li>
                   ))}
                 </ul>
+              </Alert>
+            )}
+
+            {asAdmin && (needsExtraordinary || (recurrenceEnabled && holidayDates.length > 0)) && (
+              <div className="mt-4 space-y-2 rounded-xl border border-warning-foreground/30 bg-warning-soft p-4 text-sm">
+                {scheduleIssue && needsExtraordinary && <p className="font-medium text-warning-foreground">Horário extraordinário: {scheduleIssue}.</p>}
+                <Confirm checked={extraordinaryAuthorized} onChange={setExtraordinaryAuthorized} required={needsExtraordinary}>
+                  <strong>Autorização prévia da Divisão Acadêmica</strong> e custeio da equipe de serviços de apoio para uso em domingo, feriado,
+                  ponto facultativo ou fora das 07h–22h (Portaria 2793, Art. 6º §1º).
+                </Confirm>
+              </div>
+            )}
+
+            {weekendDate && chosenResources.length > 0 && (
+              <Alert tone="info" className="mt-4">
+                Em fins de semana, feriados e pontos facultativos, o uso de áudio e vídeo exige equipe técnica de no mínimo 2 técnicos, paga à FFM
+                antes do evento (Portaria 2793, Art. 18 §1º).
               </Alert>
             )}
 
@@ -662,14 +916,14 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
                 checked={recurrenceEnabled}
                 onChange={toggleRecurrence}
                 label="Repetir esta reserva"
-                description="Para aulas e encontros que se repetem toda semana ou a cada 15 dias."
+                description="Para aulas e encontros que se repetem toda semana ou a cada 15 dias. Feriados ficam de fora."
               />
               {recurrenceEnabled && (
                 <div className="mt-5 animate-fade-in space-y-5 border-t border-border pt-5">
                   <fieldset>
                     <legend className="text-sm font-medium">Dias da semana</legend>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {WEEKDAYS.map((w) => {
+                      {weekdayOptions.map((w) => {
                         const on = weekdays.has(w.code);
                         return (
                           <button
@@ -710,20 +964,34 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
                     <Alert tone="warning">Escolha ao menos um dia da semana.</Alert>
                   ) : !until ? (
                     <Alert tone="info">Escolha até quando a reserva se repete.</Alert>
-                  ) : previewDates.length === 0 ? (
-                    <Alert tone="warning">Nenhuma data cai nesse período. Ajuste o "Repetir até" ou os dias.</Alert>
+                  ) : effectiveDates.length === 0 ? (
+                    <Alert tone="warning">Nenhuma data válida cai nesse período. Ajuste o "Repetir até" ou os dias.</Alert>
                   ) : (
                     <div>
-                      <p className="text-sm font-medium">{plural(previewDates.length, "data", "datas")} nesta série</p>
+                      <p className="text-sm font-medium">
+                        {plural(effectiveDates.length, "data", "datas")} nesta série
+                        {!keepsHolidays && holidayDates.length > 0 && (
+                          <span className="font-normal text-muted"> · {plural(holidayDates.length, "feriado fica", "feriados ficam")} de fora</span>
+                        )}
+                      </p>
                       <ul className="mt-2 flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
-                        {previewDates.map((d) => (
-                          <li
-                            key={d}
-                            className="rounded-md bg-primary-soft px-2 py-1 text-xs font-medium text-primary-soft-foreground tabular-nums"
-                          >
-                            {formatShortDate(`${d}T12:00:00`)}
-                          </li>
-                        ))}
+                        {previewDates.map((d) => {
+                          const holiday = holidayName(d);
+                          const skipped = Boolean(holiday) && !keepsHolidays;
+                          return (
+                            <li
+                              key={d}
+                              title={holiday ?? undefined}
+                              className={cn(
+                                "rounded-md px-2 py-1 text-xs font-medium tabular-nums",
+                                skipped ? "bg-surface-muted text-muted line-through" : "bg-primary-soft text-primary-soft-foreground",
+                              )}
+                            >
+                              {formatShortDate(`${d}T12:00:00`)}
+                              {skipped && <span className="sr-only"> (feriado: {holiday}, fica de fora)</span>}
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   )}
@@ -732,7 +1000,7 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
             </div>
           </FormSection>
 
-          <FormSection step={2} title="Sobre a atividade">
+          <FormSection step={nextStep()} title="Sobre a atividade">
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-primary-soft p-3">
               <div className="flex items-center gap-3">
                 <IconTile icon={ActivityIcon} size="sm" />
@@ -759,13 +1027,59 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
               />
               <ActivityFields type={activityType} values={details} onChange={(name, value) => setDetails((prev) => ({ ...prev, [name]: value }))} />
             </div>
+            <p className="mt-4 flex gap-2 text-xs text-muted">
+              <UsersIcon size={16} className="mt-px shrink-0" aria-hidden />
+              Não é permitido colocar cadeiras sobressalentes: informe o total de pessoas, que precisam caber nas cadeiras da sala (Portaria
+              2793, Art. 5º §2º).
+            </p>
           </FormSection>
+
+          {activityType === "CULTURE_EXTENSION" && (
+            <FormSection
+              step={nextStep()}
+              title="Taxa de utilização"
+              description="Enquadramento nas isenções e estimativa, conforme as Portarias 2793 (Arts. 13–16) e 2794."
+            >
+              <FeeEstimate
+                type={activityType}
+                details={details}
+                reservedMinutes={reservedMinutes}
+                dates={dateCount}
+                firstDate={reservedStart}
+                coffeeBreak={coffeeBreak}
+                room={asAdmin ? chosenRoom : null}
+              />
+            </FormSection>
+          )}
+
+          {needsChecklist && (
+            <FormSection step={nextStep()} title="Conferência do SAD" description="Para a reserva já sair confirmada (Portaria 2793, Art. 20 §3º).">
+              <div className="space-y-3">
+                <Confirm checked={checklist.ccexAuthorized} onChange={(v) => setChecklist((c) => ({ ...c, ccexAuthorized: v }))}>
+                  Autorização da CCEx conferida (Art. 20 §3º, a).
+                </Confirm>
+                <Confirm checked={checklist.academicDivisionApproved} onChange={(v) => setChecklist((c) => ({ ...c, academicDivisionApproved: v }))}>
+                  Aprovação da Divisão Acadêmica (Art. 20 §3º, c).
+                </Confirm>
+                <Confirm checked={checklist.feeSettled} onChange={(v) => setChecklist((c) => ({ ...c, feeSettled: v }))}>
+                  Comprovante de pagamento da taxa entregue ao SAD/NE, ou atividade isenta (Art. 14 §3º e Art. 21 §2º).
+                </Confirm>
+                <Confirm
+                  required={false}
+                  checked={checklist.directorateHomologated}
+                  onChange={(v) => setChecklist((c) => ({ ...c, directorateHomologated: v }))}
+                >
+                  Homologação da Diretoria, quando aplicável (Art. 20 §3º, d).
+                </Confirm>
+              </div>
+            </FormSection>
+          )}
 
           {!asAdmin && (
             <RoomsPreview attendees={Number(attendees) || 0} date={startDate && !Number.isNaN(startDate.getTime()) ? startDate : undefined} />
           )}
 
-          <FormSection step={3} title="Recursos" description="Marque o que vai precisar. Não precisa de nada? É só seguir em frente.">
+          <FormSection step={nextStep()} title="Recursos" description="Marque o que vai precisar. Não precisa de nada? É só seguir em frente.">
             <div className="grid gap-3 sm:grid-cols-2">
               {resources.map((r) => {
                 const selected = selectedResources[r.id];
@@ -847,6 +1161,19 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
                 );
               })}
             </div>
+            <div className="mt-5 rounded-xl border border-border p-4">
+              <Switch
+                checked={coffeeBreak}
+                onChange={setCoffeeBreak}
+                label="Haverá coffee break ou alimentação"
+                description="Não é permitido nas salas de aula, exceto nas salas 2366/2368 (Sala do Futuro), 2223 (Design Thinking) e 1357, com autorização do Núcleo de Eventos e adicional de 20% na taxa (Portaria 2794, Art. 5º)."
+              />
+              {coffeeBlocked && chosenRoom && (
+                <Alert tone="danger" className="mt-3">
+                  Coffee break não é permitido na {chosenRoom.name}. Escolha outra sala ou desmarque a opção.
+                </Alert>
+              )}
+            </div>
             <Textarea
               label="Observações para TI/infraestrutura"
               rows={2}
@@ -875,15 +1202,18 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
                   <span>{dateLabel}</span>
                   <span className="block text-muted tabular-nums">
                     {startTimeStr && endTimeStr ? `${startTimeStr}–${endTimeStr}` : "Horário a definir"}
-                    {recurrenceEnabled && previewDates.length > 0 && ` · ${plural(previewDates.length, "data", "datas")}`}
+                    {recurrenceEnabled && effectiveDates.length > 0 && ` · ${plural(effectiveDates.length, "data", "datas")}`}
                   </span>
+                  {setup > 0 && reservedStart && !Number.isNaN(reservedStart.getTime()) && (
+                    <span className="block text-muted tabular-nums">Montagem desde {timeOf(reservedStart)}</span>
+                  )}
                 </dd>
               </div>
               {choosesRoom && (
                 <div className="flex gap-3">
                   <dt className="sr-only">Sala</dt>
                   <MapPinIcon size={20} className="shrink-0 text-muted" aria-hidden />
-                  <dd className={roomId ? undefined : "text-muted"}>{activeRooms.find((r) => r.id === roomId)?.name ?? (roomId ? editing?.room?.name : "Sala a escolher")}</dd>
+                  <dd className={roomId ? undefined : "text-muted"}>{chosenRoom?.name ?? (roomId ? editing?.room?.name : "Sala a escolher")}</dd>
                 </div>
               )}
               <div className="flex gap-3">
@@ -902,15 +1232,23 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
                         .join(", ")}
                 </dd>
               </div>
+              {coffeeBreak && (
+                <div className="flex gap-3">
+                  <dt className="sr-only">Alimentação</dt>
+                  <CoffeeIcon size={20} className="shrink-0 text-muted" aria-hidden />
+                  <dd>Com coffee break</dd>
+                </div>
+              )}
             </dl>
             <ul className="mt-5 space-y-2 border-t border-border pt-4">
               <ChecklistItem ok={clientErrors.length === 0}>Data e horário dentro das regras</ChecklistItem>
               {recurrenceEnabled && <ChecklistItem ok={recurrenceOk}>Datas da série definidas</ChecklistItem>}
-              {adminCreating ? (
-                <ChecklistItem ok={Boolean(roomId)}>Sala escolhida</ChecklistItem>
-              ) : (
-                !asAdmin && <ChecklistItem ok={termsAccepted}>Regulamento aceito</ChecklistItem>
-              )}
+              {needsExtraordinary && <ChecklistItem ok={extraordinaryAuthorized}>Autorização para horário extraordinário</ChecklistItem>}
+              {relocating && <ChecklistItem ok={relocationAuthorized}>Realocação autorizada</ChecklistItem>}
+              {needsChecklist && <ChecklistItem ok={checklistOk}>Conferência do SAD</ChecklistItem>}
+              {adminCreating && <ChecklistItem ok={Boolean(roomId) && !coffeeBlocked}>Sala escolhida</ChecklistItem>}
+              {!asAdmin && <ChecklistItem ok={termsAccepted}>Regulamento aceito</ChecklistItem>}
+              {asksCommitment && <ChecklistItem ok={noAlcohol}>Compromisso sem bebidas alcoólicas</ChecklistItem>}
             </ul>
             {/* No celular o botão fica no fim do formulário; aqui só no computador. */}
             <div className="mt-5 hidden lg:block">
@@ -921,30 +1259,31 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
           </Card>
         </aside>
 
-        {/* Para o SAD, no computador, este quadro ficaria vazio (sem "Li e concordo"; o botão fica no resumo). */}
-        <Card className={cn("space-y-4 p-5 sm:p-6 lg:col-start-1", asAdmin && submitErrors.length === 0 && "lg:hidden")}>
+        {/* Na alteração do SAD, no computador, este quadro ficaria vazio (nada a aceitar; o botão fica no resumo). */}
+        <Card className={cn("space-y-4 p-5 sm:p-6 lg:col-start-1", !asksCommitment && submitErrors.length === 0 && "lg:hidden")}>
           {!asAdmin && (
-            <label className="flex items-start gap-3 text-sm">
-              <input
-                type="checkbox"
-                form={FORM_ID}
-                required
-                checked={termsAccepted}
-                onChange={(e) => setTermsAccepted(e.target.checked)}
-                className="mt-0.5 size-5 shrink-0"
-              />
-              <span>
-                Li e concordo com o{" "}
-                <button
-                  type="button"
-                  onClick={() => setShowRegulation(true)}
-                  className="font-semibold text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                >
-                  {regulationTitle}
-                </button>
-                .
-              </span>
-            </label>
+            <Confirm checked={termsAccepted} onChange={setTermsAccepted}>
+              Li e concordo com o{" "}
+              <button
+                type="button"
+                onClick={() => setShowRegulation(true)}
+                className="font-semibold text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              >
+                {regulationTitle}
+              </button>
+              .
+            </Confirm>
+          )}
+          {asksCommitment && (
+            <Confirm checked={noAlcohol} onChange={setNoAlcohol}>
+              Assumo o compromisso de que <strong>não haverá comércio nem consumo de bebidas alcoólicas</strong> na atividade (Portaria 2793, Art. 23).
+            </Confirm>
+          )}
+          {!asAdmin && (
+            <p className="text-xs text-muted">
+              Informações inexatas, omitidas ou inconsistentes levam ao indeferimento do pedido e/ou à suspensão das reservas da mesma atividade
+              (Portaria 2793, Art. 8º, parágrafo único).
+            </p>
           )}
           {showRegulation && (
             <RegulationDialog

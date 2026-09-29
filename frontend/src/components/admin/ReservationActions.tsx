@@ -1,4 +1,4 @@
-import { PencilSimpleIcon, XCircleIcon } from "@phosphor-icons/react";
+import { PencilSimpleIcon, UserMinusIcon, XCircleIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { api, ApiError } from "../../lib/api";
@@ -112,6 +112,48 @@ function CancelReservationDialog({
         <p className="text-sm text-muted">O horário da sala fica livre na hora.</p>
       </form>
     </Dialog>
+  );
+}
+
+/**
+ * Registrar (ou desfazer) a ausência de uma reserva aprovada que já começou:
+ * o espaço não foi usado nem cancelado (Portaria 2793, Art. 9º §2º).
+ */
+export function NoShowButton({
+  reservation,
+  onChanged,
+}: {
+  reservation: { id: string; status: ReservationStatus; startTime: string; noShowAt: string | null };
+  onChanged: () => void;
+}) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  if (reservation.status !== "APPROVED" || new Date(reservation.startTime).getTime() > Date.now()) return null;
+  const marked = reservation.noShowAt !== null;
+
+  async function toggle() {
+    setBusy(true);
+    try {
+      const { noShowCount } = await api<{ noShowCount: number }>(`/admin/reservations/${reservation.id}/no-show`, {
+        method: marked ? "DELETE" : "POST",
+      });
+      toast.success(
+        marked ? "Ausência desfeita" : "Ausência registrada",
+        `${noShowCount} ${noShowCount === 1 ? "ausência" : "ausências"} deste solicitante nos últimos 12 meses${noShowCount >= 3 ? " — recorrência (Art. 9º §2º)" : ""}.`,
+      );
+      notifyReservationsChanged();
+      onChanged();
+    } catch (e) {
+      toast.error("Não foi possível registrar.", e instanceof ApiError ? e.message : undefined);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Button variant={marked ? "ghost" : "danger-soft"} size="sm" icon={UserMinusIcon} loading={busy} onClick={() => void toggle()}>
+      {marked ? "Desfazer ausência" : "Registrar ausência"}
+    </Button>
   );
 }
 

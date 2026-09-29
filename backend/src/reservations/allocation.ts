@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { overlaps, type BusyInterval } from "./conflicts";
 import type { Occurrence } from "./recurrence";
 import type { RequestedResource } from "./requested-resources";
+import { coffeeBreakAllowed } from "./rules";
 
 export type RoomWithResources = Prisma.RoomGetPayload<{ include: { resources: { include: { resource: true } } } }>;
 
@@ -15,6 +16,8 @@ export interface MissingResource {
 export interface RoomOption {
   room: RoomWithResources;
   fitsCapacity: boolean;
+  /** Portaria 2794, Art. 5º: pedido com coffee break só vai para salas que permitem. */
+  coffeeBreakAllowed: boolean;
   /** Não impede a aprovação, só pesa na ordem. */
   missingResources: MissingResource[];
   /** Início das ocorrências que colidem com reservas ativas ou bloqueios da sala. */
@@ -36,7 +39,7 @@ export interface RoomOption {
  * TI providencia e não dependem da sala escolhida.
  */
 export function rankRoomOptions(
-  request: { expectedAttendees: number; requestedResources: RequestedResource[] },
+  request: { expectedAttendees: number; requestedResources: RequestedResource[]; coffeeBreak: boolean },
   occurrences: Occurrence[],
   rooms: RoomWithResources[],
   busy: BusyInterval[],
@@ -51,6 +54,7 @@ export function rankRoomOptions(
       room,
       // Só salas Ativas chegam aqui, e sala Ativa sempre tem capacidade (CHECK no banco).
       fitsCapacity: (room.capacity ?? 0) >= request.expectedAttendees,
+      coffeeBreakAllowed: !request.coffeeBreak || coffeeBreakAllowed(room),
       missingResources: needed.flatMap((r) => {
         const requested = r.quantity ?? 1;
         const have = available.get(r.resourceId) ?? 0;
@@ -63,6 +67,7 @@ export function rankRoomOptions(
   return options.sort(
     (a, b) =>
       Number(!a.fitsCapacity) - Number(!b.fitsCapacity) ||
+      Number(!a.coffeeBreakAllowed) - Number(!b.coffeeBreakAllowed) ||
       Number(a.conflictingDates.length > 0) - Number(b.conflictingDates.length > 0) ||
       a.missingResources.length - b.missingResources.length ||
       a.conflictingDates.length - b.conflictingDates.length ||

@@ -4,13 +4,19 @@ import {
   CalendarPlusIcon,
   CheckCircleIcon,
   ClockCounterClockwiseIcon,
+  CoffeeIcon,
+  HammerIcon,
+  HashIcon,
   HourglassMediumIcon,
+  ListNumbersIcon,
   MagnifyingGlassIcon,
   MapPinIcon,
+  MoonIcon,
   PencilSimpleLineIcon,
   ProhibitIcon,
   RepeatIcon,
   TrayIcon,
+  UserMinusIcon,
   UsersIcon,
   WrenchIcon,
   XCircleIcon,
@@ -18,13 +24,13 @@ import {
 } from "@phosphor-icons/react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
-import { ACTIVITY_TYPE_LABELS } from "../../lib/activities";
+import { ACTIVITY_TYPE_LABELS, PRIORITY_LABELS, priorityOf } from "../../lib/activities";
 import { api } from "../../lib/api";
 import { formatDateTimeRange, formatShortDate, formatTimeRange, plural } from "../../lib/format";
 import { ACTIVITY_ICONS } from "../../lib/icons";
-import { groupBySeries, isModifiedPending, notifyReservationsChanged } from "../../lib/reservations";
+import { formatMinutes, groupBySeries, isModifiedPending, notifyReservationsChanged, onReservationsChanged } from "../../lib/reservations";
 import { useToast } from "../../lib/toast";
-import type { AdminReservation, ReservationStatus, Resource } from "../../lib/types";
+import type { AdminReservation, ReservationStatus, Resource, Sanction } from "../../lib/types";
 import { StatusBadge } from "../StatusBadge";
 import { Avatar } from "../ui/Avatar";
 import { Badge } from "../ui/Badge";
@@ -63,6 +69,56 @@ function Chip({ icon: ChipIcon, children }: { icon: Icon; children: ReactNode })
 }
 
 const groupKey = (group: AdminReservation[]) => group[0]!.seriesId ?? group[0]!.id;
+
+type ActiveSuspension = Sanction & { user: { id: string; name: string; email: string } };
+
+/** Solicitantes com novas reservas suspensas (Portaria 2793, Arts. 9º §2º, 11, 17 e 22). */
+function ActiveSuspensions() {
+  const toast = useToast();
+  const [list, setList] = useState<ActiveSuspension[]>([]);
+  const load = () =>
+    api<{ suspensions: ActiveSuspension[] }>("/admin/sanctions/active")
+      .then((res) => setList(res.suspensions))
+      .catch(() => setList([]));
+  useEffect(() => {
+    void load();
+    return onReservationsChanged(() => void load());
+  }, []);
+  if (list.length === 0) return null;
+
+  async function lift(id: string) {
+    try {
+      await api(`/admin/sanctions/${id}/lift`, { method: "POST" });
+      toast.success("Suspensão retirada");
+      void load();
+    } catch (e) {
+      toast.error("Não foi possível retirar.", e instanceof Error ? e.message : undefined);
+    }
+  }
+
+  return (
+    <details className="rounded-xl border border-danger-foreground/25 bg-danger-soft/60 px-4 py-3 text-sm">
+      <summary className="cursor-pointer font-medium text-danger-foreground">
+        {plural(list.length, "solicitante suspenso", "solicitantes suspensos")} de fazer novas reservas
+      </summary>
+      <ul className="mt-3 divide-y divide-danger-foreground/15">
+        {list.map((s) => (
+          <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+            <span className="min-w-0">
+              <span className="font-medium">{s.user.name}</span> <span className="text-muted">· {s.user.email}</span>
+              <span className="block text-xs text-muted">
+                {s.until ? `Até ${new Date(s.until).toLocaleDateString("pt-BR", { timeZone: "UTC" })}` : "Até a regularização"} — {s.reason}
+              </span>
+            </span>
+            <Button size="sm" variant="secondary" onClick={() => void lift(s.id)}>
+              Retirar
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
 
 // Fila de aprovação (Fase 6): o Admin analisa cada solicitação, aloca a sala
 // mais adequada e aprova, ou rejeita com justificativa.
@@ -104,7 +160,9 @@ export function RequestsAdmin() {
   const statusGroups = groupsByStatus(status);
   const needle = query.trim().toLowerCase();
   const groups = needle
-    ? statusGroups.filter(([first]) => `${first!.title} ${first!.user.name} ${first!.user.email}`.toLowerCase().includes(needle))
+    ? statusGroups.filter(([first]) =>
+        `${first!.protocol} ${first!.title} ${first!.user.name} ${first!.user.email}`.toLowerCase().includes(needle),
+      )
     : statusGroups;
   const openGroup = openKey ? statusGroups.find((g) => groupKey(g) === openKey) : undefined;
   const filter = STATUS_FILTERS.find((f) => f.value === status)!;
@@ -121,6 +179,8 @@ export function RequestsAdmin() {
         }
       />
 
+      <ActiveSuspensions />
+
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <SegmentedControl
           label="Status"
@@ -134,8 +194,8 @@ export function RequestsAdmin() {
         <div className="relative lg:w-72">
           <Input
             type="search"
-            aria-label="Buscar por título ou solicitante"
-            placeholder="Buscar por título ou solicitante"
+            aria-label="Buscar por protocolo, título ou solicitante"
+            placeholder="Protocolo, título ou solicitante"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="pl-10"
@@ -190,6 +250,15 @@ export function RequestsAdmin() {
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">
+                    <Chip icon={HashIcon}>Protocolo {first.protocol}</Chip>
+                    {(() => {
+                      const priority = priorityOf(first.activityType, first.activityDetails);
+                      return (
+                        <span title={`Art. 7º: ${PRIORITY_LABELS[priority]}`}>
+                          <Chip icon={ListNumbersIcon}>Prioridade {priority}</Chip>
+                        </span>
+                      );
+                    })()}
                     {group.length === 1 ? (
                       <Chip icon={CalendarBlankIcon}>{formatDateTimeRange(first.startTime, first.endTime)}</Chip>
                     ) : (
@@ -210,6 +279,10 @@ export function RequestsAdmin() {
                       <Chip icon={WrenchIcon}>{plural(first.requestedResources.length, "recurso", "recursos")}</Chip>
                     )}
                     {rooms.length > 0 && <Chip icon={MapPinIcon}>{isPending ? `Indicada: ${rooms.join(", ")}` : rooms.join(", ")}</Chip>}
+                    {first.setupMinutes > 0 && <Chip icon={HammerIcon}>Montagem de {formatMinutes(first.setupMinutes)}</Chip>}
+                    {first.coffeeBreak && <Chip icon={CoffeeIcon}>Coffee break</Chip>}
+                    {first.outsideRegularHours && <Chip icon={MoonIcon}>Horário extraordinário</Chip>}
+                    {group.some((r) => r.noShowAt) && <Chip icon={UserMinusIcon}>Ausência registrada</Chip>}
                   </div>
 
                   <p className="mt-3 line-clamp-2 text-sm text-muted">{first.description}</p>
@@ -249,7 +322,14 @@ export function RequestsAdmin() {
       )}
 
       {openGroup && (
-        <ReviewDrawer key={openKey} group={openGroup} resources={resources} onClose={() => setOpenKey(null)} onDone={handleDone} />
+        <ReviewDrawer
+          key={openKey}
+          group={openGroup}
+          resources={resources}
+          onClose={() => setOpenKey(null)}
+          onDone={handleDone}
+          onChanged={() => void load()}
+        />
       )}
     </div>
   );

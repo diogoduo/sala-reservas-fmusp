@@ -7,29 +7,43 @@ import {
   CheckCircleIcon,
   ClockCounterClockwiseIcon,
   ClockIcon,
+  HammerIcon,
+  HashIcon,
   HourglassMediumIcon,
+  KeyIcon,
   MapPinIcon,
   PencilSimpleIcon,
   PencilSimpleLineIcon,
   RepeatIcon,
+  UserMinusIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { ACTIVITY_TYPE_LABELS } from "../../lib/activities";
 import { api } from "../../lib/api";
+import { formatDayMonth } from "../../lib/calendar";
 import { cn } from "../../lib/cn";
 import { useConfirm } from "../../lib/confirm";
 import { dateTile, formatDateTimeRange, formatTimeRange, plural, relativeDays } from "../../lib/format";
 import { ACTIVITY_ICONS } from "../../lib/icons";
-import { groupBySeries, isCancellable, isEditable, isModifiedPending } from "../../lib/reservations";
+import {
+  formatMinutes,
+  groupBySeries,
+  isCancellable,
+  isEditable,
+  isModifiedPending,
+  isPastCancelDeadline,
+  keyPickupTime,
+  requesterDeadline,
+} from "../../lib/reservations";
 import { useToast } from "../../lib/toast";
 import type { Reservation, ReviewScope } from "../../lib/types";
 import { StatusBadge } from "../StatusBadge";
 import { Badge } from "../ui/Badge";
 import { RoomPhotosButton } from "../rooms/RoomPhotos";
 import { Button } from "../ui/Button";
-import { CardListSkeleton, EmptyState } from "../ui/Feedback";
+import { Alert, CardListSkeleton, EmptyState } from "../ui/Feedback";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Card, IconTile, PageHeader, StatCard } from "../ui/Surface";
 
@@ -40,7 +54,7 @@ const COLLAPSED_ROWS = 4;
 const roomLabel = (r: Reservation) => (r.room ? `${r.room.name} — ${r.room.building}, ${r.room.floor}` : null);
 
 /** O que o solicitante precisa saber sobre cada data, conforme o status. */
-function Situation({ reservation: r }: { reservation: Reservation }) {
+function Situation({ reservation: r, upcoming }: { reservation: Reservation; upcoming: boolean }) {
   const room = roomLabel(r);
   switch (r.status) {
     case "APPROVED":
@@ -49,6 +63,18 @@ function Situation({ reservation: r }: { reservation: Reservation }) {
           <MapPinIcon size={16} weight="fill" className="shrink-0 text-primary" aria-hidden />
           {room}
           {r.room && <RoomPhotosButton room={r.room} />}
+          {upcoming && (
+            // Portaria 2793, Art. 10: o responsável vai ao SAD/NE 10 minutos antes.
+            <span className="flex w-full items-center gap-1.5 text-xs text-muted">
+              <KeyIcon size={14} className="shrink-0" aria-hidden />
+              Retire as chaves no SAD/NE às {keyPickupTime(r)} (10 minutos antes).
+            </span>
+          )}
+          {r.noShowAt && (
+            <span className="w-full text-xs font-medium text-danger-foreground">
+              Ausência registrada pelo SAD: o espaço não foi usado nem cancelado (Portaria 2793, Art. 9º §2º).
+            </span>
+          )}
           {r.modifiedByAdminAt && <span className="w-full text-xs text-muted">Alterada pelo SAD em {new Date(r.modifiedByAdminAt).toLocaleDateString("pt-BR")}</span>}
         </span>
       );
@@ -104,6 +130,13 @@ export function MyReservations() {
   const [view, setView] = useState<View>("upcoming");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [suspension, setSuspension] = useState<{ until: string | null; reason: string } | null>(null);
+
+  useEffect(() => {
+    api<{ suspension: { until: string | null; reason: string } | null }>("/reservations/me/standing")
+      .then((res) => setSuspension(res.suspension))
+      .catch(() => undefined);
+  }, []);
 
   async function load() {
     try {
@@ -135,11 +168,16 @@ export function MyReservations() {
 
     setBusyId(target.id);
     try {
-      const res = await api<{ cancelledIds: string[] }>(`/reservations/${target.id}/cancel`, {
+      const res = await api<{ cancelledIds: string[]; keptIds: string[] }>(`/reservations/${target.id}/cancel`, {
         method: "POST",
         body: JSON.stringify({ scope }),
       });
-      toast.success(plural(res.cancelledIds.length, "data cancelada", "datas canceladas"), "O SAD foi avisado por e-mail.");
+      toast.success(
+        plural(res.cancelledIds.length, "data cancelada", "datas canceladas"),
+        res.keptIds.length > 0
+          ? `${plural(res.keptIds.length, "data aprovada já passou", "datas aprovadas já passaram")} do prazo de 3 dias úteis e só o SAD pode cancelar.`
+          : "O SAD foi avisado por e-mail.",
+      );
       await load();
     } catch (e) {
       toast.error("Não foi possível cancelar.", e instanceof Error ? e.message : undefined);
@@ -169,6 +207,15 @@ export function MyReservations() {
           </Button>
         }
       />
+
+      {suspension && (
+        <Alert
+          tone="danger"
+          title={`Suas novas reservas estão suspensas ${suspension.until ? `até ${new Date(suspension.until).toLocaleDateString("pt-BR", { timeZone: "UTC" })}` : "até a regularização"}`}
+        >
+          Motivo: {suspension.reason}. Fale com o SAD/NE.
+        </Alert>
+      )}
 
       {reservations !== null && all.length > 0 && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -254,6 +301,9 @@ export function MyReservations() {
                             · <RepeatIcon size={14} aria-hidden /> série com {group.length} datas
                           </span>
                         )}
+                        <span className="flex items-center gap-1 tabular-nums">
+                          · <HashIcon size={14} aria-hidden /> Protocolo {first.protocol}
+                        </span>
                       </p>
                     </div>
                   </div>
@@ -261,6 +311,12 @@ export function MyReservations() {
                   <ul className="divide-y divide-border border-t border-border">
                     {visibleRows.map((r) => {
                       const inactive = r.status === "CANCELLED" || r.status === "REJECTED";
+                      // Art. 9º: passado o prazo de 3 dias úteis, só o SAD cancela a reserva aprovada.
+                      const lateNotice = isPastCancelDeadline(r, now) && (
+                        <p className="max-w-56 text-xs text-muted sm:text-right">
+                          Prazo para cancelar pelo sistema encerrado em {formatDayMonth(requesterDeadline(r))}. Fale com o SAD/NE.
+                        </p>
+                      );
                       const actions = isCancellable(r, now) && (
                         <div className="flex gap-1">
                           {isEditable(r, now) && (
@@ -301,14 +357,29 @@ export function MyReservations() {
                                   Alterada
                                 </Badge>
                               )}
+                              {r.setupMinutes > 0 && (
+                                <Badge tone="neutral" icon={HammerIcon}>
+                                  Inclui {formatMinutes(r.setupMinutes)} de montagem
+                                </Badge>
+                              )}
+                              {r.noShowAt && (
+                                <Badge tone="danger" icon={UserMinusIcon}>
+                                  Ausência
+                                </Badge>
+                              )}
                             </div>
                             <p className="text-sm">
-                              <Situation reservation={r} />
+                              <Situation reservation={r} upcoming={view === "upcoming"} />
                             </p>
+                            {r.status === "APPROVED" && isCancellable(r, now) && view === "upcoming" && (
+                              <p className="text-xs text-muted">Cancelar ou alterar pelo sistema até {formatDayMonth(requesterDeadline(r))}.</p>
+                            )}
                             {/* Celular: o botão vai abaixo do texto, que fica com a largura toda. */}
                             {actions && <div className="-ml-3 sm:hidden">{actions}</div>}
+                            {lateNotice && <div className="sm:hidden">{lateNotice}</div>}
                           </div>
                           {actions && <div className="hidden shrink-0 sm:block">{actions}</div>}
+                          {lateNotice && <div className="hidden shrink-0 sm:block">{lateNotice}</div>}
                         </li>
                       );
                     })}
