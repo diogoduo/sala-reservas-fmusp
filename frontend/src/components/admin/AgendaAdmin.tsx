@@ -18,6 +18,7 @@ import {
   ProhibitIcon,
   UserMinusIcon,
   UsersIcon,
+  WarningIcon,
   XCircleIcon,
   type Icon,
 } from "@phosphor-icons/react";
@@ -28,6 +29,7 @@ import { api } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { capitalizeFirst, formatTimeRange, plural } from "../../lib/format";
 import { ACTIVITY_ICONS } from "../../lib/icons";
+import { reservationWarnings } from "../../lib/portarias";
 import { formatMinutes, isModifiedPending, onReservationsChanged } from "../../lib/reservations";
 import { sortRooms } from "../../lib/rooms";
 import { useToast } from "../../lib/toast";
@@ -236,6 +238,14 @@ function ReservationRow({ reservation: r, onOpen }: { reservation: AdminReservat
             {r.noShowAt && (
               <span className="inline-flex items-center gap-1 text-danger-foreground">
                 <UserMinusIcon size={14} aria-hidden /> ausência
+              </span>
+            )}
+            {reservationWarnings(r).length > 0 && (
+              <span
+                className="inline-flex items-center gap-1 text-warning-foreground"
+                title={reservationWarnings(r).map((w) => `${w.rule}: ${w.message}`).join("\n")}
+              >
+                <WarningIcon size={14} aria-hidden /> fora das portarias
               </span>
             )}
           </p>

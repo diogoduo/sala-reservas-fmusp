@@ -4,7 +4,6 @@ import {
   CalendarPlusIcon,
   CheckCircleIcon,
   ClockCounterClockwiseIcon,
-  CoffeeIcon,
   HammerIcon,
   HashIcon,
   HourglassMediumIcon,
@@ -18,6 +17,7 @@ import {
   TrayIcon,
   UserMinusIcon,
   UsersIcon,
+  WarningIcon,
   WrenchIcon,
   XCircleIcon,
   type Icon,
@@ -28,6 +28,7 @@ import { ACTIVITY_TYPE_LABELS, PRIORITY_LABELS, priorityOf } from "../../lib/act
 import { api } from "../../lib/api";
 import { formatDateTimeRange, formatShortDate, formatTimeRange, plural } from "../../lib/format";
 import { ACTIVITY_ICONS } from "../../lib/icons";
+import { reservationWarnings } from "../../lib/portarias";
 import { formatMinutes, groupBySeries, isModifiedPending, notifyReservationsChanged, onReservationsChanged } from "../../lib/reservations";
 import { useToast } from "../../lib/toast";
 import type { AdminReservation, ReservationStatus, Resource, Sanction } from "../../lib/types";
@@ -280,8 +281,12 @@ export function RequestsAdmin() {
                     )}
                     {rooms.length > 0 && <Chip icon={MapPinIcon}>{isPending ? `Indicada: ${rooms.join(", ")}` : rooms.join(", ")}</Chip>}
                     {first.setupMinutes > 0 && <Chip icon={HammerIcon}>Montagem de {formatMinutes(first.setupMinutes)}</Chip>}
-                    {first.coffeeBreak && <Chip icon={CoffeeIcon}>Coffee break</Chip>}
                     {first.outsideRegularHours && <Chip icon={MoonIcon}>Horário extraordinário</Chip>}
+                    {reservationWarnings(first).length > 0 && (
+                      <span title={reservationWarnings(first).map((w) => `${w.rule}: ${w.message}`).join("\n")}>
+                        <Chip icon={WarningIcon}>Fora das portarias</Chip>
+                      </span>
+                    )}
                     {group.some((r) => r.noShowAt) && <Chip icon={UserMinusIcon}>Ausência registrada</Chip>}
                   </div>
 

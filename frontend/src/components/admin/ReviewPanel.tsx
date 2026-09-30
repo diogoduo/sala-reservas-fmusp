@@ -17,7 +17,8 @@ import { activityStart, formatMinutes } from "../../lib/reservations";
 import { useToast } from "../../lib/toast";
 import { RESERVATION_STATUS_LABELS, ROOM_TYPE_LABELS } from "../../lib/types";
 import type { AdminReservation, ApprovalChecklist, RequestedResource, Resource, ReviewScope, RoomOption } from "../../lib/types";
-import { FeeEstimate } from "../solicitante/FeeEstimate";
+import { capacityWarning, checklistWarnings, reservationWarnings, type PortariaWarning } from "../../lib/portarias";
+import { PortariaWarnings } from "./PortariaWarnings";
 import { NoShowButton } from "./ReservationActions";
 import { RequesterStanding } from "./RequesterStanding";
 import { StatusBadge } from "../StatusBadge";
@@ -65,6 +66,12 @@ export function RequestDetails({ group, resources }: { group: AdminReservation[]
 
       <RequesterStanding userId={first.user.id} />
 
+      <PortariaWarnings
+        warnings={reservationWarnings(first)}
+        title="Aprovada fora das portarias"
+        description="O SAD passou por cima destas regras."
+      />
+
       {first.previousSnapshot && first.modifiedByRequesterAt && first.status === "PENDING" && (
         <ChangeSummary reservation={first} />
       )}
@@ -103,7 +110,6 @@ export function RequestDetails({ group, resources }: { group: AdminReservation[]
         {first.outsideRegularHours && (
           <DetailRow label="Horário">Extraordinário — domingo, feriado ou fora das 07h–22h (Art. 6º §1º)</DetailRow>
         )}
-        {first.coffeeBreak && <DetailRow label="Coffee break">Sim — só em sala que permite (Portaria 2794, Art. 5º)</DetailRow>}
         <DetailRow label="Bebidas alcoólicas">
           {first.noAlcoholCommitment ? "Compromisso de não haver comércio nem consumo assumido (Art. 23)" : "Pedido anterior às portarias de 2026"}
         </DetailRow>
@@ -250,7 +256,8 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [mode, setMode] = useState<"approve" | "reject">("approve");
   const [rejectReason, setRejectReason] = useState("");
-  // Cultura e Extensão: etapas do Art. 20 §3º e taxa (Art. 14 §3º / Art. 21 §2º) antes de confirmar.
+  // Cultura e Extensão: etapas do Art. 20 §3º e taxa (Art. 14 §3º / Art. 21 §2º). Não
+  // barram a aprovação: o que não for conferido vira aviso (o SAD pode passar por cima).
   const needsChecklist = first.activityType === "CULTURE_EXTENSION";
   const [checklist, setChecklist] = useState<ApprovalChecklist>({
     ccexAuthorized: false,
@@ -258,7 +265,6 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
     feeSettled: false,
     directorateHomologated: false,
   });
-  const checklistOk = !needsChecklist || (checklist.ccexAuthorized && checklist.academicDivisionApproved && checklist.feeSettled);
   const [busy, setBusy] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -276,7 +282,7 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
         setOccurrenceCount(res.occurrences.length);
         // Numa alteração, se a sala em que estava aprovada ainda serve, ela vem marcada;
         // senão, a mais adequada (a API já devolve essa primeiro).
-        const usable = (o: RoomOption) => o.fitsCapacity && o.coffeeBreakAllowed && o.conflictingDates.length < res.occurrences.length;
+        const usable = (o: RoomOption) => o.fitsCapacity && o.conflictingDates.length < res.occurrences.length;
         const previous = res.options.find((o) => o.room.id === previousRoomId && usable(o));
         const best = res.options[0];
         if (previous) setSelectedRoomId(previous.room.id);
@@ -292,7 +298,12 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
   const selected = options?.find((o) => o.room.id === selectedRoomId) ?? null;
   const partial = selected !== null && selected.conflictingDates.length > 0;
   const freeCount = selected ? occurrenceCount - selected.conflictingDates.length : 0;
-  const recommendedId = options?.find((o) => o.fitsCapacity && o.coffeeBreakAllowed && o.conflictingDates.length < occurrenceCount)?.room.id;
+  const recommendedId = options?.find((o) => o.fitsCapacity && o.conflictingDates.length < occurrenceCount)?.room.id;
+  // O SAD pode aprovar fora das portarias; a tela diz qual regra está sendo violada.
+  const warnings: PortariaWarning[] = [];
+  const capacity = selected ? capacityWarning(first.expectedAttendees, selected.room) : null;
+  if (capacity) warnings.push(capacity);
+  if (needsChecklist) warnings.push(...checklistWarnings(checklist));
   const resourceName = (id: string) => resources.find((r) => r.id === id)?.name ?? "recurso removido";
 
   async function approve() {
@@ -310,7 +321,8 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
       });
       onDone(
         `${plural(res.approved.length, "data aprovada", "datas aprovadas")} em ${selected.room.name}` +
-          (res.skipped.length > 0 ? ` · ${plural(res.skipped.length, "continua pendente", "continuam pendentes")}` : ""),
+          (res.skipped.length > 0 ? ` · ${plural(res.skipped.length, "continua pendente", "continuam pendentes")}` : "") +
+          (warnings.length > 0 ? ` · fora de: ${[...new Set(warnings.map((w) => w.rule))].join("; ")}` : ""),
       );
     } catch (e) {
       toast.error("Não foi possível aprovar.", e instanceof Error ? e.message : undefined);
@@ -340,6 +352,7 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
   if (selected) {
     approveLabel = occurrenceCount > 1 ? `Aprovar ${plural(freeCount, "data", "datas")}` : "Aprovar";
   }
+  if (warnings.length > 0) approveLabel += " mesmo assim";
 
   const footer = !isPending ? (
     <>
@@ -362,7 +375,7 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
       <Button variant="danger-soft" icon={XCircleIcon} onClick={() => setMode("reject")} disabled={busy} className="sm:mr-auto">
         Rejeitar
       </Button>
-      <Button icon={SealCheckIcon} loading={busy} disabled={!selected || !checklistOk} onClick={() => void approve()}>
+      <Button icon={SealCheckIcon} loading={busy} disabled={!selected} onClick={() => void approve()}>
         {/* Um só nó de texto: o gap do botão não entra entre "Aprovar" e "em …". */}
         <span>
           {approveLabel}
@@ -426,7 +439,8 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
                 {options.map((option) => {
                   const conflicts = option.conflictingDates.length;
                   const allBusy = conflicts >= occurrenceCount;
-                  const disabled = !option.fitsCapacity || !option.coffeeBreakAllowed || allBusy;
+                  // Sala que não comporta dá para escolher (o SAD pode passar por cima do Art. 5º §2º, com aviso).
+                  const disabled = allBusy;
                   const isSelected = selectedRoomId === option.room.id;
                   return (
                     <label
@@ -467,11 +481,10 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
                           {option.fitsCapacity ? (
                             <Check state="ok">Comporta {first.expectedAttendees}</Check>
                           ) : (
-                            <Check state="bad">
-                              Comporta só {option.room.capacity} (pedido: {first.expectedAttendees}; sem cadeiras extras)
+                            <Check state="warn">
+                              Comporta só {option.room.capacity} (pedido: {first.expectedAttendees}; Art. 5º §2º)
                             </Check>
                           )}
-                          {!option.coffeeBreakAllowed && <Check state="bad">Coffee break não permitido</Check>}
                           {conflicts === 0 ? (
                             <Check state="ok">{occurrenceCount > 1 ? "Livre em todas as datas" : "Livre no horário"}</Check>
                           ) : occurrenceCount === 1 ? (
@@ -510,22 +523,14 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
               </Alert>
             )}
 
-            {needsChecklist && first.activityDetails && (
+            {needsChecklist && (
               <div className="space-y-4 rounded-xl border border-border p-4">
                 <div>
                   <h3 className="text-base font-semibold">Antes de confirmar</h3>
-                  <p className="text-sm text-muted">Atividade de Cultura e Extensão (Portaria 2793, Art. 20 §3º, Art. 14 §3º e Art. 21 §2º).</p>
+                  <p className="text-sm text-muted">
+                    Atividade de Cultura e Extensão (Portaria 2793, Art. 20 §3º, Art. 14 §3º e Art. 21 §2º). O que não for marcado aparece como aviso.
+                  </p>
                 </div>
-                <FeeEstimate
-                  type="CULTURE_EXTENSION"
-                  details={first.activityDetails}
-                  reservedMinutes={(new Date(first.endTime).getTime() - new Date(first.startTime).getTime()) / 60_000}
-                  dates={Math.max(occurrenceCount, 1)}
-                  firstDate={new Date(first.startTime)}
-                  coffeeBreak={first.coffeeBreak}
-                  room={selected?.room ?? null}
-                  compact
-                />
                 <div className="space-y-2.5 text-sm">
                   {(
                     [
@@ -551,6 +556,8 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
                 </div>
               </div>
             )}
+
+            <PortariaWarnings warnings={warnings} />
           </section>
         )}
       </div>

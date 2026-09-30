@@ -7,7 +7,8 @@ import { zonedDateKey } from "../lib/timezone";
 // Regras das Portarias FMUSP nº 2793/2026 (uso dos espaços) e nº 2794/2026
 // (valores). O horário regular também está no CHECK "reservations_business_hours_check"
 // (migration portarias_2793_2794) — aqui para dar uma mensagem amigável antes de
-// gravar, lá como última garantia.
+// gravar, lá como última garantia. As regras valem para o solicitante; o SAD
+// pode passar por cima delas (a tela dele mostra qual artigo está sendo violado).
 
 /** Art. 6º: dias úteis e sábados, das 07h às 22h. */
 const REGULAR_START_MIN = 7 * 60;
@@ -75,23 +76,13 @@ export function assertRegularSchedule(start: Date, end: Date): void {
 }
 
 /**
- * SAD: fora do funcionamento regular só com a autorização prévia da Divisão
- * Acadêmica marcada (Art. 6º §1º). Devolve se o intervalo é extraordinário.
+ * SAD: pode passar por cima do Art. 6º (a tela mostra o aviso). Devolve se o
+ * intervalo é extraordinário, para marcar a reserva (libera o CHECK de horário).
  */
-export function checkAdminSchedule(start: Date, end: Date, authorized: boolean): boolean {
+export function isExtraordinarySchedule(start: Date, end: Date): boolean {
   assertSameDay(start, end);
-  const issue = regularScheduleIssue(start, end);
-  if (issue && !authorized) {
-    throw new AppError(
-      400,
-      "EXTRAORDINARY_HOURS_NEED_AUTHORIZATION",
-      `${capitalize(issue)}. Para reservar mesmo assim, confirme a autorização prévia da Divisão Acadêmica e o custeio da equipe de apoio (Portaria 2793, Art. 6º §1º).`,
-    );
-  }
-  return issue !== null;
+  return regularScheduleIssue(start, end) !== null;
 }
-
-const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 export function assertValidDuration(start: Date, end: Date): void {
   const duration = end.getTime() - start.getTime();
@@ -116,17 +107,6 @@ export function assertMinAdvance(start: Date, now: Date = new Date()): void {
   }
 }
 
-/** Art. 5º §2º: nenhuma cadeira sobressalente — o público cabe nas cadeiras da sala. */
-export function assertCapacity(expectedAttendees: number, roomCapacity: number | null): void {
-  if (roomCapacity !== null && expectedAttendees > roomCapacity) {
-    throw new AppError(
-      400,
-      "CAPACITY_EXCEEDED",
-      `A sala comporta no máximo ${roomCapacity} pessoas; foram informadas ${expectedAttendees}. Não é permitido colocar cadeiras sobressalentes (Portaria 2793, Art. 5º §2º).`,
-    );
-  }
-}
-
 /**
  * Art. 9º: o solicitante cancela (ou altera) pelo sistema até o 3º dia útil
  * antes da data da atividade. Devolve o último dia ("AAAA-MM-DD").
@@ -141,19 +121,10 @@ export function isWithinRequesterDeadline(start: Date, now: Date = new Date()): 
 
 // Portaria 2794, Art. 5º: coffee break e alimentação são vedados nas salas de
 // aula, exceto nas salas de uso interativo 2366/2368 (Sala do Futuro), 2223
-// (Design Thinking) e 1357, com autorização do Núcleo de Eventos.
+// (Design Thinking) e 1357. O formulário ainda não pergunta sobre coffee break
+// (fica para depois, junto com as taxas); a regra só marca as salas candidatas.
 const COFFEE_BREAK_ROOMS = /\b(2366|2368|2223|1357)\b/;
 
 export function coffeeBreakAllowed(room: { name: string; roomType: RoomType }): boolean {
   return room.roomType !== "CLASSROOM" || COFFEE_BREAK_ROOMS.test(room.name);
-}
-
-export function assertCoffeeBreakAllowed(coffeeBreak: boolean, room: { name: string; roomType: RoomType }): void {
-  if (coffeeBreak && !coffeeBreakAllowed(room)) {
-    throw new AppError(
-      400,
-      "COFFEE_BREAK_NOT_ALLOWED",
-      `Coffee break e alimentação não são permitidos na ${room.name}. Entre as salas de aula, só nas salas 2366/2368, 2223 e 1357 (Portaria 2794, Art. 5º).`,
-    );
-  }
 }

@@ -27,8 +27,6 @@ const requiredText = (message: string, max = 200) =>
 const positiveInt = (message: string) => z.coerce.number({ invalid_type_error: message }).int(message).positive(message);
 const selectOne = <T extends readonly [string, ...string[]]>(values: T, message: string) =>
   z.enum(values, { errorMap: () => ({ message }) });
-// Pergunta de Sim/Não sem resposta padrão: a pessoa precisa escolher.
-const yesNo = (message: string) => z.boolean({ required_error: message, invalid_type_error: message });
 
 // ⚠️ Provisório até existir a tabela de disciplinas no banco: por enquanto só
 // confere o formato do código USP (3 letras + 4 números, ex.: MCM0101).
@@ -60,8 +58,9 @@ const graduateDetails = z.object(disciplineFields);
 
 // Cultura e Extensão = atividades fora do currículo, dos programas e da pesquisa
 // (Portaria 2793, Cap. XI). O pedido traz o mínimo do Art. 20 §1º (objeto,
-// programação, público-alvo, responsáveis…), a situação na CCEx e o que define
-// a taxa de utilização (Portaria 2794, Art. 4º): entidade, inscrição, patrocínio.
+// programação, público-alvo, responsáveis…), a entidade (Art. 4º) e a situação
+// na CCEx. Patrocínio, custeio e áreas de apoio servem à taxa (Portaria 2794),
+// que ainda não está no formulário: ficam opcionais.
 const cultureExtensionDetails = z
   .object({
     kind: selectOne(CULTURE_KINDS, "Selecione o tipo de reserva."),
@@ -78,7 +77,7 @@ const cultureExtensionDetails = z
     ),
     // Inscrição cobrada só para custear o evento (entidades estudantis podem pedir isenção).
     costOnly: z.preprocess((value) => (value === "" ? undefined : value), z.boolean().optional()),
-    sponsored: yesNo("Informe se a atividade tem patrocínio."),
+    sponsored: z.boolean().optional(),
     ccexStatus: selectOne(CCEX_STATUSES, "Informe a situação do pedido na CCEx."),
     ccexProcess: z.string().trim().max(120).optional(),
     // Chega como "ATRIUM,TERRACE" dos checkboxes do formulário.
@@ -96,9 +95,6 @@ const cultureExtensionDetails = z
     }
     if (!d.free && d.fee === undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fee"], message: "Informe o valor da taxa ou marque Atividade Gratuita." });
-    }
-    if (!d.free && STUDENT_ENTITIES.includes(d.entity) && d.costOnly === undefined) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["costOnly"], message: "Informe se a inscrição serve só para custear o evento." });
     }
   })
   // Não guarda o que não se aplica: descrição de "Outros" só com Outros, taxa só se não for gratuita.
@@ -171,7 +167,8 @@ const baseSchema = z.object({
     .max(MAX_SETUP_MINUTES, "A montagem pode ser de no máximo 4 horas.")
     .refine((m) => m % 15 === 0, "A montagem deve ser em múltiplos de 15 minutos.")
     .default(0),
-  // Portaria 2794, Art. 5º: coffee break só em algumas salas (o SAD confere ao alocar).
+  // Portaria 2794, Art. 5º: coffee break só em algumas salas. O formulário ainda
+  // não pergunta (fica para depois, com as taxas).
   coffeeBreak: z.boolean().default(false),
   recurrence: recurrenceSchema.optional(),
 });
@@ -211,30 +208,27 @@ export const cancelReservationSchema = z.object({ scope: reviewScopeSchema });
 export const updateReservationSchema = z.intersection(createReservationSchema, z.object({ scope: reviewScopeSchema, noAlcoholCommitment }));
 
 /**
- * Conferência do SAD antes de confirmar uma atividade de Cultura e Extensão
- * (Portaria 2793, Art. 20 §3º e Art. 14 §3º / Art. 21 §2º).
+ * Conferência do SAD ao confirmar uma atividade de Cultura e Extensão (Portaria
+ * 2793, Art. 20 §3º e Art. 14 §3º / Art. 21 §2º). Fica registrada na reserva; o
+ * que não foi conferido aparece como aviso — o SAD pode confirmar mesmo assim.
  */
 export const approvalChecklistSchema = z.object({
-  ccexAuthorized: z.literal(true, { errorMap: () => ({ message: "Confirme a autorização da CCEx (Art. 20 §3º, a)." }) }),
-  academicDivisionApproved: z.literal(true, {
-    errorMap: () => ({ message: "Confirme a aprovação da Divisão Acadêmica (Art. 20 §3º, c)." }),
-  }),
-  feeSettled: z.literal(true, {
-    errorMap: () => ({ message: "Confirme o comprovante de pagamento da taxa ou a isenção deferida (Art. 14 §3º e Art. 21 §2º)." }),
-  }),
+  ccexAuthorized: z.boolean().default(false),
+  academicDivisionApproved: z.boolean().default(false),
+  feeSettled: z.boolean().default(false),
   directorateHomologated: z.boolean().default(false),
 });
-export type ApprovalChecklist = z.infer<typeof approvalChecklistSchema>;
 
 // Reserva feita pelo próprio SAD: os mesmos campos (e a recorrência) da
-// solicitação, mais a sala — já nasce aprovada.
+// solicitação, mais a sala — já nasce aprovada. O SAD pode passar por cima das
+// portarias (horário, capacidade, compromisso, conferência): a tela avisa.
 export const adminCreateReservationSchema = z.intersection(
   createReservationSchema,
   z.object({
     roomId: z.string().uuid(),
-    noAlcoholCommitment,
-    // Art. 6º §1º: domingo, feriado ou fora das 07h–22h com autorização da Divisão Acadêmica.
-    extraordinaryAuthorized: z.boolean().default(false),
+    noAlcoholCommitment: z.boolean().default(false),
+    // Numa série, os feriados ficam de fora, a menos que o SAD peça para manter (Art. 6º).
+    keepHolidays: z.boolean().default(false),
     approvalChecklist: approvalChecklistSchema.optional(),
   }),
 );
@@ -243,11 +237,5 @@ export const adminCreateReservationSchema = z.intersection(
 // aprovada; null/ausente = mantém a atual).
 export const adminUpdateReservationSchema = z.intersection(
   createReservationSchema,
-  z.object({
-    scope: reviewScopeSchema,
-    roomId: z.string().uuid().nullish(),
-    extraordinaryAuthorized: z.boolean().default(false),
-    // Art. 12: realocar uma reserva aprovada exige autorização da Divisão Acadêmica e da Diretoria.
-    relocationAuthorized: z.boolean().default(false),
-  }),
+  z.object({ scope: reviewScopeSchema, roomId: z.string().uuid().nullish() }),
 );

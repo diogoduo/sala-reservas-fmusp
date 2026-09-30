@@ -1,4 +1,3 @@
-import { SUPPORT_AREAS } from "./fees";
 import type { ActivityType } from "./types";
 
 // Cada tipo de atividade tem seu próprio formulário (ver ActivityFields.tsx).
@@ -93,7 +92,6 @@ export const ORGANIZER_ENTITY_GROUPS: { label: string; options: [string, string]
 
 export const ORGANIZER_ENTITY_LABELS: Record<string, string> = Object.fromEntries(ORGANIZER_ENTITY_GROUPS.flatMap((g) => g.options));
 
-export const FMUSP_ENTITIES = ["DEPARTMENT", "DIRECTORATE", "ACADEMIC_DIVISION", "COMMISSION", "STAFF"];
 export const STUDENT_ENTITIES = ["CAOC", "AAAOC", "CA_XXI", "DC", "MEDENSINA", "MEDICINA_JR", "EMA", "LEAGUE"];
 export const EXTERNAL_ENTITIES = ["HC", "USP_UNIT", "USP_STUDENT_GROUP", "SES", "ADOLFO_LUTZ", "PUBLIC", "SOCIAL_ORG", "PRIVATE"];
 
@@ -169,7 +167,6 @@ export function activityDetailRows(type: ActivityType, d: Record<string, unknown
         { label: "Departamento", value: str(d.department) },
       ];
     case "CULTURE_EXTENSION": {
-      const areas = Array.isArray(d.supportAreas) ? (d.supportAreas as string[]) : [];
       const rows: { label: string; value: string }[] = [
         {
           label: "Tipo de reserva",
@@ -179,17 +176,12 @@ export function activityDetailRows(type: ActivityType, d: Record<string, unknown
       if (d.entity) rows.push({ label: "Entidade organizadora", value: ORGANIZER_ENTITY_LABELS[str(d.entity)] ?? str(d.entity) });
       if (d.targetAudience) rows.push({ label: "Público-alvo", value: str(d.targetAudience) });
       if (d.program) rows.push({ label: "Programação", value: str(d.program) });
-      rows.push({ label: "Inscrição", value: d.free ? "Gratuita (sem inscrição paga)" : brl(d.fee) });
-      if (d.costOnly !== undefined) rows.push({ label: "Inscrição só para custeio", value: d.costOnly ? "Sim" : "Não" });
-      if (d.sponsored !== undefined) rows.push({ label: "Patrocínio", value: d.sponsored ? "Sim" : "Não" });
+      rows.push({ label: "Taxa", value: d.free ? "Atividade gratuita" : brl(d.fee) });
       if (d.ccexStatus) {
         rows.push({ label: "CCEx", value: `${CCEX_STATUS_LABELS[str(d.ccexStatus)] ?? str(d.ccexStatus)}${d.ccexProcess ? ` · nº ${str(d.ccexProcess)}` : ""}` });
       } else if (d.linkedToCcex !== undefined) {
         // Pedidos feitos antes das portarias de 2026.
         rows.push({ label: "Vinculada à CCEx", value: d.linkedToCcex ? "Sim" : "Não" });
-      }
-      if (areas.length > 0) {
-        rows.push({ label: "Áreas de apoio", value: areas.map((code) => SUPPORT_AREAS.find((a) => a.code === code)?.label ?? code).join("; ") });
       }
       rows.push({ label: "Responsável", value: str(d.responsible) });
       if (d.responsibleContact) rows.push({ label: "Contato", value: str(d.responsibleContact) });

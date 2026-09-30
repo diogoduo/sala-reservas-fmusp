@@ -11,7 +11,6 @@ import { roomPhotosInclude } from "../photos/include";
 import { rankRoomOptions } from "../reservations/allocation";
 import { findConflictingOccurrences, isOverlapViolation, loadBusyIntervals, lockRoomForUpdate } from "../reservations/conflicts";
 import { parseRequestedResources } from "../reservations/requested-resources";
-import { assertCapacity, assertCoffeeBreakAllowed } from "../reservations/rules";
 import { approvalChecklistSchema } from "../schemas/reservation";
 import { approveReservationSchema, rejectReservationSchema, reviewScopeSchema, type ReviewScope } from "../schemas/review";
 
@@ -203,12 +202,9 @@ adminRouter.post(
       if (room.status !== "ACTIVE") {
         throw new AppError(409, "ROOM_NOT_ACTIVE", "Só é possível alocar salas com status Ativa.");
       }
-      for (const target of targets) {
-        assertCapacity(target.expectedAttendees, room.capacity);
-        assertCoffeeBreakAllowed(target.coffeeBreak, room);
-      }
-      // Cultura e Extensão só é confirmada depois das etapas do Art. 20 §3º e da
-      // taxa paga ou isenção deferida (Art. 14 §3º, Art. 21 §2º).
+      // Capacidade (Art. 5º §2º) e a conferência do Art. 20 §3º não barram: o SAD
+      // pode passar por cima das portarias, e a tela avisa o que está sendo violado.
+      // Em Cultura e Extensão, fica registrado o que foi conferido.
       const approvalChecklist =
         targets[0]!.activityType === "CULTURE_EXTENSION"
           ? { ...approvalChecklistSchema.parse(input.approvalChecklist ?? {}), checkedAt: now.toISOString() }

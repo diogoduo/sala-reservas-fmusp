@@ -185,7 +185,8 @@ export function RequesterStanding({ userId }: { userId: string }) {
           <p className="flex gap-2">
             <ProhibitIcon size={18} weight="fill" className="mt-px shrink-0" aria-hidden />
             <span>
-              Suspenso {formatUntil(active)}: {active.reason}
+              Suspenso {formatUntil(active)}: {active.reason}. Aprovar um pedido dele passa por cima da suspensão (Portaria 2793, Arts. 11, 17
+              e 22).
             </span>
           </p>
           <Button size="sm" variant="secondary" onClick={() => void lift(active)}>

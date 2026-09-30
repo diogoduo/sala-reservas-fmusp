@@ -7,10 +7,8 @@ import {
   DEFENSE_LEVEL_LABELS,
   EXTERNAL_ENTITIES,
   ORGANIZER_ENTITY_GROUPS,
-  STUDENT_ENTITIES,
   UNDERGRADUATE_CLASS_TYPE_LABELS,
 } from "../../lib/activities";
-import { formatBRL, SUPPORT_AREAS } from "../../lib/fees";
 import type { ActivityType } from "../../lib/types";
 import { Alert } from "../ui/Feedback";
 import { Input, Select, Switch, Textarea } from "../ui/Field";
@@ -158,8 +156,6 @@ export function ActivityFields({ type, values, onChange }: Props) {
 
     case "CULTURE_EXTENSION": {
       const entity = typeof values.entity === "string" ? values.entity : "";
-      const areas = typeof values.supportAreas === "string" && values.supportAreas ? values.supportAreas.split(",") : [];
-      const yesNo = (name: string) => (values[name] === true ? "yes" : values[name] === false ? "no" : undefined);
       return (
         <>
           <div className="space-y-3 sm:col-span-2">
@@ -219,19 +215,8 @@ export function ActivityFields({ type, values, onChange }: Props) {
             {...text("program")}
             containerClassName="sm:col-span-2"
           />
-          <div className="rounded-xl border border-border p-4 sm:col-span-2">
-            <Switch
-              checked={values.free === true}
-              onChange={(checked) => {
-                onChange("free", checked);
-                if (checked) onChange("fee", "");
-              }}
-              label="Atividade gratuita"
-              description="Sem inscrição paga pelos participantes."
-            />
-          </div>
           <Input
-            label="Valor da inscrição (R$)"
+            label="Valor da taxa (R$)"
             required={!values.free}
             disabled={values.free === true}
             type="number"
@@ -241,34 +226,16 @@ export function ActivityFields({ type, values, onChange }: Props) {
             placeholder={values.free ? "Gratuita" : "0,00"}
             {...text("fee")}
           />
-          {!values.free && STUDENT_ENTITIES.includes(entity) ? (
-            <ChoicePills
-              legend="A inscrição serve só para custear o evento?"
-              name="costOnly"
-              required
-              value={yesNo("costOnly")}
-              onChange={(value) => onChange("costOnly", value === "yes")}
-              options={[
-                ["yes", "Sim"],
-                ["no", "Não"],
-              ]}
+          <div className="rounded-xl border border-border p-4">
+            <Switch
+              checked={values.free === true}
+              onChange={(checked) => {
+                onChange("free", checked);
+                if (checked) onChange("fee", "");
+              }}
+              label="Atividade gratuita"
+              description="Sem taxa de inscrição para os participantes."
             />
-          ) : (
-            <span className="hidden sm:block" aria-hidden />
-          )}
-          <div className="sm:col-span-2">
-            <ChoicePills
-              legend="A atividade tem patrocínio?"
-              name="sponsored"
-              required
-              value={yesNo("sponsored")}
-              onChange={(value) => onChange("sponsored", value === "yes")}
-              options={[
-                ["no", "Não"],
-                ["yes", "Sim"],
-              ]}
-            />
-            <p className="mt-1.5 text-xs text-muted">Qualquer forma: dinheiro, cessão de produtos, serviços ou espaços por terceiros.</p>
           </div>
           <div className="space-y-3 rounded-xl border border-border p-4 sm:col-span-2">
             <ChoicePills
@@ -285,34 +252,6 @@ export function ActivityFields({ type, values, onChange }: Props) {
               Cultura e Extensão (Portaria 2793, Art. 20). A reserva só é confirmada depois dela e da aprovação da Divisão Acadêmica.
             </p>
           </div>
-          <fieldset className="sm:col-span-2">
-            <legend className="text-sm font-medium">Áreas de apoio que pretende usar</legend>
-            <p className="text-xs text-muted">Opcional. Cobradas à parte (Portaria 2794, Art. 3º).</p>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              {SUPPORT_AREAS.map((area) => {
-                const checked = areas.includes(area.code);
-                return (
-                  <label
-                    key={area.code}
-                    className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary-soft/50"
-                  >
-                    <input
-                      type="checkbox"
-                      className="size-4 shrink-0"
-                      checked={checked}
-                      onChange={() =>
-                        onChange("supportAreas", (checked ? areas.filter((a) => a !== area.code) : [...areas, area.code]).join(","))
-                      }
-                    />
-                    <span className="min-w-0 flex-1">{area.label}</span>
-                    <span className="shrink-0 text-xs text-muted tabular-nums">
-                      {formatBRL(area.price)}/{area.unit === "hour" ? "h" : "dia"}
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          </fieldset>
           <Input label="Responsável" required {...text("responsible")} />
           <Input label="Contato do responsável" required placeholder="E-mail ou telefone" maxLength={200} {...text("responsibleContact")} />
           <Input label="Departamento, setor ou entidade" required {...text("department")} containerClassName="sm:col-span-2" />

@@ -7,7 +7,6 @@ import {
   CheckCircleIcon,
   CheckIcon,
   CircleIcon,
-  CoffeeIcon,
   HammerIcon,
   HashIcon,
   KeyIcon,
@@ -26,16 +25,25 @@ import { ACTIVITY_TYPE_LABELS, ACTIVITY_TYPES } from "../../lib/activities";
 import { api, ApiError } from "../../lib/api";
 import { formatDayMonth, holidayName, weekdayOf } from "../../lib/calendar";
 import { cn } from "../../lib/cn";
-import { coffeeBreakAllowed } from "../../lib/fees";
 import { capitalizeFirst, formatShortDate, plural } from "../../lib/format";
 import { ACTIVITY_ICONS, resourceIcon } from "../../lib/icons";
 import { previewWeeklyDates } from "../../lib/recurrence";
 import { formatMinutes, isEditable, notifyReservationsChanged } from "../../lib/reservations";
 import { sortRooms } from "../../lib/rooms";
-import { regularScheduleIssue, validateReservationTimes } from "../../lib/reservationValidation";
+import { validateReservationTimes } from "../../lib/reservationValidation";
 import { useToast } from "../../lib/toast";
 import { ROOM_TYPE_LABELS } from "../../lib/types";
 import type { ActivityType, ApprovalChecklist, Reservation, Resource, ReviewScope, Room } from "../../lib/types";
+import {
+  capacityWarning,
+  checklistWarnings,
+  HOLIDAYS_WARNING,
+  NO_ALCOHOL_WARNING,
+  RELOCATION_WARNING,
+  scheduleWarning,
+  type PortariaWarning,
+} from "../../lib/portarias";
+import { PortariaWarnings } from "../admin/PortariaWarnings";
 import { isAdminActionable } from "../admin/ReservationActions";
 import { RegulationDialog, useRegulationTitle } from "../regulation/Regulation";
 import { RoomsPreview } from "../rooms/RoomsPreview";
@@ -46,7 +54,6 @@ import { QuantityStepper } from "../ui/QuantityStepper";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Card, IconTile, PageHeader } from "../ui/Surface";
 import { ActivityFields, attendeesOf, INITIAL_DETAIL_VALUES, type DetailValues } from "./ActivityFields";
-import { FeeEstimate } from "./FeeEstimate";
 
 const WEEKDAYS: { code: string; label: string; full: string }[] = [
   { code: "MO", label: "Seg", full: "Segunda" },
@@ -206,8 +213,8 @@ function RulesSummary() {
     { icon: KeyIcon, text: "No dia, o responsável vai ao SAD/NE 10 minutos antes para orientações e retirada das chaves." },
     { icon: UsersIcon, text: "Sem cadeiras sobressalentes: todos os participantes precisam caber nas cadeiras da sala." },
     { icon: HammerIcon, text: "A montagem de eventos é reservada junto e faz parte do uso do espaço." },
-    { icon: CoffeeIcon, text: "Coffee break não é permitido nas salas de aula (exceto 2366/2368, 2223 e 1357)." },
-    { icon: ScrollIcon, text: "Proibidos o comércio e o consumo de bebidas alcoólicas. Eventos precisam de autorização da CCEx e podem ter taxa." },
+    { icon: ScrollIcon, text: "Eventos (Cultura e Extensão) precisam de autorização prévia da CCEx." },
+    { icon: ProhibitIcon, text: "Proibidos o comércio e o consumo de bebidas alcoólicas." },
   ];
   return (
     <Card className="p-5">
@@ -341,7 +348,6 @@ function formValuesFrom(r: Reservation) {
     start: timeOf(start),
     end: timeOf(end),
     setupMinutes: String(r.setupMinutes),
-    coffeeBreak: r.coffeeBreak,
     noAlcoholCommitment: r.noAlcoholCommitment,
   };
 }
@@ -382,7 +388,6 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
   const [termsAccepted, setTermsAccepted] = useState(editing !== undefined || Boolean(asAdmin));
   // Portaria 2793, Art. 23: compromisso no formulário (o SAD também assume ao reservar).
   const [noAlcohol, setNoAlcohol] = useState(initial?.noAlcoholCommitment ?? false);
-  const [coffeeBreak, setCoffeeBreak] = useState(initial?.coffeeBreak ?? false);
   // Recursos marcados (a chave é o id), com a quantidade/detalhe como digitados.
   const [selectedResources, setSelectedResources] = useState<Record<string, { quantity: string; detail: string }>>(
     initial?.selectedResources ?? {},
@@ -402,9 +407,8 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
   const [roomId, setRoomId] = useState(editing?.roomId ?? prefill?.roomId ?? "");
   const [activeRooms, setActiveRooms] = useState<Room[]>([]);
   const choosesRoom = adminCreating || Boolean(asAdmin && editing?.status === "APPROVED");
-  // SAD: autorizações que as portarias exigem para seguir (Art. 6º §1º, Art. 12, Art. 20 §3º).
-  const [extraordinaryAuthorized, setExtraordinaryAuthorized] = useState(false);
-  const [relocationAuthorized, setRelocationAuthorized] = useState(false);
+  // SAD: numa série, manter as datas em feriado (fora do Art. 6º) e a conferência de eventos (Art. 20 §3º).
+  const [keepHolidays, setKeepHolidays] = useState(false);
   const [checklist, setChecklist] = useState<ApprovalChecklist>(EMPTY_CHECKLIST);
   const [standing, setStanding] = useState<Standing | null>(null);
 
@@ -448,22 +452,14 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
   }, [reservedStart, startDate, endDate, asAdmin]);
   // O aviso de horário só aparece depois que data, início e término foram preenchidos.
   const timesFilled = Boolean(date && startTimeStr && endTimeStr);
-  // SAD: domingo, feriado ou fora das 07h–22h pede a autorização do Art. 6º §1º.
-  const scheduleIssue =
-    asAdmin && reservedStart && endDate && clientErrors.length === 0 ? regularScheduleIssue(reservedStart, endDate) : null;
-  const unchangedExtraordinary =
-    editing?.outsideRegularHours && reservedStart?.getTime() === new Date(editing.startTime).getTime() && endDate?.getTime() === new Date(editing.endTime).getTime();
-  const needsExtraordinary = Boolean(scheduleIssue) && !unchangedExtraordinary;
-
   const previewDates = useMemo(
     () => (recurrenceEnabled ? previewWeeklyDates(date, until, weekdays, Number(interval)) : []),
     [recurrenceEnabled, date, until, weekdays, interval],
   );
-  // Numa série, os feriados ficam de fora (Art. 6º) — só o SAD, com autorização, mantém.
-  const keepsHolidays = Boolean(asAdmin) && extraordinaryAuthorized;
+  // Numa série, os feriados ficam de fora (Art. 6º) — o SAD pode pedir para manter.
+  const keepsHolidays = Boolean(asAdmin) && keepHolidays;
   const holidayDates = previewDates.filter((d) => holidayName(d));
   const effectiveDates = keepsHolidays ? previewDates : previewDates.filter((d) => !holidayName(d));
-  const dateCount = recurrenceEnabled ? effectiveDates.length : 1;
   const weekdayOptions = asAdmin ? WEEKDAYS : WEEKDAYS.filter((w) => w.code !== "SU");
 
   // Ao ligar a recorrência, já marca o dia da semana da data escolhida.
@@ -498,24 +494,36 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
   }
 
   const chosenRoom = activeRooms.find((r) => r.id === roomId) ?? (editing?.room && editing.room.id === roomId ? editing.room : null);
-  const coffeeBlocked = Boolean(asAdmin && coffeeBreak && chosenRoom && !coffeeBreakAllowed(chosenRoom));
   const relocating = Boolean(asAdmin && editing?.status === "APPROVED" && roomId && roomId !== editing.roomId);
   const needsChecklist = adminCreating && activityType === "CULTURE_EXTENSION";
-  const checklistOk = !needsChecklist || (checklist.ccexAuthorized && checklist.academicDivisionApproved && checklist.feeSettled);
   // O compromisso do Art. 23 é assumido em todo pedido; na alteração do SAD fica o que já foi assumido.
   const asksCommitment = !(asAdmin && editing);
   const suspended = !asAdmin && Boolean(standing?.suspension);
+
+  // O SAD pode passar por cima das portarias: em vez de barrar, a tela diz qual
+  // regra está sendo violada (o solicitante continua preso a elas).
+  const unchangedSchedule =
+    reservedStart?.getTime() === (editing ? new Date(editing.startTime).getTime() : NaN) && endDate?.getTime() === new Date(editing?.endTime ?? NaN).getTime();
+  const warnings: PortariaWarning[] = [];
+  if (asAdmin && clientErrors.length === 0 && !unchangedSchedule) {
+    const schedule = scheduleWarning(reservedStart, endDate);
+    if (schedule) warnings.push(schedule);
+  }
+  if (asAdmin && recurrenceEnabled && keepsHolidays && holidayDates.length > 0) warnings.push(HOLIDAYS_WARNING);
+  if (asAdmin && activityType) {
+    const capacity = capacityWarning(Number(attendeesOf(activityType, details)) || 0, choosesRoom ? chosenRoom : null);
+    if (capacity) warnings.push(capacity);
+  }
+  if (relocating) warnings.push(RELOCATION_WARNING);
+  if (needsChecklist) warnings.push(...checklistWarnings(checklist));
+  if (adminCreating && !noAlcohol) warnings.push(NO_ALCOHOL_WARNING);
 
   const recurrenceOk = !recurrenceEnabled || (weekdays.size > 0 && effectiveDates.length > 0);
   const canSubmit =
     clientErrors.length === 0 &&
     recurrenceOk &&
     termsAccepted &&
-    (!asksCommitment || noAlcohol) &&
-    (!needsExtraordinary || extraordinaryAuthorized) &&
-    (!relocating || relocationAuthorized) &&
-    checklistOk &&
-    !coffeeBlocked &&
+    (asAdmin !== undefined || noAlcohol) &&
     !suspended &&
     (!adminCreating || Boolean(roomId)) &&
     !submitting;
@@ -547,7 +555,6 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
         startTime: startDate!.toISOString(),
         endTime: endDate!.toISOString(),
         setupMinutes: setup,
-        coffeeBreak,
       };
       const recurrence = rrule ? { rrule, until: new Date(`${until}T23:59:59`).toISOString() } : undefined;
 
@@ -558,16 +565,20 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
             ...payload,
             roomId,
             noAlcoholCommitment: noAlcohol,
-            extraordinaryAuthorized,
+            keepHolidays: keepsHolidays,
             approvalChecklist: needsChecklist ? checklist : undefined,
             recurrence,
           }),
         });
         toast.success(
           `${res.reservations.length === 1 ? "Sala reservada" : `${res.reservations.length} datas reservadas`} · protocolo ${res.protocol}`,
-          res.skippedDates.length > 0
-            ? `A reserva já está aprovada. ${plural(res.skippedDates.length, "feriado ficou", "feriados ficaram")} de fora.`
-            : "A reserva já está aprovada.",
+          [
+            "A reserva já está aprovada.",
+            res.skippedDates.length > 0 ? `${plural(res.skippedDates.length, "feriado ficou", "feriados ficaram")} de fora.` : "",
+            warnings.length > 0 ? `Feita fora de: ${[...new Set(warnings.map((w) => w.rule))].join("; ")}.` : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
         );
         notifyReservationsChanged();
         navigate(asAdmin.returnTo);
@@ -579,13 +590,13 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
             ...payload,
             scope,
             roomId: roomId || null,
-            extraordinaryAuthorized: needsExtraordinary ? extraordinaryAuthorized : false,
-            relocationAuthorized,
           }),
         });
         toast.success(
           res.updatedIds.length === 1 ? "Reserva alterada" : `${res.updatedIds.length} datas alteradas`,
-          "O solicitante foi avisado por e-mail.",
+          warnings.length > 0
+            ? `O solicitante foi avisado por e-mail. Feita fora de: ${[...new Set(warnings.map((w) => w.rule))].join("; ")}.`
+            : "O solicitante foi avisado por e-mail.",
         );
         notifyReservationsChanged();
         navigate(asAdmin.returnTo);
@@ -690,8 +701,7 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
           {isCulture && (
             <li className="flex gap-2">
               <ScrollIcon size={18} className="mt-0.5 shrink-0 text-primary" aria-hidden />
-              A reserva só é confirmada depois da autorização da CCEx, da aprovação da Divisão Acadêmica e, se houver taxa, do comprovante de
-              pagamento à FFM (até 30 dias antes) entregue ao SAD/NE.
+              A reserva só é confirmada depois da autorização da CCEx e da aprovação da Divisão Acadêmica.
             </li>
           )}
         </ul>
@@ -718,13 +728,12 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
     dayOnly && !Number.isNaN(dayOnly.getTime())
       ? capitalizeFirst(dayOnly.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" }))
       : "Data a definir";
-  const reservedMinutes = reservedStart && endDate ? Math.max(0, (endDate.getTime() - reservedStart.getTime()) / 60_000) : 0;
   // Aos sábados (e, com o SAD, domingos e feriados), áudio e vídeo exige 2 técnicos (Art. 18 §1º).
   const weekendDate = date ? weekdayOf(date) === 6 || weekdayOf(date) === 0 || holidayName(date) !== null : false;
 
   // O tipo de atividade não muda numa alteração (só nas reservas antigas, que ainda não tinham tipo).
   const activityLocked = !asAdmin && editing?.activityType != null;
-  const submitLabel = editing ? "Salvar alteração" : adminCreating ? "Reservar" : "Enviar solicitação";
+  const submitLabel = `${editing ? "Salvar alteração" : adminCreating ? "Reservar" : "Enviar solicitação"}${warnings.length > 0 ? " mesmo assim" : ""}`;
   let step = 0;
   const nextStep = () => ++step;
 
@@ -758,14 +767,14 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
       {suspended && <SuspensionNotice suspension={standing!.suspension!} />}
       {adminCreating && (
         <Alert tone="success" title="Reserva do SAD não passa pela fila">
-          Ela é gravada já aprovada, na sala escolhida, com número de protocolo. O sistema confere se a sala está livre em todas as datas e se
-          comporta o número de pessoas.
+          Ela é gravada já aprovada, na sala escolhida, com número de protocolo. O sistema confere se a sala está livre em todas as datas; o
+          que sair das portarias aparece como aviso, e você decide se segue.
         </Alert>
       )}
       {asAdmin && editing && (
         <Alert tone="info" title="O solicitante recebe um e-mail com a alteração">
           {editing.status === "APPROVED"
-            ? "A reserva continua aprovada. Se mudar a sala ou o horário, o sistema confere se a sala está livre antes de salvar."
+            ? "A reserva continua aprovada. Se mudar a sala ou o horário, o sistema confere se a sala está livre antes de salvar; o que sair das portarias aparece como aviso."
             : "A reserva continua em análise; a sala é escolhida na aprovação."}
         </Alert>
       )}
@@ -855,15 +864,6 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
               </Select>
             )}
 
-            {relocating && (
-              <div className="mt-4 rounded-xl border border-warning-foreground/30 bg-warning-soft p-4">
-                <Confirm checked={relocationAuthorized} onChange={setRelocationAuthorized}>
-                  <strong>Realocação autorizada</strong> pela Divisão Acadêmica e pela Diretoria (Portaria 2793, Art. 12). O solicitante é avisado
-                  por e-mail.
-                </Confirm>
-              </div>
-            )}
-
             {timesFilled && clientErrors.length > 0 && (
               <Alert tone="warning" className="mt-4">
                 <ul className="space-y-0.5">
@@ -874,15 +874,11 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
               </Alert>
             )}
 
-            {asAdmin && (needsExtraordinary || (recurrenceEnabled && holidayDates.length > 0)) && (
-              <div className="mt-4 space-y-2 rounded-xl border border-warning-foreground/30 bg-warning-soft p-4 text-sm">
-                {scheduleIssue && needsExtraordinary && <p className="font-medium text-warning-foreground">Horário extraordinário: {scheduleIssue}.</p>}
-                <Confirm checked={extraordinaryAuthorized} onChange={setExtraordinaryAuthorized} required={needsExtraordinary}>
-                  <strong>Autorização prévia da Divisão Acadêmica</strong> e custeio da equipe de serviços de apoio para uso em domingo, feriado,
-                  ponto facultativo ou fora das 07h–22h (Portaria 2793, Art. 6º §1º).
-                </Confirm>
-              </div>
-            )}
+            {/* SAD: o que sai da portaria aparece aqui mesmo, junto do horário e da sala. */}
+            <PortariaWarnings
+              warnings={warnings.filter((w) => w.rule.startsWith("Portaria 2793, Art. 6º") || w.rule.startsWith("Portaria 2793, Art. 12"))}
+              className="mt-4"
+            />
 
             {weekendDate && chosenResources.length > 0 && (
               <Alert tone="info" className="mt-4">
@@ -995,6 +991,11 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
                       </ul>
                     </div>
                   )}
+                  {asAdmin && holidayDates.length > 0 && (
+                    <Confirm required={false} checked={keepHolidays} onChange={setKeepHolidays}>
+                      Reservar também nas datas em feriado ou ponto facultativo (fora da Portaria 2793, Art. 6º).
+                    </Confirm>
+                  )}
                 </div>
               )}
             </div>
@@ -1034,34 +1035,24 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
             </p>
           </FormSection>
 
-          {activityType === "CULTURE_EXTENSION" && (
+          {needsChecklist && (
             <FormSection
               step={nextStep()}
-              title="Taxa de utilização"
-              description="Enquadramento nas isenções e estimativa, conforme as Portarias 2793 (Arts. 13–16) e 2794."
+              title="Conferência do SAD"
+              description="Etapas da Portaria 2793, Art. 20 §3º. O que não for marcado aparece como aviso; dá para reservar mesmo assim."
             >
-              <FeeEstimate
-                type={activityType}
-                details={details}
-                reservedMinutes={reservedMinutes}
-                dates={dateCount}
-                firstDate={reservedStart}
-                coffeeBreak={coffeeBreak}
-                room={asAdmin ? chosenRoom : null}
-              />
-            </FormSection>
-          )}
-
-          {needsChecklist && (
-            <FormSection step={nextStep()} title="Conferência do SAD" description="Para a reserva já sair confirmada (Portaria 2793, Art. 20 §3º).">
               <div className="space-y-3">
-                <Confirm checked={checklist.ccexAuthorized} onChange={(v) => setChecklist((c) => ({ ...c, ccexAuthorized: v }))}>
+                <Confirm required={false} checked={checklist.ccexAuthorized} onChange={(v) => setChecklist((c) => ({ ...c, ccexAuthorized: v }))}>
                   Autorização da CCEx conferida (Art. 20 §3º, a).
                 </Confirm>
-                <Confirm checked={checklist.academicDivisionApproved} onChange={(v) => setChecklist((c) => ({ ...c, academicDivisionApproved: v }))}>
+                <Confirm
+                  required={false}
+                  checked={checklist.academicDivisionApproved}
+                  onChange={(v) => setChecklist((c) => ({ ...c, academicDivisionApproved: v }))}
+                >
                   Aprovação da Divisão Acadêmica (Art. 20 §3º, c).
                 </Confirm>
-                <Confirm checked={checklist.feeSettled} onChange={(v) => setChecklist((c) => ({ ...c, feeSettled: v }))}>
+                <Confirm required={false} checked={checklist.feeSettled} onChange={(v) => setChecklist((c) => ({ ...c, feeSettled: v }))}>
                   Comprovante de pagamento da taxa entregue ao SAD/NE, ou atividade isenta (Art. 14 §3º e Art. 21 §2º).
                 </Confirm>
                 <Confirm
@@ -1161,19 +1152,6 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
                 );
               })}
             </div>
-            <div className="mt-5 rounded-xl border border-border p-4">
-              <Switch
-                checked={coffeeBreak}
-                onChange={setCoffeeBreak}
-                label="Haverá coffee break ou alimentação"
-                description="Não é permitido nas salas de aula, exceto nas salas 2366/2368 (Sala do Futuro), 2223 (Design Thinking) e 1357, com autorização do Núcleo de Eventos e adicional de 20% na taxa (Portaria 2794, Art. 5º)."
-              />
-              {coffeeBlocked && chosenRoom && (
-                <Alert tone="danger" className="mt-3">
-                  Coffee break não é permitido na {chosenRoom.name}. Escolha outra sala ou desmarque a opção.
-                </Alert>
-              )}
-            </div>
             <Textarea
               label="Observações para TI/infraestrutura"
               rows={2}
@@ -1232,24 +1210,16 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
                         .join(", ")}
                 </dd>
               </div>
-              {coffeeBreak && (
-                <div className="flex gap-3">
-                  <dt className="sr-only">Alimentação</dt>
-                  <CoffeeIcon size={20} className="shrink-0 text-muted" aria-hidden />
-                  <dd>Com coffee break</dd>
-                </div>
-              )}
             </dl>
             <ul className="mt-5 space-y-2 border-t border-border pt-4">
-              <ChecklistItem ok={clientErrors.length === 0}>Data e horário dentro das regras</ChecklistItem>
+              <ChecklistItem ok={clientErrors.length === 0}>{asAdmin ? "Data e horário válidos" : "Data e horário dentro das regras"}</ChecklistItem>
               {recurrenceEnabled && <ChecklistItem ok={recurrenceOk}>Datas da série definidas</ChecklistItem>}
-              {needsExtraordinary && <ChecklistItem ok={extraordinaryAuthorized}>Autorização para horário extraordinário</ChecklistItem>}
-              {relocating && <ChecklistItem ok={relocationAuthorized}>Realocação autorizada</ChecklistItem>}
-              {needsChecklist && <ChecklistItem ok={checklistOk}>Conferência do SAD</ChecklistItem>}
-              {adminCreating && <ChecklistItem ok={Boolean(roomId) && !coffeeBlocked}>Sala escolhida</ChecklistItem>}
+              {adminCreating && <ChecklistItem ok={Boolean(roomId)}>Sala escolhida</ChecklistItem>}
               {!asAdmin && <ChecklistItem ok={termsAccepted}>Regulamento aceito</ChecklistItem>}
-              {asksCommitment && <ChecklistItem ok={noAlcohol}>Compromisso sem bebidas alcoólicas</ChecklistItem>}
+              {!asAdmin && <ChecklistItem ok={noAlcohol}>Compromisso sem bebidas alcoólicas</ChecklistItem>}
             </ul>
+            {/* SAD: todos os avisos das portarias junto do botão (no celular, ficam no quadro de baixo). */}
+            <PortariaWarnings warnings={warnings} className="mt-5 hidden lg:block" />
             {/* No celular o botão fica no fim do formulário; aqui só no computador. */}
             <div className="mt-5 hidden lg:block">
               <Button type="submit" form={FORM_ID} size="lg" icon={PaperPlaneTiltIcon} loading={submitting} disabled={!canSubmit} className="w-full">
@@ -1259,8 +1229,9 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
           </Card>
         </aside>
 
-        {/* Na alteração do SAD, no computador, este quadro ficaria vazio (nada a aceitar; o botão fica no resumo). */}
+        {/* Na alteração do SAD, no computador, este quadro ficaria vazio (nada a aceitar; o botão e os avisos ficam no resumo). */}
         <Card className={cn("space-y-4 p-5 sm:p-6 lg:col-start-1", !asksCommitment && submitErrors.length === 0 && "lg:hidden")}>
+          <PortariaWarnings warnings={warnings} className="lg:hidden" />
           {!asAdmin && (
             <Confirm checked={termsAccepted} onChange={setTermsAccepted}>
               Li e concordo com o{" "}
@@ -1275,7 +1246,7 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
             </Confirm>
           )}
           {asksCommitment && (
-            <Confirm checked={noAlcohol} onChange={setNoAlcohol}>
+            <Confirm required={!asAdmin} checked={noAlcohol} onChange={setNoAlcohol}>
               Assumo o compromisso de que <strong>não haverá comércio nem consumo de bebidas alcoólicas</strong> na atividade (Portaria 2793, Art. 23).
             </Confirm>
           )}

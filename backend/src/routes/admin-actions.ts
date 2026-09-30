@@ -15,7 +15,7 @@ import { findConflictingOccurrences, isOverlapViolation, lockRoomForUpdate } fro
 import { expandRecurrence, type Occurrence } from "../reservations/recurrence";
 import { nextProtocol, noShowsInLastYear, reservedWindow, withoutHolidays } from "../reservations/portaria";
 import { normalizeRequestedResources } from "../reservations/requested-resources";
-import { assertCapacity, assertCoffeeBreakAllowed, assertValidDuration, checkAdminSchedule } from "../reservations/rules";
+import { assertValidDuration, isExtraordinarySchedule } from "../reservations/rules";
 import { adminCreateReservationSchema, adminUpdateReservationSchema, approvalChecklistSchema } from "../schemas/reservation";
 import { adminCancelReservationSchema } from "../schemas/review";
 import { adminReservationInclude } from "./admin";
@@ -50,10 +50,10 @@ async function resolveTargets(tx: Prisma.TransactionClient, id: string, scope: "
 
 // ----------------------------------------------------------------------------
 // Reservar (pelo próprio SAD). Não passa pela fila: já nasce APROVADA, na sala
-// escolhida. Sem os 3 dias de antecedência (só não pode ser no passado); valem
-// a capacidade e a checagem de conflito em todas as datas, com a sala travada
-// como na aprovação. Domingo, feriado ou fora das 07h–22h só com a autorização
-// da Divisão Acadêmica marcada (Portaria 2793, Art. 6º §1º).
+// escolhida. Sem os 3 dias de antecedência (só não pode ser no passado); vale a
+// checagem de conflito em todas as datas, com a sala travada como na aprovação.
+// As regras das portarias (horário, capacidade, compromisso do Art. 23,
+// conferência do Art. 20) não barram o SAD: a tela avisa o que está sendo violado.
 // ----------------------------------------------------------------------------
 
 adminActionsRouter.post(
@@ -70,7 +70,7 @@ adminActionsRouter.post(
     if (window.start <= now) {
       throw new AppError(400, "RESERVATION_IN_PAST", "Escolha um horário que ainda não passou.");
     }
-    // Cultura e Extensão já nasce confirmada: vale a mesma conferência da aprovação (Art. 20 §3º).
+    // Cultura e Extensão já nasce confirmada: fica registrada a conferência do Art. 20 §3º.
     const approvalChecklist =
       input.activityType === "CULTURE_EXTENSION"
         ? { ...approvalChecklistSchema.parse(input.approvalChecklist ?? {}), checkedAt: now.toISOString() }
@@ -80,10 +80,10 @@ adminActionsRouter.post(
     let occurrences: Occurrence[] = input.recurrence
       ? expandRecurrence(input.recurrence.rrule, window.start, window.end, input.recurrence.until)
       : [window];
-    // Sem a autorização do Art. 6º §1º, os feriados de uma série ficam de fora.
+    // Numa série, os feriados ficam de fora, a menos que o SAD peça para manter.
     let skippedDates: { date: string; holiday: string }[] = [];
-    if (input.recurrence && !input.extraordinaryAuthorized) ({ kept: occurrences, skipped: skippedDates } = withoutHolidays(occurrences));
-    const planned = occurrences.map((occ) => ({ ...occ, outside: checkAdminSchedule(occ.start, occ.end, input.extraordinaryAuthorized) }));
+    if (input.recurrence && !input.keepHolidays) ({ kept: occurrences, skipped: skippedDates } = withoutHolidays(occurrences));
+    const planned = occurrences.map((occ) => ({ ...occ, outside: isExtraordinarySchedule(occ.start, occ.end) }));
 
     let result;
     try {
@@ -93,8 +93,6 @@ adminActionsRouter.post(
           const room = await tx.room.findUnique({ where: { id: input.roomId } });
           if (!room) throw new AppError(404, "ROOM_NOT_FOUND", "Sala não encontrada.");
           if (room.status !== "ACTIVE") throw new AppError(409, "ROOM_NOT_ACTIVE", "Só é possível reservar salas com status Ativa.");
-          assertCapacity(expectedAttendees, room.capacity);
-          assertCoffeeBreakAllowed(input.coffeeBreak, room);
 
           const conflicting = await findConflictingOccurrences(tx, room.id, planned);
           if (conflicting.length > 0) {
@@ -177,8 +175,9 @@ adminActionsRouter.post(
 // ----------------------------------------------------------------------------
 // Alterar. Diferente da alteração pelo solicitante: não volta para análise
 // (aprovada continua aprovada), não exige os 3 dias de antecedência, pode trocar
-// o tipo de atividade e a sala. Continua valendo o horário de funcionamento, a
-// capacidade da sala e a checagem de conflito.
+// o tipo de atividade e a sala. Continua valendo a checagem de conflito; as
+// regras das portarias (horário, capacidade, realocação do Art. 12) viram aviso
+// na tela do SAD.
 // ----------------------------------------------------------------------------
 
 adminActionsRouter.put(
@@ -202,26 +201,18 @@ adminActionsRouter.put(
       const planned = targets.map((target) => {
         const start = new Date(target.startTime.getTime() + shiftMs);
         const end = new Date(start.getTime() + durationMs);
-        // Mudar o horário para domingo, feriado ou fora das 07h–22h só com a autorização do Art. 6º §1º.
         const unchanged = start.getTime() === target.startTime.getTime() && end.getTime() === target.endTime.getTime();
-        const outside = checkAdminSchedule(start, end, input.extraordinaryAuthorized || (unchanged && target.outsideRegularHours));
+        // Domingo, feriado ou fora das 07h–22h fica marcado (Art. 6º); sem mudar o horário, mantém a marca.
+        const outside = isExtraordinarySchedule(start, end) || (unchanged && target.outsideRegularHours);
         if (start <= now && !unchanged) {
           throw new AppError(400, "RESERVATION_IN_PAST", "Não dá para mover uma reserva para um horário que já passou.");
         }
         // Só a reserva aprovada troca de sala; a pendente continua sem sala (é alocada ao aprovar).
         const roomId = target.status === "APPROVED" ? (input.roomId ?? target.roomId) : target.roomId;
-        // Art. 12: realocar exige autorização da Divisão Acadêmica e da Diretoria.
-        if (target.status === "APPROVED" && roomId !== target.roomId && !input.relocationAuthorized) {
-          throw new AppError(
-            400,
-            "RELOCATION_NEEDS_AUTHORIZATION",
-            "Para realocar uma reserva aprovada em outra sala, confirme a autorização da Divisão Acadêmica e da Diretoria (Portaria 2793, Art. 12).",
-          );
-        }
         return { id: target.id, start, end, roomId, outside };
       });
 
-      // Conflito e capacidade, sala por sala (a sala é travada antes de checar).
+      // Conflito, sala por sala (a sala é travada antes de checar).
       const byRoom = new Map<string, typeof planned>();
       for (const p of planned) if (p.roomId) byRoom.set(p.roomId, [...(byRoom.get(p.roomId) ?? []), p]);
       for (const [roomId, occurrences] of byRoom) {
@@ -231,8 +222,6 @@ adminActionsRouter.put(
         if (room.status !== "ACTIVE" && roomId !== reservation.roomId) {
           throw new AppError(409, "ROOM_NOT_ACTIVE", "Só é possível mover a reserva para uma sala Ativa.");
         }
-        assertCapacity(expectedAttendees, room.capacity);
-        assertCoffeeBreakAllowed(input.coffeeBreak, room);
         const conflicting = await findConflictingOccurrences(tx, roomId, occurrences, planned.map((p) => p.id));
         if (conflicting.length > 0) {
           throw new AppError(
