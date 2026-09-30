@@ -111,7 +111,9 @@ export function RequestDetails({ group, resources }: { group: AdminReservation[]
           <DetailRow label="Horário">Extraordinário — domingo, feriado ou fora das 07h–22h (Art. 6º §1º)</DetailRow>
         )}
         <DetailRow label="Bebidas alcoólicas">
-          {first.noAlcoholCommitment ? "Compromisso de não haver comércio nem consumo assumido (Art. 23)" : "Pedido anterior às portarias de 2026"}
+          {first.noAlcoholCommitment
+            ? "Compromisso de não haver comércio nem consumo assumido (Art. 23)"
+            : "Compromisso do Art. 23 não assumido (reserva do SAD ou pedido anterior às portarias)"}
         </DetailRow>
         <DetailRow label="Descrição">{first.description}</DetailRow>
         {first.activityType &&
