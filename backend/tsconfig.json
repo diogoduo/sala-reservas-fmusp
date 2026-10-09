@@ -12,5 +12,5 @@
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["src", "prisma/seed.ts", "prisma/import-fmusp.ts"]
+  "include": ["src", "prisma/seed.ts", "prisma/import-fmusp.ts", "prisma/seed-demo.ts", "prisma/demo"]
 }

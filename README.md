@@ -373,6 +373,37 @@ No plano grátis, o serviço "dorme" depois de 15 minutos sem acesso, e o
 primeiro acesso depois disso leva cerca de 1 minuto. Antes de apresentar, abra
 o site um pouco antes.
 
+### Base de demonstração (fictícia)
+
+Para apresentar o sistema sem dados da faculdade, `prisma/seed-demo.ts` monta
+uma base inteira inventada:
+
+- 20 salas (teatro, anfiteatros, salas de aula, laboratórios, reunião,
+  conselho e multiuso, uma delas em reforma);
+- no lugar das fotos, ilustrações desenhadas pelo próprio script
+  (`prisma/demo/illustrations.ts`), com a legenda "imagem ilustrativa";
+- inventário com modelos e patrimônios fictícios (`PAT-…`) e 12 notebooks;
+- pessoas fictícias (e-mails `…demo@usp.br`) além das contas de teste;
+- cerca de 100 reservas espalhadas pelo mês, de segunda a sábado e fora dos
+  feriados, em todas as situações: aprovadas, pendentes, alteradas,
+  rejeitadas, canceladas, ausências registradas e uma reserva do SAD fora
+  das portarias (num domingo).
+
+O regulamento e os recursos não são apagados.
+
+```bash
+npm run db:seed-demo -- --month=2026-10           # num banco vazio (só com as migrations)
+npm run db:seed-demo -- --reset --month=2026-10   # APAGA salas, reservas, notebooks e usuários de teste extras
+npm run db:seed-demo -- --preview=pasta           # só gera as ilustrações em PNG
+```
+
+Sem `--reset`, o script se recusa a rodar num banco que já tem salas ou
+reservas. Para a apresentação, o caminho mais seguro é um banco separado no
+mesmo projeto do Neon (`CREATE DATABASE reservas_demo`, depois
+`prisma migrate deploy` e o seed com a `DATABASE_URL` apontando para ele). No
+Render, basta trocar o nome do banco na `DATABASE_URL` para alternar entre a
+base fictícia e a real.
+
 ## Fase 8 — Minhas Reservas
 
 A aba **Minhas reservas** passou a ser a tela inicial do solicitante

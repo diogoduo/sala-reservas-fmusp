@@ -17,7 +17,8 @@
     "db:seed": "prisma db seed",
     "db:import-fmusp": "tsx prisma/import-fmusp.ts",
     "db:reset": "prisma migrate reset",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "db:seed-demo": "tsx prisma/seed-demo.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
