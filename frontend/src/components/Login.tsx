@@ -75,11 +75,12 @@ function MockLogin() {
       </div>
       <p className="mt-2 text-sm text-muted">
         {demo
-          ? "Ambiente de demonstração, com as salas reais da FMUSP. Na versão oficial o login é pela Senha Única USP. Escolha um perfil para entrar:"
+          ? "Ambiente de demonstração, com salas, pessoas e reservas fictícias. Na versão oficial o login é pela Senha Única USP. Escolha um perfil para entrar:"
           : "Simula a Senha Única USP para desenvolvimento local. Escolha uma conta de teste:"}
       </p>
 
-      <ul className="mt-6 space-y-2">
+      {/* Com muitas contas (a demonstração tem 13), a lista rola por dentro e a tela não estica. */}
+      <ul aria-label="Contas" className="-mx-1 mt-6 max-h-[min(24rem,45dvh)] space-y-2 overflow-y-auto overscroll-contain px-1 py-0.5">
         {users === null &&
           Array.from({ length: 4 }, (_, i) => <li key={i} className="h-[4.25rem] animate-pulse rounded-xl bg-surface-muted" />)}
         {users?.map((u, i) => (
@@ -170,9 +171,9 @@ export function Login() {
   const { authMode } = useAuth();
 
   return (
-    <div className="min-h-dvh lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-      {/* Painel da marca (computador) */}
-      <aside className="relative hidden overflow-hidden bg-linear-to-br from-teal-700 via-teal-800 to-emerald-900 p-12 text-white lg:flex lg:flex-col">
+    <div className="min-h-dvh lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-start">
+      {/* Painel da marca (computador): fixo na altura da tela, mesmo se o lado direito rolar. */}
+      <aside className="relative hidden overflow-hidden bg-linear-to-br from-teal-700 via-teal-800 to-emerald-900 p-12 text-white lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col">
         <div
           aria-hidden
           className="absolute inset-0 opacity-20"
