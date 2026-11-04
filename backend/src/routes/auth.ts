@@ -36,18 +36,37 @@ authRouter.get("/config", (_req, res) => {
   res.json({ mode: env.AUTH_MODE, demo: env.DEMO_MODE });
 });
 
-/** Cria (no primeiro acesso) ou atualiza o usuário e abre a sessão. Usado pelos três modos. */
+/**
+ * Cria (no primeiro acesso) ou atualiza o usuário e abre a sessão. Usado pelos três modos.
+ * Identifica pelo nº USP (não muda) e, se não achar, pelo e-mail (cadastro antigo sem nº USP).
+ */
 async function loginOrCreateUser(input: { uspNumber: string; name: string; email: string }) {
   const email = input.email.trim().toLowerCase();
   assertAllowedEmailDomain(email);
 
-  const user = await prisma.user.upsert({
-    where: { email },
-    update: { name: input.name, uspNumber: input.uspNumber },
-    create: { email, name: input.name, uspNumber: input.uspNumber, role: resolveInitialRole(email) },
-  });
+  const byUspNumber = await prisma.user.findUnique({ where: { uspNumber: input.uspNumber } });
+  if (byUspNumber) {
+    // Trocou de e-mail. Se o novo já é de outro cadastro, mantém o atual em vez
+    // de travar o login; a duplicidade fica para o SAD resolver.
+    const emailTaken =
+      email !== byUspNumber.email && (await prisma.user.findUnique({ where: { email }, select: { id: true } })) !== null;
+    if (emailTaken) {
+      console.warn(`[login] e-mail novo do usuário ${byUspNumber.id} já pertence a outro cadastro; mantido o anterior`);
+    }
+    return prisma.user.update({
+      where: { id: byUspNumber.id },
+      data: { name: input.name, ...(emailTaken ? {} : { email }) },
+    });
+  }
 
-  return user;
+  const byEmail = await prisma.user.findUnique({ where: { email } });
+  if (byEmail) {
+    return prisma.user.update({ where: { id: byEmail.id }, data: { name: input.name, uspNumber: input.uspNumber } });
+  }
+
+  return prisma.user.create({
+    data: { email, name: input.name, uspNumber: input.uspNumber, role: resolveInitialRole(email) },
+  });
 }
 
 // ----------------------------------------------------------------------------
