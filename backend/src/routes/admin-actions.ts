@@ -193,78 +193,81 @@ adminActionsRouter.put(
     const requestedResources = await normalizeRequestedResources(prisma, input.requestedResources);
 
     let before: AdminEditBefore | null = null;
-    const updatedIds = await prisma.$transaction(async (tx) => {
-      const now = new Date();
-      const { reservation, targets } = await resolveTargets(tx, req.params.id!, input.scope);
-      before = { startTime: reservation.startTime, endTime: reservation.endTime, roomName: roomLabel(reservation.room) };
+    const updatedIds = await prisma.$transaction(
+      async (tx) => {
+        const now = new Date();
+        const { reservation, targets } = await resolveTargets(tx, req.params.id!, input.scope);
+        before = { startTime: reservation.startTime, endTime: reservation.endTime, roomName: roomLabel(reservation.room) };
 
-      const shiftMs = window.start.getTime() - reservation.startTime.getTime();
-      const durationMs = window.end.getTime() - window.start.getTime();
-      const planned = targets.map((target) => {
-        const start = new Date(target.startTime.getTime() + shiftMs);
-        const end = new Date(start.getTime() + durationMs);
-        const unchanged = start.getTime() === target.startTime.getTime() && end.getTime() === target.endTime.getTime();
-        // Domingo, feriado ou fora das 07h–22h fica marcado (Art. 6º); sem mudar o horário, mantém a marca.
-        const outside = isExtraordinarySchedule(start, end) || (unchanged && target.outsideRegularHours);
-        if (start <= now && !unchanged) {
-          throw new AppError(400, "RESERVATION_IN_PAST", "Não dá para mover uma reserva para um horário que já passou.");
-        }
-        // Só a reserva aprovada troca de sala; a pendente continua sem sala (é alocada ao aprovar).
-        const roomId = target.status === "APPROVED" ? (input.roomId ?? target.roomId) : target.roomId;
-        return { id: target.id, start, end, roomId, outside };
-      });
+        const shiftMs = window.start.getTime() - reservation.startTime.getTime();
+        const durationMs = window.end.getTime() - window.start.getTime();
+        const planned = targets.map((target) => {
+          const start = new Date(target.startTime.getTime() + shiftMs);
+          const end = new Date(start.getTime() + durationMs);
+          const unchanged = start.getTime() === target.startTime.getTime() && end.getTime() === target.endTime.getTime();
+          // Domingo, feriado ou fora das 07h–22h fica marcado (Art. 6º); sem mudar o horário, mantém a marca.
+          const outside = isExtraordinarySchedule(start, end) || (unchanged && target.outsideRegularHours);
+          if (start <= now && !unchanged) {
+            throw new AppError(400, "RESERVATION_IN_PAST", "Não dá para mover uma reserva para um horário que já passou.");
+          }
+          // Só a reserva aprovada troca de sala; a pendente continua sem sala (é alocada ao aprovar).
+          const roomId = target.status === "APPROVED" ? (input.roomId ?? target.roomId) : target.roomId;
+          return { id: target.id, start, end, roomId, outside };
+        });
 
-      // Conflito, sala por sala (a sala é travada antes de checar).
-      const byRoom = new Map<string, typeof planned>();
-      for (const p of planned) if (p.roomId) byRoom.set(p.roomId, [...(byRoom.get(p.roomId) ?? []), p]);
-      for (const [roomId, occurrences] of byRoom) {
-        await lockRoomForUpdate(tx, roomId);
-        const room = await tx.room.findUnique({ where: { id: roomId } });
-        if (!room) throw new AppError(404, "ROOM_NOT_FOUND", "Sala não encontrada.");
-        if (room.status !== "ACTIVE" && roomId !== reservation.roomId) {
-          throw new AppError(409, "ROOM_NOT_ACTIVE", "Só é possível mover a reserva para uma sala Ativa.");
+        // Conflito, sala por sala (a sala é travada antes de checar).
+        const byRoom = new Map<string, typeof planned>();
+        for (const p of planned) if (p.roomId) byRoom.set(p.roomId, [...(byRoom.get(p.roomId) ?? []), p]);
+        for (const [roomId, occurrences] of byRoom) {
+          await lockRoomForUpdate(tx, roomId);
+          const room = await tx.room.findUnique({ where: { id: roomId } });
+          if (!room) throw new AppError(404, "ROOM_NOT_FOUND", "Sala não encontrada.");
+          if (room.status !== "ACTIVE" && roomId !== reservation.roomId) {
+            throw new AppError(409, "ROOM_NOT_ACTIVE", "Só é possível mover a reserva para uma sala Ativa.");
+          }
+          const conflicting = await findConflictingOccurrences(tx, roomId, occurrences, planned.map((p) => p.id));
+          if (conflicting.length > 0) {
+            throw new AppError(
+              409,
+              "RESERVATION_CONFLICT",
+              `A sala ${room.name} já está ocupada ${conflicting.length === 1 ? "nesse horário" : "em algumas dessas datas"}. Escolha outro horário ou outra sala.`,
+              { conflictingDates: conflicting.map((c) => c.start) },
+            );
+          }
         }
-        const conflicting = await findConflictingOccurrences(tx, roomId, occurrences, planned.map((p) => p.id));
-        if (conflicting.length > 0) {
-          throw new AppError(
-            409,
-            "RESERVATION_CONFLICT",
-            `A sala ${room.name} já está ocupada ${conflicting.length === 1 ? "nesse horário" : "em algumas dessas datas"}. Escolha outro horário ou outra sala.`,
-            { conflictingDates: conflicting.map((c) => c.start) },
-          );
-        }
-      }
 
-      try {
-        for (const p of planned) {
-          await tx.reservation.update({
-            where: { id: p.id },
-            data: {
-              title,
-              description: input.description,
-              activityType: input.activityType,
-              activityDetails: input.details,
-              expectedAttendees,
-              requestedResources,
-              supportNotes: input.supportNotes ?? null,
-              coffeeBreak: input.coffeeBreak,
-              setupMinutes: input.setupMinutes,
-              outsideRegularHours: p.outside,
-              startTime: p.start,
-              endTime: p.end,
-              roomId: p.roomId,
-              modifiedByAdminAt: now,
-            },
-          });
+        try {
+          for (const p of planned) {
+            await tx.reservation.update({
+              where: { id: p.id },
+              data: {
+                title,
+                description: input.description,
+                activityType: input.activityType,
+                activityDetails: input.details,
+                expectedAttendees,
+                requestedResources,
+                supportNotes: input.supportNotes ?? null,
+                coffeeBreak: input.coffeeBreak,
+                setupMinutes: input.setupMinutes,
+                outsideRegularHours: p.outside,
+                startTime: p.start,
+                endTime: p.end,
+                roomId: p.roomId,
+                modifiedByAdminAt: now,
+              },
+            });
+          }
+        } catch (error) {
+          if (isOverlapViolation(error)) {
+            throw new AppError(409, "RESERVATION_CONFLICT", "A sala acabou de ser ocupada nesse horário. Recarregue e tente de novo.");
+          }
+          throw error;
         }
-      } catch (error) {
-        if (isOverlapViolation(error)) {
-          throw new AppError(409, "RESERVATION_CONFLICT", "A sala acabou de ser ocupada nesse horário. Recarregue e tente de novo.");
-        }
-        throw error;
-      }
-      return planned.map((p) => p.id);
-    });
+        return planned.map((p) => p.id);
+      },
+      { timeout: 30_000 },
+    );
 
     sendInBackground("reserva alterada pelo SAD", () => adminModifiedMails(updatedIds, before));
     res.json({ updatedIds });

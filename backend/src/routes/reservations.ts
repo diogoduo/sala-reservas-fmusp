@@ -279,91 +279,94 @@ reservationsRouter.put(
     assertValidDuration(window.start, window.end);
     const requestedResources = await normalizeRequestedResources(prisma, input.requestedResources);
 
-    const updatedIds = await prisma.$transaction(async (tx) => {
-      const now = new Date();
-      const reservation = await tx.reservation.findUnique({ where: { id: req.params.id } });
-      if (!reservation || reservation.userId !== userId) {
-        throw new AppError(404, "RESERVATION_NOT_FOUND", "Reserva não encontrada.");
-      }
-      if (!CANCELLABLE_STATUSES.includes(reservation.status)) {
-        throw new AppError(409, "RESERVATION_NOT_EDITABLE", "Esta reserva já foi rejeitada ou cancelada e não pode ser alterada.");
-      }
-      if (!isWithinRequesterDeadline(reservation.startTime, now)) {
-        throw new AppError(400, "EDIT_TOO_SOON", deadlineMessage(reservation.startTime, "alterar"));
-      }
-      if (reservation.activityType && reservation.activityType !== input.activityType) {
-        throw new AppError(400, "ACTIVITY_TYPE_LOCKED", "O tipo de atividade não muda numa alteração. Cancele e faça uma nova solicitação.");
-      }
+    const updatedIds = await prisma.$transaction(
+      async (tx) => {
+        const now = new Date();
+        const reservation = await tx.reservation.findUnique({ where: { id: req.params.id } });
+        if (!reservation || reservation.userId !== userId) {
+          throw new AppError(404, "RESERVATION_NOT_FOUND", "Reserva não encontrada.");
+        }
+        if (!CANCELLABLE_STATUSES.includes(reservation.status)) {
+          throw new AppError(409, "RESERVATION_NOT_EDITABLE", "Esta reserva já foi rejeitada ou cancelada e não pode ser alterada.");
+        }
+        if (!isWithinRequesterDeadline(reservation.startTime, now)) {
+          throw new AppError(400, "EDIT_TOO_SOON", deadlineMessage(reservation.startTime, "alterar"));
+        }
+        if (reservation.activityType && reservation.activityType !== input.activityType) {
+          throw new AppError(400, "ACTIVITY_TYPE_LOCKED", "O tipo de atividade não muda numa alteração. Cancele e faça uma nova solicitação.");
+        }
 
-      // "series": esta e as próximas datas ativas da série (todas depois desta, então também no prazo).
-      const targets =
-        input.scope === "series" && reservation.seriesId
-          ? await tx.reservation.findMany({
-              where: {
-                seriesId: reservation.seriesId,
-                userId,
-                status: { in: CANCELLABLE_STATUSES },
-                startTime: { gte: reservation.startTime },
-              },
-              include: { room: true },
-              orderBy: { startTime: "asc" },
-            })
-          : [await tx.reservation.findUniqueOrThrow({ where: { id: reservation.id }, include: { room: true } })];
+        // "series": esta e as próximas datas ativas da série (todas depois desta, então também no prazo).
+        const targets =
+          input.scope === "series" && reservation.seriesId
+            ? await tx.reservation.findMany({
+                where: {
+                  seriesId: reservation.seriesId,
+                  userId,
+                  status: { in: CANCELLABLE_STATUSES },
+                  startTime: { gte: reservation.startTime },
+                },
+                include: { room: true },
+                orderBy: { startTime: "asc" },
+              })
+            : [await tx.reservation.findUniqueOrThrow({ where: { id: reservation.id }, include: { room: true } })];
 
-      // Mover a data/horário da data escolhida move todas as outras do mesmo jeito
-      // (ex.: "a aula passa das 10h para as 14h" ou "passa de quinta para sexta").
-      const shiftMs = window.start.getTime() - reservation.startTime.getTime();
-      const durationMs = window.end.getTime() - window.start.getTime();
+        // Mover a data/horário da data escolhida move todas as outras do mesmo jeito
+        // (ex.: "a aula passa das 10h para as 14h" ou "passa de quinta para sexta").
+        const shiftMs = window.start.getTime() - reservation.startTime.getTime();
+        const durationMs = window.end.getTime() - window.start.getTime();
 
-      for (const target of targets) {
-        const start = new Date(target.startTime.getTime() + shiftMs);
-        const end = new Date(start.getTime() + durationMs);
-        assertRegularSchedule(start, end);
-        assertMinAdvance(start, now);
+        for (const target of targets) {
+          const start = new Date(target.startTime.getTime() + shiftMs);
+          const end = new Date(start.getTime() + durationMs);
+          assertRegularSchedule(start, end);
+          assertMinAdvance(start, now);
 
-        // Guarda o último estado revisado: se já era uma alteração pendente, mantém o retrato original.
-        const keepSnapshot = target.status === "PENDING" && target.modifiedByRequesterAt !== null && target.previousSnapshot !== null;
-        const previousSnapshot = keepSnapshot
-          ? (target.previousSnapshot as Prisma.InputJsonValue)
-          : {
-              status: target.status,
-              startTime: target.startTime.toISOString(),
-              endTime: target.endTime.toISOString(),
-              roomId: target.roomId,
-              roomName: target.room ? `${target.room.name} — ${target.room.building}, ${target.room.floor}` : null,
-              expectedAttendees: target.expectedAttendees,
-              title: target.title,
-            };
+          // Guarda o último estado revisado: se já era uma alteração pendente, mantém o retrato original.
+          const keepSnapshot = target.status === "PENDING" && target.modifiedByRequesterAt !== null && target.previousSnapshot !== null;
+          const previousSnapshot = keepSnapshot
+            ? (target.previousSnapshot as Prisma.InputJsonValue)
+            : {
+                status: target.status,
+                startTime: target.startTime.toISOString(),
+                endTime: target.endTime.toISOString(),
+                roomId: target.roomId,
+                roomName: target.room ? `${target.room.name} — ${target.room.building}, ${target.room.floor}` : null,
+                expectedAttendees: target.expectedAttendees,
+                title: target.title,
+              };
 
-        await tx.reservation.update({
-          where: { id: target.id },
-          data: {
-            title,
-            description: input.description,
-            activityType: input.activityType,
-            activityDetails: input.details,
-            expectedAttendees,
-            requestedResources,
-            supportNotes: input.supportNotes ?? null,
-            noAlcoholCommitment: input.noAlcoholCommitment,
-            coffeeBreak: input.coffeeBreak,
-            setupMinutes: input.setupMinutes,
-            outsideRegularHours: false,
-            startTime: start,
-            endTime: end,
-            status: "PENDING",
-            roomId: null,
-            reviewedById: null,
-            reviewedAt: null,
-            rejectionReason: null,
-            approvalChecklist: Prisma.DbNull,
-            modifiedByRequesterAt: now,
-            previousSnapshot,
-          },
-        });
-      }
-      return targets.map((t) => t.id);
-    });
+          await tx.reservation.update({
+            where: { id: target.id },
+            data: {
+              title,
+              description: input.description,
+              activityType: input.activityType,
+              activityDetails: input.details,
+              expectedAttendees,
+              requestedResources,
+              supportNotes: input.supportNotes ?? null,
+              noAlcoholCommitment: input.noAlcoholCommitment,
+              coffeeBreak: input.coffeeBreak,
+              setupMinutes: input.setupMinutes,
+              outsideRegularHours: false,
+              startTime: start,
+              endTime: end,
+              status: "PENDING",
+              roomId: null,
+              reviewedById: null,
+              reviewedAt: null,
+              rejectionReason: null,
+              approvalChecklist: Prisma.DbNull,
+              modifiedByRequesterAt: now,
+              previousSnapshot,
+            },
+          });
+        }
+        return targets.map((t) => t.id);
+      },
+      { timeout: 30_000 },
+    );
 
     sendInBackground("reserva alterada", () => modifiedMails(updatedIds));
     res.json({ updatedIds });
