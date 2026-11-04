@@ -23,7 +23,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ACTIVITY_TYPE_LABELS, ACTIVITY_TYPES } from "../../lib/activities";
 import { api, ApiError } from "../../lib/api";
-import { formatDayMonth, holidayName, weekdayOf } from "../../lib/calendar";
+import { addDays, formatDayMonth, holidayName, weekdayOf } from "../../lib/calendar";
 import { cn } from "../../lib/cn";
 import { capitalizeFirst, formatShortDate, plural } from "../../lib/format";
 import { ACTIVITY_ICONS, resourceIcon } from "../../lib/icons";
@@ -518,7 +518,10 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
   if (needsChecklist) warnings.push(...checklistWarnings(checklist));
   if (adminCreating && !noAlcohol) warnings.push(NO_ALCOHOL_WARNING);
 
-  const recurrenceOk = !recurrenceEnabled || (weekdays.size > 0 && effectiveDates.length > 0);
+  // Mesmo limite do back-end (recurrence.ts): a série vai até 1 ano depois da primeira data.
+  const untilMax = date ? addDays(date, 365) : undefined;
+  const untilTooFar = Boolean(recurrenceEnabled && until && untilMax && until > untilMax);
+  const recurrenceOk = !recurrenceEnabled || (weekdays.size > 0 && effectiveDates.length > 0 && !untilTooFar);
   const canSubmit =
     clientErrors.length === 0 &&
     recurrenceOk &&
@@ -954,9 +957,19 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
                         ]}
                       />
                     </div>
-                    <Input label="Repetir até" type="date" required value={until} min={date} onChange={(e) => setUntil(e.target.value)} />
+                    <Input
+                      label="Repetir até"
+                      type="date"
+                      required
+                      value={until}
+                      min={date}
+                      max={untilMax}
+                      onChange={(e) => setUntil(e.target.value)}
+                    />
                   </div>
-                  {weekdays.size === 0 ? (
+                  {untilTooFar ? (
+                    <Alert tone="warning">Uma série pode se repetir por no máximo 1 ano. Escolha uma data até {formatDayMonth(untilMax!)}.</Alert>
+                  ) : weekdays.size === 0 ? (
                     <Alert tone="warning">Escolha ao menos um dia da semana.</Alert>
                   ) : !until ? (
                     <Alert tone="info">Escolha até quando a reserva se repete.</Alert>

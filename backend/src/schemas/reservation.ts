@@ -13,11 +13,23 @@ import {
 import { MAX_SETUP_MINUTES } from "../reservations/rules";
 import { reviewScopeSchema } from "./review";
 
+// Só o formato que o formulário gera: semanal, a cada 1 a 4 semanas, em dias da
+// semana sem repetição (ex.: "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE"). Nada de
+// FREQ=SECONDLY, quebras de linha ou outras propriedades do RFC 5545. O período
+// (até 1 ano e 260 datas) é conferido em src/reservations/recurrence.ts.
+const WEEKDAY = "(?:MO|TU|WE|TH|FR|SA|SU)";
+const RRULE_PATTERN = new RegExp(`^FREQ=WEEKLY;INTERVAL=[1-4];BYDAY=${WEEKDAY}(?:,${WEEKDAY}){0,6}$`);
+const RRULE_MESSAGE = "Recorrência inválida: use repetição semanal ou a cada 2 a 4 semanas, escolhendo os dias da semana.";
+
 const recurrenceSchema = z.object({
-  // Regra RFC 5545 sem "DTSTART:" (ex.: "FREQ=WEEKLY;BYDAY=MO,WE"). Validada de
-  // fato em src/reservations/recurrence.ts (a lib rrule recusa o que for inválido).
-  rrule: z.string().min(1, "Informe a regra de recorrência."),
-  until: z.coerce.date(),
+  rrule: z
+    .string({ required_error: "Informe a regra de recorrência." })
+    .regex(RRULE_PATTERN, RRULE_MESSAGE)
+    .refine((rule) => {
+      const days = rule.split("BYDAY=")[1]!.split(",");
+      return new Set(days).size === days.length;
+    }, RRULE_MESSAGE),
+  until: z.coerce.date({ invalid_type_error: "Informe até quando a reserva se repete." }),
 });
 
 // A mensagem vale também para o campo ausente (senão o zod responde "Required").
