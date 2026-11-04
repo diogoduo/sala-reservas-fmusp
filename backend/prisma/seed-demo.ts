@@ -1,16 +1,22 @@
 /**
  * Base de DEMONSTRAÇÃO, toda fictícia: 20 salas com ilustrações no lugar das
  * fotos, inventário com modelos e patrimônios inventados, notebooks, pessoas e
- * cerca de 100 reservas espalhadas pelo mês (aprovadas, pendentes, alteradas,
- * rejeitadas e canceladas), para apresentar o sistema sem dados da faculdade.
+ * cerca de 100 reservas (aprovadas, pendentes, alteradas, rejeitadas e
+ * canceladas), para apresentar o sistema sem dados da faculdade.
  *
- *   npm run db:seed-demo -- --reset               (mês atual)
- *   npm run db:seed-demo -- --reset --month=2026-10
- *   npm run db:seed-demo -- --preview=pasta        (só gera as ilustrações em PNG)
+ * As reservas ficam numa janela em volta do dia em que o comando roda: por
+ * padrão, 7 dias de histórico e 4 semanas à frente. Rode no dia da apresentação
+ * (ou na véspera) para que a Agenda de hoje e os pedidos pendentes estejam no futuro.
  *
- * --reset APAGA reservas, salas, fotos, bloqueios, notebooks, sanções e os
- * usuários que não são as contas de teste. O regulamento e os recursos ficam.
- * Sem --reset, só roda num banco sem salas e sem reservas.
+ *   npm run db:seed-demo -- --reset                       (janela: hoje −7 dias a hoje +4 semanas)
+ *   npm run db:seed-demo -- --reset --start=2026-11-09 --days=35
+ *   npm run db:seed-demo -- --reset --month=2026-10       (o mês inteiro, como antes)
+ *   npm run db:seed-demo -- --preview=pasta               (só gera as ilustrações em PNG)
+ *
+ * --reset APAGA reservas, séries, salas (com fotos e inventário), bloqueios,
+ * notebooks, sanções e os usuários que não são as 4 contas de teste, e volta a
+ * numeração de protocolos para 000001. O regulamento (texto e PDFs) e os
+ * recursos ficam. Sem --reset, só roda num banco sem salas e sem reservas.
  */
 import { PrismaClient, type ActivityType, type Prisma, type ReservationStatus, type RoomStatus, type RoomType, type SeatType, type UserRole } from "@prisma/client";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -21,7 +27,7 @@ import { renderPhotoVersions } from "../src/photos/storage";
 import { PALETTES, roomIllustration, VIEWS } from "./demo/illustrations";
 
 const prisma = new PrismaClient();
-// "--reset" vira { reset: "true" }; "--month=2026-10" vira { month: "2026-10" }.
+// "--reset" vira { reset: "true" }; "--start=2026-11-09" vira { start: "2026-11-09" }.
 const args: Record<string, string> = Object.fromEntries(
   process.argv.slice(2).map((a) => {
     const [key, value] = a.replace(/^--/, "").split("=");
@@ -41,15 +47,31 @@ const addMinutes = (d: Date, m: number) => new Date(d.getTime() + m * 60_000);
 const addDaysTo = (d: Date, days: number) => new Date(d.getTime() + days * 86_400_000);
 const now = new Date();
 const today = dateKey(now);
-const month = args.month ?? today.slice(0, 7);
-const [year, monthNumber] = month.split("-").map(Number) as [number, number];
-const daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
-const monthDays = Array.from({ length: daysInMonth }, (_, i) => `${month}-${String(i + 1).padStart(2, "0")}`);
-/** Dias de funcionamento (Portaria 2793, Art. 6º): segunda a sábado, fora feriados. */
-const openDays = monthDays.filter((d) => weekdayOf(d) !== 0 && holidayName(d) === null);
+const shiftKey = (key: string, days: number) => dateKey(addDaysTo(at(key, "12:00"), days));
 
-// Sorteio com semente: o mesmo mês gera sempre a mesma base.
-let seed = year * 100 + monthNumber;
+/** Janela das reservas: --month (o mês inteiro) ou --start/--days (padrão: hoje −7 dias, 35 dias). */
+function windowOf(): string[] {
+  if (args.month) {
+    const [year, month] = args.month.split("-").map(Number) as [number, number];
+    const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return Array.from({ length: days }, (_, i) => `${args.month}-${String(i + 1).padStart(2, "0")}`);
+  }
+  const start = args.start ?? shiftKey(today, -7);
+  const length = Number(args.days ?? 35);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !(length >= 7 && length <= 92)) {
+    throw new Error("Use --start=AAAA-MM-DD e --days entre 7 e 92.");
+  }
+  return Array.from({ length }, (_, i) => shiftKey(start, i));
+}
+const windowDays = windowOf();
+const windowLabel = `${windowDays[0]} a ${windowDays.at(-1)}`;
+/** Dias de funcionamento (Portaria 2793, Art. 6º): segunda a sábado, fora feriados. */
+const openDays = windowDays.filter((d) => weekdayOf(d) !== 0 && holidayName(d) === null);
+/** Dias de funcionamento a partir de `offset` dias depois de hoje (para pedidos ainda em análise). */
+const futureOpenDays = (offset: number) => openDays.filter((d) => d >= shiftKey(today, offset));
+
+// Sorteio com semente: a mesma janela gera sempre a mesma base.
+let seed = Number(windowDays[0]!.replace(/-/g, ""));
 const random = () => {
   seed = (seed + 0x6d2b79f5) | 0;
   let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -356,8 +378,8 @@ const SINGLES: Request[] = [
   meeting("graduacao", "STAFF", "Assembleia da Representação dos Funcionários", 50, ["Espaço Multiuso"]),
 ];
 
-/** Aulas que se repetem toda semana no mês. `pending`: série pedida há pouco, ainda em análise. */
-const SERIES: { request: Request; weekdays: number[]; start: string; room: string; pending?: boolean; fromDay?: number }[] = [
+/** Aulas que se repetem toda semana na janela. `pending`: série pedida há pouco, ainda em análise (só datas daqui a 7 dias ou mais). */
+const SERIES: { request: Request; weekdays: number[]; start: string; room: string; pending?: boolean }[] = [
   { request: grad("helena", "DEM0142", "Semiologia Médica", 110, "LECTURE", 3, { resources: [["Microfones", 1]] }), weekdays: [2, 4], start: "08:00", room: "Anfiteatro A" },
   { request: grad("eduardo", "DEM0210", "Anatomia Aplicada", 48, "LECTURE", 1), weekdays: [1, 3], start: "10:00", room: "Sala 201" },
   { request: pos("paulo", "PGD5012", "Metodologia da Pesquisa Clínica", 30), weekdays: [3], start: "14:00", room: "Sala 202" },
@@ -367,7 +389,7 @@ const SERIES: { request: Request; weekdays: number[]; start: string; room: strin
     weekdays: [6], start: "08:00", room: "Anfiteatro B",
   },
   { request: grad("juliana", "DEM0128", "Habilidades Clínicas", 20, "PRACTICAL", 2), weekdays: [1, 4], start: "14:00", room: "Laboratório de Habilidades" },
-  { request: pos("ricardo", "PGD5020", "Seminários Avançados em Cirurgia", 20, { duration: 120 }), weekdays: [4], start: "18:00", room: "Sala 203", pending: true, fromDay: 15 },
+  { request: pos("ricardo", "PGD5020", "Seminários Avançados em Cirurgia", 20, { duration: 120 }), weekdays: [4], start: "18:00", room: "Sala 203", pending: true },
 ];
 
 const REJECTIONS = [
@@ -478,9 +500,11 @@ async function main() {
     (busy.get(room) ?? []).every(([s, e]) => end.getTime() <= s || start.getTime() >= e);
   const occupy = (room: string, start: Date, end: Date) => busy.set(room, [...(busy.get(room) ?? []), [start.getTime(), end.getTime()]]);
 
+  // Dois bloqueios de manutenção nos próximos dias (aparecem na Agenda e em Salas livres).
+  const upcoming = futureOpenDays(1);
   const blocks: [string, string, string, string, string][] = [
-    ["Sala 103", openDays[8]!, "08:00", "18:00", "Manutenção do ar-condicionado"],
-    ["Sala 202", openDays[17]!, "07:00", "12:00", "Troca do projetor"],
+    ["Sala 103", upcoming[3] ?? openDays.at(-6)!, "08:00", "18:00", "Manutenção do ar-condicionado"],
+    ["Sala 202", upcoming[9] ?? openDays.at(-3)!, "07:00", "12:00", "Troca do projetor"],
   ];
   for (const [room, day, s, e, reason] of blocks) {
     await prisma.roomBlock.create({ data: { roomId: roomByName.get(room)!.id, createdById: sadId, reason, startTime: at(day, s), endTime: at(day, e) } });
@@ -513,13 +537,14 @@ async function main() {
 
   // Séries semanais
   for (const s of SERIES) {
-    const days = openDays.filter((d) => s.weekdays.includes(weekdayOf(d)) && Number(d.slice(8)) >= (s.fromDay ?? 1));
-    const createdAt = s.pending ? addDaysTo(now, -2) : addDaysTo(at(`${month}-01`, "09:00"), -5);
+    const days = (s.pending ? futureOpenDays(7) : openDays).filter((d) => s.weekdays.includes(weekdayOf(d)));
+    if (days.length === 0) continue;
+    const createdAt = s.pending ? addDaysTo(now, -2) : addDaysTo(at(windowDays[0]!, "09:00"), -5);
     const firstStart = at(days[0]!, s.start);
     const series = await prisma.reservationSeries.create({
       data: {
         userId: uid(s.request.person), roomId: s.pending ? null : roomByName.get(s.room)!.id, title: s.request.title, description: s.request.description,
-        rrule: `FREQ=WEEKLY;BYDAY=${s.weekdays.map((w) => ["SU", "MO", "TU", "WE", "TH", "FR", "SA"][w]).join(",")}`,
+        rrule: `FREQ=WEEKLY;INTERVAL=1;BYDAY=${s.weekdays.map((w) => ["SU", "MO", "TU", "WE", "TH", "FR", "SA"][w]).join(",")}`,
         startTime: firstStart, endTime: addMinutes(firstStart, s.request.duration), untilDate: new Date(`${days.at(-1)}T00:00:00Z`), createdAt,
       },
     });
@@ -564,7 +589,62 @@ async function main() {
     created++;
   }
 
-  // Pedidos avulsos espalhados pelo mês, com todas as situações.
+  // Casos garantidos para a apresentação, sempre no futuro: um pedido de Cultura
+  // e Extensão em análise, uma reserva alterada pelo solicitante e, para as
+  // contas de teste, uma reserva aprovada e um pedido pendente.
+  const highlight = async (r: Request, day: string | undefined, time: string, extra: Partial<Prisma.ReservationUncheckedCreateInput>) => {
+    if (!day) return;
+    const start = addMinutes(at(day, time), -(r.setup ?? 0));
+    const end = addMinutes(at(day, time), r.duration);
+    const createdAt = addDaysTo(now, -3);
+    const room = extra.roomId ? ROOMS.find((x) => roomByName.get(x.name)?.id === extra.roomId)?.name : undefined;
+    if (room) {
+      if (!isFree(room, start, end)) return;
+      occupy(room, start, end);
+    }
+    await prisma.reservation.create({ data: { ...base(r, start, end), protocol: await nextProtocol(createdAt), createdAt, ...extra } });
+    created++;
+  };
+  await highlight(
+    culture("camila", "CONGRESS", "Simpósio de Medicina Esportiva", "CAOC", 110, "08:30 Credenciamento\n09:00 Conferência de abertura\n10:30 Mesa-redonda", {
+      duration: 210,
+      setup: 60,
+      resources: [["Sistema de Som"], ["Microfones", 3], ["Datashow/Projetor"]],
+    }),
+    futureOpenDays(5)[0],
+    "08:30",
+    { status: "PENDING" },
+  );
+  const modifiedDay = futureOpenDays(6)[1];
+  await highlight(grad("docente", "DEM0172", "Fisiologia Renal", 36, "LECTURE", 2), modifiedDay, "10:00", {
+    status: "PENDING",
+    modifiedByRequesterAt: addMinutes(now, -180),
+    previousSnapshot: modifiedDay
+      ? {
+          status: "APPROVED",
+          startTime: addDaysTo(at(modifiedDay, "10:00"), -2).toISOString(),
+          endTime: addDaysTo(at(modifiedDay, "12:00"), -2).toISOString(),
+          roomId: null,
+          roomName: "Sala 202 — Anexo Didático, 2º andar",
+          expectedAttendees: 36,
+          title: "DEM0172 — Fisiologia Renal",
+        }
+      : undefined,
+  });
+  await highlight(
+    culture("aluno", "LEAGUE", "Liga de Neurologia — Reunião científica", "LEAGUE", 35, "19:00 Apresentação de casos", { duration: 120 }),
+    futureOpenDays(2)[0],
+    "19:00",
+    { status: "APPROVED", roomId: roomByName.get("Sala 101")!.id, reviewedById: sadId, reviewedAt: addDaysTo(now, -2), approvalChecklist: checklist },
+  );
+  await highlight(
+    culture("aluno", "LEAGUE", "Jornada de Neurologia", "LEAGUE", 60, "14:00 Palestras\n16:00 Casos clínicos", { duration: 180 }),
+    futureOpenDays(8)[0],
+    "14:00",
+    { status: "PENDING" },
+  );
+
+  // Pedidos avulsos espalhados pela janela, com todas as situações.
   const target = Number(args.total ?? 100);
   let template = 0;
   let noShows = 0;
@@ -638,7 +718,7 @@ async function main() {
   }
 
   // Uma reserva do SAD fora das portarias (domingo): aparece com o aviso na Agenda.
-  const sunday = monthDays.find((d) => weekdayOf(d) === 0 && Number(d.slice(8)) > 14);
+  const sunday = windowDays.find((d) => weekdayOf(d) === 0 && d >= shiftKey(today, 3));
   if (sunday && isFree("Teatro Principal", at(sunday, "08:00"), at(sunday, "13:00"))) {
     const createdAt = addDaysTo(now, -3);
     await prisma.reservation.create({
@@ -659,8 +739,20 @@ async function main() {
     created++;
   }
 
+  // Resumo, com o que a apresentação precisa ver no futuro.
   const counts = await prisma.reservation.groupBy({ by: ["status"], _count: true });
-  console.log(`${created} reservas em ${month}:`, Object.fromEntries(counts.map((c) => [c.status, c._count])));
+  const future = { startTime: { gt: now } };
+  const [pendingFuture, approvedFuture, modifiedFuture, cultureFuture, seriesCount] = await Promise.all([
+    prisma.reservation.count({ where: { ...future, status: "PENDING", modifiedByRequesterAt: null } }),
+    prisma.reservation.count({ where: { ...future, status: "APPROVED" } }),
+    prisma.reservation.count({ where: { ...future, status: "PENDING", modifiedByRequesterAt: { not: null } } }),
+    prisma.reservation.count({ where: { ...future, status: "PENDING", activityType: "CULTURE_EXTENSION" } }),
+    prisma.reservationSeries.count(),
+  ]);
+  console.log(`${created} reservas de ${windowLabel}:`, Object.fromEntries(counts.map((c) => [c.status, c._count])));
+  console.log(
+    `No futuro: ${pendingFuture} pedidos pendentes, ${approvedFuture} aprovadas, ${modifiedFuture} alteradas, ${cultureFuture} pedidos de Cultura e Extensão em análise; ${seriesCount} séries.`,
+  );
   console.log("Base de demonstração pronta.");
 }
 

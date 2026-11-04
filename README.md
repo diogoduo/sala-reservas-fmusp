@@ -384,18 +384,27 @@ uma base inteira inventada:
   (`prisma/demo/illustrations.ts`), com a legenda "imagem ilustrativa";
 - inventário com modelos e patrimônios fictícios (`PAT-…`) e 12 notebooks;
 - pessoas fictícias (e-mails `…demo@usp.br`) além das contas de teste;
-- cerca de 100 reservas espalhadas pelo mês, de segunda a sábado e fora dos
-  feriados, em todas as situações: aprovadas, pendentes, alteradas,
-  rejeitadas, canceladas, ausências registradas e uma reserva do SAD fora
-  das portarias (num domingo).
+- cerca de 100 reservas numa janela em volta do dia em que o comando roda
+  (por padrão, 7 dias de histórico e 4 semanas à frente), de segunda a sábado
+  e fora dos feriados, em todas as situações: aprovadas, pendentes, alteradas,
+  rejeitadas, canceladas, ausências registradas e uma reserva do SAD fora das
+  portarias (num domingo). No futuro ficam sempre pedidos pendentes, um pedido
+  de Cultura e Extensão em análise, uma reserva alterada e séries semanais.
 
-O regulamento e os recursos não são apagados.
+O regulamento e os recursos não são apagados. Rode no dia da apresentação ou
+na véspera: o que o script deixa "no futuro" depende da hora em que ele roda.
 
 ```bash
-npm run db:seed-demo -- --month=2026-10           # num banco vazio (só com as migrations)
-npm run db:seed-demo -- --reset --month=2026-10   # APAGA salas, reservas, notebooks e usuários de teste extras
-npm run db:seed-demo -- --preview=pasta           # só gera as ilustrações em PNG
+npm run db:seed-demo                                   # num banco vazio (só com as migrations)
+npm run db:seed-demo -- --reset                        # APAGA e recria (janela: hoje −7 dias a hoje +4 semanas)
+npm run db:seed-demo -- --reset --start=2026-11-09 --days=35   # outra janela
+npm run db:seed-demo -- --reset --month=2026-10        # o mês inteiro
+npm run db:seed-demo -- --preview=pasta                # só gera as ilustrações em PNG
 ```
+
+O `--reset` apaga todas as reservas e séries, as salas (com fotos e
+inventário), os bloqueios, os notebooks, as sanções e os usuários que não são
+as 4 contas de teste, e volta a numeração dos protocolos para 000001.
 
 Sem `--reset`, o script se recusa a rodar num banco que já tem salas ou
 reservas. Para a apresentação, o caminho mais seguro é um banco separado no
