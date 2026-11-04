@@ -71,49 +71,61 @@ reservationsRouter.post(
     if (input.recurrence) ({ kept: occurrences, skipped: skippedDates } = withoutHolidays(occurrences));
     for (const occ of occurrences) assertRegularSchedule(occ.start, occ.end);
 
-    const protocol = await nextProtocol(prisma);
-    const series = input.recurrence
-      ? await prisma.reservationSeries.create({
-          data: {
-            userId: req.user!.id,
-            roomId: null,
-            title,
-            description: input.description,
-            rrule: input.recurrence.rrule,
-            startTime: window.start,
-            endTime: window.end,
-            untilDate: input.recurrence.until,
-          },
-        })
-      : null;
+    // Tudo ou nada: a série, as datas (até 260) e o protocolo numa transação só.
+    // Se algo falhar no meio, não sobra série pela metade, e tentar de novo não
+    // duplica datas. Sequencial: dentro de uma transação interativa as consultas
+    // dividem a mesma conexão (como em POST /api/admin/reservations).
+    const { protocol, series, reservations } = await prisma.$transaction(
+      async (tx) => {
+        const protocol = await nextProtocol(tx);
+        const series = input.recurrence
+          ? await tx.reservationSeries.create({
+              data: {
+                userId: req.user!.id,
+                roomId: null,
+                title,
+                description: input.description,
+                rrule: input.recurrence.rrule,
+                startTime: window.start,
+                endTime: window.end,
+                untilDate: input.recurrence.until,
+              },
+            })
+          : null;
 
-    const reservations = await Promise.all(
-      occurrences.map((occ) =>
-        prisma.reservation.create({
-          data: {
-            protocol,
-            seriesId: series?.id,
-            userId: req.user!.id,
-            roomId: null,
-            title,
-            description: input.description,
-            activityType: input.activityType,
-            activityDetails: input.details,
-            expectedAttendees,
-            requestedResources,
-            supportNotes: input.supportNotes,
-            termsAccepted: input.termsAccepted,
-            noAlcoholCommitment: input.noAlcoholCommitment,
-            coffeeBreak: input.coffeeBreak,
-            setupMinutes: input.setupMinutes,
-            startTime: occ.start,
-            endTime: occ.end,
-          },
-          include: reservationInclude,
-        }),
-      ),
+        const reservations = [];
+        for (const occ of occurrences) {
+          reservations.push(
+            await tx.reservation.create({
+              data: {
+                protocol,
+                seriesId: series?.id,
+                userId: req.user!.id,
+                roomId: null,
+                title,
+                description: input.description,
+                activityType: input.activityType,
+                activityDetails: input.details,
+                expectedAttendees,
+                requestedResources,
+                supportNotes: input.supportNotes,
+                termsAccepted: input.termsAccepted,
+                noAlcoholCommitment: input.noAlcoholCommitment,
+                coffeeBreak: input.coffeeBreak,
+                setupMinutes: input.setupMinutes,
+                startTime: occ.start,
+                endTime: occ.end,
+              },
+              include: reservationInclude,
+            }),
+          );
+        }
+        return { protocol, series, reservations };
+      },
+      { timeout: 30_000 },
     );
 
+    // E-mails só depois do commit (e fora da resposta).
     const createdIds = reservations.map((r) => r.id);
     sendInBackground("solicitação recebida", () => requestReceivedMails(createdIds));
     res.status(201).json({ protocol, series, reservations, skippedDates });
