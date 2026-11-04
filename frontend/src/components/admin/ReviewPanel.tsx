@@ -274,10 +274,22 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
   const previousRoomId = first.previousSnapshot?.roomId ?? null;
   const reservationId = target === ALL ? first.id : target;
 
+  // Datas que já passaram não podem ser aprovadas (o back-end responde
+  // RESERVATION_IN_PAST). Na série, a aprovação vale só para as datas futuras
+  // pendentes (resolveReviewTargets); a rejeição leva também as que já passaram.
+  const now = Date.now();
+  const isPast = (r: AdminReservation) => new Date(r.startTime).getTime() <= now;
+  const pendingDates = group.filter((r) => r.status === "PENDING");
+  const inScope = target === ALL ? pendingDates : group.filter((r) => r.id === target);
+  const pastInScope = inScope.filter(isPast);
+  const expired = isPending && inScope.length > 0 && pastInScope.length === inScope.length;
+
   useEffect(() => {
     if (!isPending) return;
     setOptions(null);
     setSelectedRoomId(null);
+    if (expired) return; // nada a alocar: só dá para rejeitar
+
     api<{ occurrences: unknown[]; options: RoomOption[] }>(`/admin/reservations/${reservationId}/room-options?scope=${scope}`)
       .then((res) => {
         setOptions(res.options);
@@ -295,7 +307,7 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
         setOptions([]);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPending, reservationId, scope, reloadKey]);
+  }, [isPending, expired, reservationId, scope, reloadKey]);
 
   const selected = options?.find((o) => o.room.id === selectedRoomId) ?? null;
   const partial = selected !== null && selected.conflictingDates.length > 0;
@@ -377,25 +389,38 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
       <Button variant="danger-soft" icon={XCircleIcon} onClick={() => setMode("reject")} disabled={busy} className="sm:mr-auto">
         Rejeitar
       </Button>
-      <Button icon={SealCheckIcon} loading={busy} disabled={!selected} onClick={() => void approve()}>
+      <Button icon={SealCheckIcon} loading={busy} disabled={!selected || expired} onClick={() => void approve()}>
         {/* Um só nó de texto: o gap do botão não entra entre "Aprovar" e "em …". */}
         <span>
-          {approveLabel}
-          {selected && <span className="hidden sm:inline"> em {selected.room.name}</span>}
+          {expired ? "Aprovar" : approveLabel}
+          {selected && !expired && <span className="hidden sm:inline"> em {selected.room.name}</span>}
         </span>
       </Button>
     </>
   );
 
   return (
-    <Dialog open variant="drawer" onClose={onClose} title={first.title} description={isPending ? "Escolha a sala e aprove, ou rejeite com uma justificativa." : "Solicitação já revisada."} footer={footer}>
+    <Dialog
+      open
+      variant="drawer"
+      onClose={onClose}
+      title={first.title}
+      description={
+        !isPending
+          ? "Solicitação já revisada."
+          : expired
+            ? "A data já passou: só é possível rejeitar."
+            : "Escolha a sala e aprove, ou rejeite com uma justificativa."
+      }
+      footer={footer}
+    >
       <div className="space-y-8">
         <RequestDetails group={group} resources={resources} />
 
         {isPending && mode === "reject" && (
           <section className="animate-fade-in space-y-3" aria-label="Rejeitar">
             <Alert tone="warning">
-              {occurrenceCount > 1 ? `As ${occurrenceCount} datas selecionadas serão rejeitadas.` : "A solicitação será rejeitada."} O
+              {inScope.length > 1 ? `As ${inScope.length} datas pendentes serão rejeitadas.` : "A solicitação será rejeitada."} O
               solicitante recebe a justificativa por e-mail.
             </Alert>
             <Textarea
@@ -418,17 +443,36 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
                 {group.map((r) => (
                   <option key={r.id} value={r.id}>
                     Só {formatDateTimeRange(r.startTime, r.endTime)}
+                    {isPast(r) ? " (já passou)" : ""}
                   </option>
                 ))}
               </Select>
             )}
 
-            <div>
-              <h3 className="text-base font-semibold">Escolha a sala</h3>
-              <p className="text-sm text-muted">Ordenadas da mais para a menos adequada.</p>
-            </div>
+            {expired ? (
+              <Alert tone="warning" title={inScope.length > 1 ? "Todas as datas pendentes já passaram" : "A data deste pedido já passou"}>
+                {inScope.length > 1
+                  ? `As ${inScope.length} datas pendentes desta série já passaram.`
+                  : `O pedido era para ${formatDateTimeRange(inScope[0]!.startTime, inScope[0]!.endTime)}.`}{" "}
+                Não dá mais para aprovar; rejeite com uma justificativa para tirar o pedido da fila.
+              </Alert>
+            ) : (
+              pastInScope.length > 0 && (
+                <Alert tone="info">
+                  {plural(pastInScope.length, "data já passou e fica", "datas já passaram e ficam")} de fora da aprovação, que vale para as{" "}
+                  {plural(inScope.length - pastInScope.length, "data futura", "datas futuras")}. Na rejeição, todas as datas pendentes entram.
+                </Alert>
+              )
+            )}
 
-            {options === null ? (
+            {!expired && (
+              <div>
+                <h3 className="text-base font-semibold">Escolha a sala</h3>
+                <p className="text-sm text-muted">Ordenadas da mais para a menos adequada.</p>
+              </div>
+            )}
+
+            {expired ? null : options === null ? (
               <div className="space-y-2" role="status" aria-label="Carregando salas">
                 {Array.from({ length: 3 }, (_, i) => (
                   <Skeleton key={i} className="h-24 rounded-xl" />
@@ -525,7 +569,7 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
               </Alert>
             )}
 
-            {needsChecklist && (
+            {needsChecklist && !expired && (
               <div className="space-y-4 rounded-xl border border-border p-4">
                 <div>
                   <h3 className="text-base font-semibold">Antes de confirmar</h3>
@@ -559,7 +603,7 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
               </div>
             )}
 
-            <PortariaWarnings warnings={warnings} />
+            <PortariaWarnings warnings={expired ? [] : warnings} />
           </section>
         )}
       </div>

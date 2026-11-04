@@ -40,13 +40,16 @@ const conflictMessage = "Outra pessoa revisou esta solicitação ao mesmo tempo.
 /**
  * Resolve a quais reservas uma ação do Admin se aplica. A reserva da URL precisa
  * estar pendente; com escopo "series", entram todas as ocorrências da série que
- * ainda estão pendentes e não começaram.
+ * ainda estão pendentes e não começaram. `includePast` (rejeição) inclui também
+ * as datas pendentes que já passaram: não dá para aprová-las, mas o SAD precisa
+ * conseguir tirá-las da fila.
  */
 async function resolveReviewTargets(
   db: Prisma.TransactionClient,
   reservationId: string,
   scope: ReviewScope,
   now: Date,
+  { includePast = false } = {},
 ): Promise<Reservation[]> {
   const reservation = await db.reservation.findUnique({ where: { id: reservationId } });
   if (!reservation) throw new AppError(404, "RESERVATION_NOT_FOUND", "Reserva não encontrada.");
@@ -57,7 +60,7 @@ async function resolveReviewTargets(
   if (scope === "single" || !reservation.seriesId) return [reservation];
 
   const targets = await db.reservation.findMany({
-    where: { seriesId: reservation.seriesId, status: "PENDING", startTime: { gt: now } },
+    where: { seriesId: reservation.seriesId, status: "PENDING", ...(includePast ? {} : { startTime: { gt: now } }) },
     orderBy: { startTime: "asc" },
   });
   if (targets.length === 0) {
@@ -275,7 +278,7 @@ adminRouter.post(
 
     const rejectedIds = await prisma.$transaction(async (tx) => {
       const now = new Date();
-      const targets = await resolveReviewTargets(tx, req.params.id!, input.scope, now);
+      const targets = await resolveReviewTargets(tx, req.params.id!, input.scope, now, { includePast: true });
       const ids = targets.map((t) => t.id);
 
       const updated = await tx.reservation.updateMany({
