@@ -2,11 +2,13 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
+import { uuidParam } from "../lib/params";
 import { prisma } from "../lib/prisma";
 import { requireAdmin, requireAuth } from "../middleware/auth";
 import { createResourceSchema, updateResourceSchema } from "../schemas/resource";
 
 export const resourcesRouter = Router();
+resourcesRouter.param("id", uuidParam("RESOURCE_NOT_FOUND", "Recurso não encontrado."));
 
 resourcesRouter.get(
   "/",

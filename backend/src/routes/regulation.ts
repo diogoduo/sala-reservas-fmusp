@@ -2,12 +2,14 @@ import express, { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
+import { uuidParam } from "../lib/params";
 import { prisma } from "../lib/prisma";
 import { requireAdmin, requireAuth } from "../middleware/auth";
 
 // Regulamento de uso dos espaços (as portarias). O solicitante aceita no
 // "Li e concordo" do formulário; o SAD edita o texto e anexa os PDFs.
 export const regulationRouter = Router();
+regulationRouter.param("id", uuidParam("FILE_NOT_FOUND", "Arquivo não encontrado."));
 
 const fileSelect = { id: true, fileName: true, size: true, createdAt: true } as const;
 
@@ -90,8 +92,8 @@ regulationRouter.get(
   "/files/:id",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const id = z.string().uuid().safeParse(req.params.id);
-    const file = id.success ? await prisma.regulationFile.findUnique({ where: { id: id.data } }) : null;
+    // Id malformado já respondeu 404 em regulationRouter.param("id").
+    const file = await prisma.regulationFile.findUnique({ where: { id: req.params.id } });
     if (!file) throw new AppError(404, "FILE_NOT_FOUND", "Arquivo não encontrado.");
     res.set({
       "Content-Type": file.mimeType,

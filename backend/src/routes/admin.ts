@@ -3,6 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
+import { uuidParam } from "../lib/params";
 import { prisma } from "../lib/prisma";
 import { sendInBackground } from "../mail/mailer";
 import { approvedMails, rejectedMails } from "../mail/notifications";
@@ -18,6 +19,7 @@ import { approveReservationSchema, rejectReservationSchema, reviewScopeSchema, t
 // adequada e aprova (alocando a sala) ou rejeita (com justificativa).
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
+adminRouter.param("id", uuidParam("RESERVATION_NOT_FOUND", "Reserva não encontrada."));
 
 export const adminReservationInclude = {
   room: true,

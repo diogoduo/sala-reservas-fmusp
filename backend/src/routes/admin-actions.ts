@@ -3,6 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
+import { uuidParam } from "../lib/params";
 import { prisma } from "../lib/prisma";
 import { zonedDateKey, zonedDayRange } from "../lib/timezone";
 import { env } from "../config/env";
@@ -24,6 +25,7 @@ import { adminReservationInclude } from "./admin";
 // e tem a Agenda: todas as reservas de um dia e a situação de cada sala.
 export const adminActionsRouter = Router();
 adminActionsRouter.use(requireAdmin);
+adminActionsRouter.param("id", uuidParam("RESERVATION_NOT_FOUND", "Reserva não encontrada."));
 
 const ACTIVE_STATUSES: ReservationStatus[] = ["PENDING", "APPROVED"];
 

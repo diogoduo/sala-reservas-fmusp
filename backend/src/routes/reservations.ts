@@ -4,6 +4,7 @@ import { z } from "zod";
 import { asyncHandler } from "../lib/async-handler";
 import { formatDayMonth } from "../lib/calendar";
 import { AppError } from "../lib/errors";
+import { uuidParam } from "../lib/params";
 import { prisma } from "../lib/prisma";
 import { sendInBackground } from "../mail/mailer";
 import { cancelledMails, modifiedMails, requestReceivedMails } from "../mail/notifications";
@@ -23,6 +24,7 @@ import {
 import { cancelReservationSchema, requesterCreateSchema, updateReservationSchema } from "../schemas/reservation";
 
 export const reservationsRouter = Router();
+reservationsRouter.param("id", uuidParam("RESERVATION_NOT_FOUND", "Reserva não encontrada."));
 
 const reservationInclude = {
   // "Outros equipamentos" é inventário interno do SAD; cadeiras extras não contam (Art. 5º §2º).

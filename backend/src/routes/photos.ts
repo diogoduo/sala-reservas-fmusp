@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
+import { UUID_PATTERN } from "../lib/params";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
 
@@ -9,7 +10,9 @@ import { requireAuth } from "../middleware/auth";
 // guardar a resposta para sempre.
 export const photosRouter = Router();
 
-const FILE_NAME = /^([0-9a-f-]{36})-(thumb|large)\.webp$/;
+// O id precisa ser um UUID de verdade: um valor qualquer com 36 caracteres
+// chegaria ao Prisma e viraria erro 500 em vez de 404.
+const FILE_NAME = new RegExp(`^(${UUID_PATTERN.source.slice(1, -1)})-(thumb|large)\\.webp$`, "i");
 
 photosRouter.get(
   "/:file",

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
+import { uuidParam } from "../lib/params";
 import { prisma } from "../lib/prisma";
 import { requireAdmin } from "../middleware/auth";
 import { createNotebookSchema, updateNotebookSchema } from "../schemas/notebook";
@@ -10,6 +11,7 @@ import { createNotebookSchema, updateNotebookSchema } from "../schemas/notebook"
 // para o NIT). Não entram nas reservas. Só o SAD (Admin) acessa.
 export const notebooksRouter = Router();
 notebooksRouter.use(requireAdmin);
+notebooksRouter.param("id", uuidParam("NOTEBOOK_NOT_FOUND", "Notebook não encontrado."));
 
 function translateError(error: unknown): never {
   if (error instanceof Prisma.PrismaClientKnownRequestError) {

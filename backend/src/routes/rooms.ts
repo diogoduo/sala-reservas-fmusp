@@ -3,6 +3,7 @@ import express, { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
+import { uuidParam } from "../lib/params";
 import { prisma } from "../lib/prisma";
 import { requireAdmin, requireAuth } from "../middleware/auth";
 import { roomPhotosInclude } from "../photos/include";
@@ -11,6 +12,8 @@ import { parseRequestedResources } from "../reservations/requested-resources";
 import { CAPACITY_REQUIRED_MESSAGE, createRoomSchema, photoCaptionSchema, photoOrderSchema, updateRoomSchema } from "../schemas/room";
 
 export const roomsRouter = Router();
+roomsRouter.param("id", uuidParam("ROOM_NOT_FOUND", "Sala não encontrada."));
+roomsRouter.param("photoId", uuidParam("PHOTO_NOT_FOUND", "Foto não encontrada."));
 
 const roomInclude = {
   resources: { include: { resource: true }, orderBy: { resource: { name: "asc" } } },

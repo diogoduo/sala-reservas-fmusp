@@ -2,6 +2,7 @@ import { Router } from "express";
 import { asyncHandler } from "../lib/async-handler";
 import { addDays } from "../lib/calendar";
 import { AppError } from "../lib/errors";
+import { uuidParam } from "../lib/params";
 import { prisma } from "../lib/prisma";
 import { zonedDateKey } from "../lib/timezone";
 import { sendInBackground } from "../mail/mailer";
@@ -17,6 +18,8 @@ import { sanctionSchema } from "../schemas/review";
 // normas (Art. 22). O sistema registra e aplica; quem decide é a Diretoria/SAD.
 export const sanctionsRouter = Router();
 sanctionsRouter.use(requireAdmin);
+sanctionsRouter.param("userId", uuidParam("USER_NOT_FOUND", "Usuário não encontrado."));
+sanctionsRouter.param("sanctionId", uuidParam("SANCTION_NOT_FOUND", "Sanção não encontrada."));
 
 const sanctionInclude = {
   createdBy: { select: { id: true, name: true } },
@@ -25,9 +28,9 @@ const sanctionInclude = {
 
 /** Situação de um solicitante: ausências em 12 meses, sanções e suspensão em vigor. */
 sanctionsRouter.get(
-  "/users/:id/standing",
+  "/users/:userId/standing",
   asyncHandler(async (req, res) => {
-    const user = await prisma.user.findUnique({ where: { id: req.params.id }, select: { id: true, name: true, email: true } });
+    const user = await prisma.user.findUnique({ where: { id: req.params.userId }, select: { id: true, name: true, email: true } });
     if (!user) throw new AppError(404, "USER_NOT_FOUND", "Usuário não encontrado.");
     const [noShows, sanctions, suspension] = await Promise.all([
       noShowsInLastYear(prisma, user.id),
@@ -39,11 +42,11 @@ sanctionsRouter.get(
 );
 
 sanctionsRouter.post(
-  "/users/:id/sanctions",
+  "/users/:userId/sanctions",
   asyncHandler(async (req, res) => {
     const input = sanctionSchema.parse(req.body);
     const adminId = req.user!.id;
-    const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+    const user = await prisma.user.findUnique({ where: { id: req.params.userId } });
     if (!user) throw new AppError(404, "USER_NOT_FOUND", "Usuário não encontrado.");
     if (user.id === adminId) throw new AppError(400, "SELF_SANCTION", "Não é possível aplicar uma sanção a si mesmo.");
 
@@ -95,9 +98,9 @@ sanctionsRouter.post(
 
 /** Retira uma suspensão antes do fim (ex.: situação regularizada junto à FFM). */
 sanctionsRouter.post(
-  "/sanctions/:id/lift",
+  "/sanctions/:sanctionId/lift",
   asyncHandler(async (req, res) => {
-    const sanction = await prisma.userSanction.findUnique({ where: { id: req.params.id } });
+    const sanction = await prisma.userSanction.findUnique({ where: { id: req.params.sanctionId } });
     if (!sanction) throw new AppError(404, "SANCTION_NOT_FOUND", "Sanção não encontrada.");
     if (sanction.type !== "SUSPENSION" || sanction.liftedAt) {
       throw new AppError(409, "NOT_LIFTABLE", "Só uma suspensão em vigor pode ser retirada.");
