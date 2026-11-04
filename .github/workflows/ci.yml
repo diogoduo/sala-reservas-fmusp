@@ -1,0 +1,61 @@
+# Typecheck, build e testes do back-end e do front-end a cada push na main e
+# em todo pull request. Não faz deploy: o Render continua com deploy manual.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    # Banco só dos testes de rota (as migrations são aplicadas pelo próprio teste).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: reservas
+          POSTGRES_PASSWORD: reservas
+          POSTGRES_DB: reservas_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U reservas -d reservas_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+        env:
+          TEST_DATABASE_URL: postgresql://reservas:reservas@localhost:5432/reservas_test
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      # O build roda o tsc de novo e gera o site (vite build).
+      - run: npm run build
