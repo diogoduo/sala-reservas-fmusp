@@ -95,7 +95,7 @@ const cultureExtensionDetails = z
     // Chega como "ATRIUM,TERRACE" dos checkboxes do formulário.
     supportAreas: z.preprocess(
       (value) => (typeof value === "string" ? value.split(",").filter(Boolean) : value),
-      z.array(z.enum(SUPPORT_AREAS)).default([]),
+      z.array(z.enum(SUPPORT_AREAS)).max(SUPPORT_AREAS.length).default([]),
     ),
     responsible: requiredText("Informe o responsável."),
     responsibleContact: requiredText("Informe um contato do responsável (e-mail ou telefone)."),
@@ -163,6 +163,8 @@ const baseSchema = z.object({
         detail: z.string().trim().max(200).optional(),
       }),
     )
+    // Teto de itens: o formulário tem cerca de 20 recursos (e listas enormes pesam no zod 3).
+    .max(50, "Recursos demais na solicitação.")
     .default([]),
   supportNotes: z.string().max(2000).optional(),
   termsAccepted: z.literal(true, {

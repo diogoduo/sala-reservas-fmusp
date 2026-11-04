@@ -22,12 +22,13 @@ const roomFields = z.object({
   equipmentNotes: z.string().trim().max(2000).nullish().transform((v) => v || null),
   seatTypes: z
     .array(z.nativeEnum(SeatType))
+    .max(10)
     .default([])
     .transform((types) => [...new Set(types)]),
   wideDoor: z.boolean().default(false),
   specialNeeds: z.boolean().default(false),
   // ids de resources + quantidade; substitui totalmente o vínculo atual da sala
-  resources: z.array(resourceAssignmentSchema).default([]),
+  resources: z.array(resourceAssignmentSchema).max(100).default([]),
 });
 
 export const CAPACITY_REQUIRED_MESSAGE = "Informe a capacidade para deixar a sala Ativa.";
