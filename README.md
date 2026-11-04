@@ -41,13 +41,16 @@ Monorepo simples com duas aplicações independentes:
 sala-reservas-fmusp/
 ├── docker-compose.yml        # PostgreSQL 16 + Mailpit (SMTP de desenvolvimento)
 ├── render.yaml               # deploy da demonstração (Render + banco no Neon)
+├── .github/workflows/ci.yml  # typecheck, build e testes a cada push na main e em PRs
 ├── backend/                  # Node.js + Express + TypeScript + Prisma
 │   ├── prisma/
 │   │   ├── schema.prisma
-│   │   ├── migrations/       # init + db_constraints (CHECKs e exclusão de sobreposição)
+│   │   ├── migrations/       # histórico do schema: CHECKs, exclusão de sobreposição, portarias…
 │   │   ├── seed.ts           # salas, recursos e usuários fictícios
+│   │   ├── seed-demo.ts      # base de demonstração inteira inventada
 │   │   └── import-fmusp.ts   # catálogo real da FMUSP (dados fora do git)
-│   └── src/                  # app, config/env (zod), rotas, middleware de erros
+│   ├── src/                  # app, config/env (zod), rotas, regras das reservas
+│   └── test/                 # testes (Vitest): unit/ sem banco, api/ com PostgreSQL
 └── frontend/                 # React + TypeScript + Vite + Tailwind v4
 ```
 
@@ -64,7 +67,8 @@ docker compose up -d
 cd backend
 cp .env.example .env
 npm install
-npx prisma migrate dev      # aplica as duas migrations e gera o client
+npm run db:deploy           # aplica todas as migrations de prisma/migrations
+npx prisma generate         # gera o client do Prisma
 npm run db:seed             # recursos, salas e usuários fictícios
 npm run db:import-fmusp     # opcional: salas reais e fotos (precisa de prisma/data/fmusp.json e FM/)
 npm run dev                 # http://localhost:3333/api/health
@@ -79,26 +83,63 @@ npm run dev                 # http://localhost:5173
 A página inicial mostra o status da API e do banco — se ambos aparecerem como
 `ok`/`up`, a Fase 1 está funcionando.
 
+## Testes automatizados
+
+Vitest no back-end, em `backend/test/`:
+
+```bash
+cd backend
+npm run test:unit   # só as regras, sem banco
+npm test            # tudo; precisa do PostgreSQL do docker compose
+```
+
+- **`unit/`** (sem banco): recorrência (quarta às 21:00, sábado às 23:00,
+  montagem, quinzenal, horário de verão, limites e cerca de 3 mil combinações
+  comparadas com a prévia do formulário), feriados e prazo de 3 dias úteis
+  (conferidos contra as cópias do front-end), horário regular, duração,
+  antecedência, montagem, ranking de salas e conflitos.
+- **`api/`** (rotas de verdade): permissões, id malformado, aprovação
+  concorrente na mesma sala, pedido vencido, criação de série e login pela
+  Senha Única contra um servidor OAuth falso. Usam o banco `reservas_test`
+  (criado e migrado sozinho no mesmo PostgreSQL; outro endereço em
+  `TEST_DATABASE_URL`), que é apagado a cada arquivo. Por segurança, só rodam
+  num banco local cujo nome termina em `_test`.
+- Os testes não leem o `.env` e não enviam e-mail.
+
+O GitHub Actions (`.github/workflows/ci.yml`) roda typecheck, build e os testes
+do back-end (com um PostgreSQL próprio) e typecheck e build do front-end a cada
+push na `main` e em todo pull request. O deploy no Render continua manual.
+
 ## Fase 2 — Autenticação
 
 - Sessão via cookie httpOnly assinado (JWT com `SESSION_SECRET`), sem tabela de sessão.
 - `AUTH_MODE=mock` (padrão em dev): tela "Dev Mode" lista os usuários do seed e
   permite logar em um clique, ou digitar um e-mail novo de domínio autorizado
   para simular o primeiro acesso. **Bloqueado automaticamente se `NODE_ENV=production`.**
-- `AUTH_MODE=senhaunica`: fluxo OAuth 1.0a completo (`request_token` → tela de
-  autorização da USP → `access_token` → dados do usuário), implementado em
+- `AUTH_MODE=senhaunica`: fluxo OAuth 1.0a completo, implementado em
   `backend/src/auth/senhaunica.ts` sem depender de biblioteca de terceiros
-  (assinatura HMAC-SHA1 feita à mão em `oauth1.ts`, testada contra os vetores
-  do RFC 5849).
-  ⚠️ **O endpoint de dados do usuário (`SENHAUNICA_USER_INFO_PATH`) não pôde
-  ser confirmado com uma fonte oficial** — os três primeiros passos seguem o
-  padrão OAuth 1.0a documentado publicamente, mas esse último path é uma
-  estimativa. Ajuste-o no `.env` (ou peça o valor certo à STI/USP) antes de
-  testar com um consumidor real.
+  (assinatura HMAC-SHA1 feita à mão em `oauth1.ts`). Segue o protocolo das
+  bibliotecas da comunidade (`uspdev/senhaunica` e `uspdev/senhaunica-socialite`):
+  `POST /request_token` → `/authorize?oauth_token=…&callback_id=…` (o
+  `SENHAUNICA_CALLBACK_ID` cadastrado na USP) → `POST /access_token` →
+  `POST /usuariousp`, assinado para POST. O e-mail é o `emailUspUsuario` ou,
+  se vier vazio, o `emailPrincipalUsuario`. Erros da USP chegam ao navegador
+  só como `SENHAUNICA_UPSTREAM_ERROR`; o corpo da resposta fica no log.
+  ⚠️ **Ainda não testado com um consumidor real da USP.** O fluxo passa nos
+  testes contra um servidor OAuth falso que confere as assinaturas
+  (`test/api/senhaunica.test.ts`), mas só vale como validado depois de um
+  login de verdade com `SENHAUNICA_KEY`, `SENHAUNICA_SECRET` e
+  `SENHAUNICA_CALLBACK_ID`.
 - `AUTH_MODE=oidc`: rota reservada, responde `501 Not Implemented` por enquanto.
+- O usuário é identificado pelo nº USP e, se não houver cadastro com ele, pelo
+  e-mail (cadastro antigo). Quem troca de e-mail na USP continua sendo o mesmo
+  usuário.
 - Domínio de e-mail e papel (`ADMIN_EMAILS`) são validados/atribuídos no
   primeiro login, nos três modos — reaproveitando a mesma regra do `CHECK`
-  do banco.
+  do banco. Depois do primeiro login, `ADMIN_EMAILS` não muda mais o papel.
+- Em produção, o servidor não sobe com o `SESSION_SECRET` de exemplo do
+  `.env.example` (quem conhece o valor poderia forjar uma sessão de admin). O
+  `render.yaml` gera um segredo próprio (`generateValue`).
 
 ## Fase 3 — CRUD administrativo de salas e recursos
 
@@ -125,26 +166,28 @@ Tudo em `backend/src/reservations/` + `POST /api/reservations`:
   até o início do evento (não como "3 dias de calendário"; ajuste em
   `MIN_ADVANCE_MS` se a intenção for outra).
 - **Recorrência** (`recurrence.ts`): usa a biblioteca `rrule` para expandir a
-  regra RFC 5545 em ocorrências concretas, com um teto de 260 ocorrências e um
-  horizonte padrão de 2 anos quando a série não tem `until`.
-  ⚠️ Não tive como rodar `npm install`/testar essa integração de verdade neste
-  ambiente (sem rede) — a lógica segue a API documentada da lib, mas vale
-  conferir na prática assim que instalar as dependências.
-- **Conflitos** (`conflicts.ts`): compara cada ocorrência com reservas
-  `PENDING`/`APPROVED` e com `room_blocks` da mesma sala, usando a mesma
-  semântica de intervalo `[início, fim)` da exclusion constraint do banco.
-- **Concorrência**: a criação com sala definida roda em uma transação que
-  primeiro trava a linha da sala (`SELECT ... FOR UPDATE`), só então checa
-  conflito e grava — e ainda captura a violação da exclusion constraint como
-  rede de segurança final, caso o banco pegue algo que a checagem em
-  aplicação não pegou (o código de erro citado aqui antes, `P2004`, estava
-  errado — ver Fase 6).
-- **Solicitação parcial**: se alguma data da recorrência colidir, a API responde
-  `409 RESERVATION_CONFLICT` com `{ conflictingDates, availableDates }` **sem
-  criar nada**. O cliente reenvia o mesmo POST com `skipDates` contendo as
-  datas conflitantes para criar só as livres (ou ajusta os horários e tenta de novo).
-- Reserva **sem sala definida** (`roomId` omitido) pula checagem de conflito —
-  fica para o Admin alocar e então aprovar (Fase 6).
+  regra RFC 5545 em ocorrências concretas. A regra é avaliada no horário local
+  de `APP_TIMEZONE`: `BYDAY=WE` é quarta em São Paulo, mesmo numa aula às
+  21:00, que em UTC já é quinta. A API só aceita o formato que o formulário
+  gera (`FREQ=WEEKLY;INTERVAL=1 a 4;BYDAY=…`, sem dias repetidos), uma série
+  vai até no máximo 1 ano depois da primeira data e tem no máximo 260 datas.
+  Datas em feriado saem da série (`withoutHolidays`, em `portaria.ts`). A
+  série e todas as datas são gravadas numa transação só, com os e-mails
+  depois do commit.
+- **Conflitos** (`conflicts.ts`): `overlaps` usa a mesma semântica de
+  intervalo `[início, fim)` da exclusion constraint do banco (uma reserva pode
+  começar quando outra termina); `loadBusyIntervals` carrega, em 2 consultas,
+  as reservas `PENDING`/`APPROVED` e os `room_blocks` das salas no período;
+  `findConflictingOccurrences` aponta as datas que colidem; `lockRoomForUpdate`
+  trava a sala; `isOverlapViolation` reconhece a violação da constraint.
+- **Concorrência**: toda gravação com sala (aprovação, reserva e alteração
+  feitas pelo SAD) roda numa transação que primeiro trava a linha da sala
+  (`SELECT ... FOR UPDATE`), só então checa conflito e grava, e ainda captura
+  a violação da exclusion constraint como rede de segurança final (o código de
+  erro citado aqui antes, `P2004`, estava errado — ver Fase 6).
+- **Solicitação parcial** (`skipDates`) e pedido com sala: saíram na correção
+  pós-Fase 5. O solicitante não escolhe sala, então o pedido não checa
+  conflito; a aprovação parcial de uma série fica na Fase 6 (`skipConflicting`).
 - `GET /api/reservations` e `GET /api/reservations/:id`: só para eu conseguir
   testar a Fase 4 sem front-end ainda. O painel "Minhas Reservas" completo
   (com cancelamento) é a Fase 8; a tela de calendário/formulário é a Fase 5.
@@ -208,10 +251,12 @@ front-end na nova aba **Solicitações** do painel do Admin
   menor capacidade que comporta. É só leitura; a checagem que vale é a da aprovação.
 - `POST /api/admin/reservations/:id/approve` `{ roomId, scope, skipConflicting? }`:
   aloca a sala e aprova numa transação só — trava a linha da sala
-  (`SELECT … FOR UPDATE`), exige sala Ativa, valida capacidade
-  (`CAPACITY_EXCEEDED`) e checa conflito com reservas ativas e bloqueios.
-  Recurso faltando **não** bloqueia (o Admin pode providenciar um equipamento
-  móvel); só aparece como aviso na tela.
+  (`SELECT … FOR UPDATE`), exige sala Ativa e checa conflito com reservas
+  ativas e bloqueios. Capacidade e recurso faltando **não** bloqueiam: o SAD
+  pode passar por cima das portarias (a tela avisa qual artigo está sendo
+  violado), e o Admin pode providenciar um equipamento móvel. Pedido cuja
+  data já passou não pode ser aprovado (`RESERVATION_IN_PAST`), só rejeitado;
+  a tela avisa e desabilita o botão de aprovar.
   - Série com conflito parcial: `409 RESERVATION_CONFLICT` com
     `{ conflictingDates, availableDates }`, sem aprovar nada. Reenviando com
     `skipConflicting: true`, aprova as datas livres e deixa as ocupadas
@@ -754,8 +799,8 @@ claro e escuro.
   `/reservar`, `/salas`, `/regulamento`; `/admin/solicitacoes`, `/admin/agenda`,
   `/admin/salas-livres`, `/admin/salas`, `/admin/recursos`, `/admin/regulamento`. Barra lateral a partir de 1024 px, barra inferior no
   celular. O Admin vê na navegação quantas solicitações estão pendentes.
-  ⚠️ Em produção, o servidor estático precisa devolver o `index.html` para
-  qualquer caminho desconhecido (fallback de SPA).
+  Em produção, o próprio Express devolve o `index.html` para essas rotas
+  (fallback de SPA, em `backend/src/app.ts`).
 - **Interações:**
   - toasts para o resultado das ações;
   - diálogo de confirmação próprio no lugar do `window.confirm`;
