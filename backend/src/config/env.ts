@@ -50,8 +50,8 @@ const schema = z
     SENHAUNICA_SECRET: z.string().optional(),
     SENHAUNICA_CALLBACK_ID: z.string().optional(),
     SENHAUNICA_BASE_URL: z.string().url().default("https://uspdigital.usp.br/wsusuario/oauth"),
-    // Ver aviso em src/auth/senhaunica.ts: path não confirmado com fonte oficial, ajuste se necessário.
-    SENHAUNICA_USER_INFO_PATH: z.string().default("/dadosusuario"),
+    // Dados do usuário autenticado: POST {base}/usuariousp, como nas bibliotecas uspdev.
+    SENHAUNICA_USER_INFO_PATH: z.string().default("/usuariousp"),
 
     OIDC_ISSUER: z.string().optional(),
     OIDC_CLIENT_ID: z.string().optional(),
