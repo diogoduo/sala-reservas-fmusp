@@ -21,6 +21,9 @@ const bool = (fallback: "true" | "false") =>
 // Variável definida mas vazia (comum em painéis de hospedagem) conta como ausente.
 const optionalText = (inner: z.ZodString) => z.preprocess((value) => (value === "" ? undefined : value), inner.optional());
 
+// Valor de exemplo do .env.example: é público, então quem o conhece forja sessões (inclusive de admin).
+const EXAMPLE_SESSION_SECRET = "troque-este-segredo-por-um-valor-aleatorio-longo";
+
 const schema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -97,6 +100,13 @@ const schema = z
           code: z.ZodIssueCode.custom,
           path: ["AUTH_MODE"],
           message: "AUTH_MODE=mock é proibido em produção (exceto em demonstração: DEMO_MODE=true com ACCESS_CODE)",
+        });
+      }
+      if (cfg.SESSION_SECRET === EXAMPLE_SESSION_SECRET) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["SESSION_SECRET"],
+          message: "SESSION_SECRET não pode ser o valor de exemplo do .env.example em produção; gere um valor aleatório",
         });
       }
       if (!cfg.COOKIE_SECURE) {
