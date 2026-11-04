@@ -4,10 +4,8 @@ import { AppError } from "../lib/errors";
 
 // Trava de segurança: ~5 anos de recorrência semanal (na prática a série dura no máximo 1 ano).
 const MAX_OCCURRENCES = 260;
-/** Uma série vai, no máximo, até 1 ano depois da primeira data. */
+/** Uma série vai, no máximo, até 1 ano depois da primeira data (também é o horizonte sem `until`). */
 const MAX_SPAN_MS = 366 * 24 * 60 * 60 * 1000;
-// Se a série não tiver `until`, limitamos a expansão a 2 anos à frente do início.
-const DEFAULT_HORIZON_MS = 1000 * 60 * 60 * 24 * 365 * 2;
 
 export interface Occurrence {
   start: Date;
@@ -74,7 +72,7 @@ export function expandRecurrence(
   timeZone: string = env.APP_TIMEZONE,
 ): Occurrence[] {
   const durationMs = firstEnd.getTime() - firstStart.getTime();
-  const horizon = until ?? new Date(firstStart.getTime() + DEFAULT_HORIZON_MS);
+  const horizon = until ?? new Date(firstStart.getTime() + MAX_SPAN_MS);
   if (horizon.getTime() - firstStart.getTime() > MAX_SPAN_MS) {
     throw new AppError(400, "RECURRENCE_TOO_LONG", "Uma série pode se repetir por no máximo 1 ano a partir da primeira data.");
   }
