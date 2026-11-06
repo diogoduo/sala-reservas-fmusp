@@ -24,3 +24,9 @@ export function zonedDayRange(dateKey: string, timeZone = env.APP_TIMEZONE): { s
   const nextKey = zonedDateKey(next, timeZone);
   return { start, end: new Date(`${nextKey}T00:00:00${offsetOn(nextKey, timeZone)}`) };
 }
+
+/** "2026-12-01" + "08:30" no fuso da aplicação → instante. */
+export function zonedTime(dateKey: string, time: string, timeZone = env.APP_TIMEZONE): Date {
+  const [h, m] = time.split(":").map(Number);
+  return new Date(zonedDayRange(dateKey, timeZone).start.getTime() + ((h ?? 0) * 60 + (m ?? 0)) * 60_000);
+}

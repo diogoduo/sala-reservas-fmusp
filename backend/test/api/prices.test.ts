@@ -97,3 +97,33 @@ describe("Preços da Portaria 2794 (Fase 9, bloco 4)", () => {
     await sad.delete(`/api/prices/tables/${future.body.table.id}`).expect(204);
   });
 });
+
+describe("Estimativa de orçamento (Fase 10)", () => {
+  it("calcula pela tabela vigente: horas com preparação, quantidade e desconto institucional", async () => {
+    const aluno = await loginAs(app, "aluno@usp.br");
+    const { body } = await aluno
+      .post("/api/quotes/estimate")
+      .send({ days: [{ date: inDays(40), start: "08:00", end: "18:00" }], items: [{ categoryId: amphitheaters.id, count: 2 }], institutional: true })
+      .expect(200);
+    // O teste acima mudou os anfiteatros para R$ 390,00/hora: 10 h + 2 h de preparação, 2 anfiteatros.
+    expect(body.table.name).toBe("Portaria 2794/2026");
+    expect(body.quote.lines[0]).toMatchObject({ quantity: 12, baseCents: 39000 * 12 * 2 });
+    expect(body.quote).toMatchObject({ subtotalCents: 936_000, discountCents: 234_000, totalCents: 702_000, hasUndefined: false });
+  });
+
+  it("coffee na própria sala só onde a sala permite; valor a definir deixa o total parcial", async () => {
+    const coffeeRoom = await prisma.room.create({
+      data: { name: "Sala 2366 Teste", building: "Prédio Teste", floor: "2º andar", capacity: 40, roomType: "CLASSROOM", coffeeAllowed: true, priceCategoryId: classrooms.id },
+    });
+    const aluno = await loginAs(app, "aluno@usp.br");
+    const { body } = await aluno
+      .post("/api/quotes/estimate")
+      .send({ days: [{ date: inDays(40), start: "09:00", end: "11:00" }], items: [{ roomId: coffeeRoom.id, coffeeInRoom: true }] })
+      .expect(200);
+    expect(body.quote.lines[0]).toMatchObject({ label: "Sala 2366 Teste", coffeeInRoom: true, subtotalCents: null });
+    expect(body.quote.hasUndefined).toBe(true);
+
+    const bad = await aluno.post("/api/quotes/estimate").send({ days: [{ date: inDays(40), start: "11:00", end: "09:00" }], items: [{ roomId: coffeeRoom.id }] });
+    expect(bad.status).toBe(400);
+  });
+});

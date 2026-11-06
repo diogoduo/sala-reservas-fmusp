@@ -965,6 +965,35 @@ na data do evento). Migration `price_tables`, que já carrega a Portaria 2794
   `POST /api/prices/tables { copyFromId, name, validFrom }`,
   `DELETE /api/prices/tables/:id` (só futura), `POST/PATCH /api/prices/categories`.
 
+
+## Fase 10 — Orçamento automático (Portaria 2794)
+
+O cálculo fica num lugar só (`backend/src/quotes/engine.ts`, função pura) e
+cada regra tem o seu teste (`test/unit/quote.test.ts`):
+
+| Regra | Como entra no cálculo |
+|---|---|
+| Espaço didático por hora (Art. 2º) | Em cada dia: horas de uso, com a cobrança mínima (2 h), mais 1 h antes e 1 h depois (§1º) |
+| Área de apoio por hora (Art. 3º) | Horas de uso, já com montagem e desmontagem; sem mínimo e sem preparação |
+| Área de apoio por dia | Um valor por dia de uso |
+| Pernoite (Art. 3º §2º) | Não conta: cada dia é cobrado só no horário de uso |
+| Coffee break na própria sala de aula (Art. 5º §2º) | +20% sobre o valor da sala; só nas salas de aula com coffee liberado |
+| Desconto institucional (Art. 4º III) | 25% sobre o total, sem somar com outros |
+| Isenção (Art. 4º I e II) | Marcada por quem analisa, com o motivo; zera o total |
+| Valor a definir | A linha fica sem valor e o total sai como parcial |
+
+- O orçamento usa a **tabela de preços que vale no primeiro dia do evento**, e
+  as regras dela.
+- Exemplo do documento SAD/NUCEV (um dia de 10 h): 10 salas grandes e 3
+  pequenas = 13 × 12 h × R$ 125 = **R$ 19.500**; com o desconto
+  institucional, **R$ 14.625**.
+- `POST /api/quotes/estimate { days: [{ date, start, end }], items: [{ categoryId | roomId, count, coffeeInRoom }], institutional, exemptionReason? }`
+  calcula sem gravar; o formulário de evento (Fase 11) e o **simulador da
+  tela Preços** usam. O orçamento enviado ao solicitante, com versões, entra
+  com a gestão do evento (Fase 12).
+- A equipe técnica de áudio e vídeo (Art. 4º II, Art. 18 da 2793) é cobrada à
+  parte e não entra no cálculo.
+
 ## Interface
 
 Redesign completo do front-end, responsivo do celular ao computador, com tema

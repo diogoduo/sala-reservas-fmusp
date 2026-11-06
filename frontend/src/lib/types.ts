@@ -381,3 +381,60 @@ export interface AuditPage {
   items: AuditEntry[];
   nextCursor: string | null;
 }
+
+// --- Orçamento (Fase 10) ------------------------------------------------------
+
+export interface QuoteRules {
+  minimumHours: number;
+  prepHoursBefore: number;
+  prepHoursAfter: number;
+  coffeeSurchargePercent: number;
+  institutionalDiscountPercent: number;
+}
+
+export interface QuoteLine {
+  label: string;
+  categoryName: string;
+  unit: PriceUnit;
+  didactic: boolean;
+  rateCents: number | null;
+  count: number;
+  days: { usedHours: number; billedHours: number }[];
+  /** Por espaço: horas cobradas (por hora) ou dias (por dia). */
+  quantity: number;
+  coffeeInRoom: boolean;
+  baseCents: number | null;
+  surchargeCents: number | null;
+  subtotalCents: number | null;
+}
+
+export interface QuoteResult {
+  lines: QuoteLine[];
+  subtotalCents: number;
+  discountPercent: number;
+  discountCents: number;
+  totalCents: number;
+  hasUndefined: boolean;
+  exempt: boolean;
+  exemptionReason: string | null;
+}
+
+export interface QuoteEstimate {
+  quote: QuoteResult;
+  table: { id: string; name: string; validFrom: string };
+  rules: QuoteRules;
+}
+
+export interface QuoteDayInput {
+  date: string;
+  start: string;
+  end: string;
+}
+
+export interface QuoteItemInput {
+  categoryId?: string;
+  roomId?: string;
+  count: number;
+  coffeeInRoom: boolean;
+  days?: QuoteDayInput[];
+}

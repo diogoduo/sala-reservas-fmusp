@@ -13,6 +13,7 @@ import { Dialog } from "../ui/Dialog";
 import { Alert, CardListSkeleton, EmptyState } from "../ui/Feedback";
 import { Input, Textarea } from "../ui/Field";
 import { Card, PageHeader } from "../ui/Surface";
+import { QuoteSimulator } from "./QuoteSimulator";
 
 type RuleKey = "minimumHours" | "prepHoursBefore" | "prepHoursAfter" | "coffeeSurchargePercent" | "institutionalDiscountPercent";
 
@@ -422,6 +423,7 @@ export function PricesPage() {
               table.notes && <p className="mt-6 border-t border-border pt-4 text-sm text-muted">{table.notes}</p>
             )}
           </Card>
+          {!editing && <QuoteSimulator categories={categories} />}
         </>
       )}
 
