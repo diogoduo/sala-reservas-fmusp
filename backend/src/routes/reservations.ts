@@ -10,6 +10,7 @@ import {
   reservationSnapshot,
   roomLabel,
 } from "../audit/log";
+import { assertCanRequestActivity } from "../auth/permissions";
 import { asyncHandler } from "../lib/async-handler";
 import { formatDayMonth } from "../lib/calendar";
 import { AppError } from "../lib/errors";
@@ -17,7 +18,7 @@ import { uuidParam } from "../lib/params";
 import { prisma } from "../lib/prisma";
 import { sendInBackground } from "../mail/mailer";
 import { cancelledMails, modifiedMails, requestReceivedMails } from "../mail/notifications";
-import { requireAuth } from "../middleware/auth";
+import { isStaff, requireAuth } from "../middleware/auth";
 import { roomPhotosInclude } from "../photos/include";
 import { summarizeActivity } from "../reservations/activities";
 import { activeSuspension, assertNotSuspended, nextProtocol, noShowsInLastYear, reservedWindow, withoutHolidays } from "../reservations/portaria";
@@ -62,6 +63,7 @@ reservationsRouter.post(
   requireAuth,
   asyncHandler(async (req, res) => {
     const input = requesterCreateSchema.parse(req.body);
+    assertCanRequestActivity(req.user!, input.activityType);
     await assertNotSuspended(prisma, req.user!.id);
     const { title, expectedAttendees } = summarizeActivity(input);
 
@@ -203,7 +205,7 @@ reservationsRouter.get(
       include: reservationInclude,
     });
     // 404 (não 403) para não revelar a existência de reservas de outras pessoas.
-    if (!reservation || (reservation.userId !== req.user!.id && req.user!.role !== "ADMIN")) {
+    if (!reservation || (reservation.userId !== req.user!.id && !isStaff(req.user!.role))) {
       throw new AppError(404, "RESERVATION_NOT_FOUND", "Reserva não encontrada.");
     }
     res.json({ reservation });

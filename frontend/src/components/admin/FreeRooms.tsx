@@ -12,6 +12,7 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { api } from "../../lib/api";
+import { useCanManage } from "../../lib/auth";
 import { cn } from "../../lib/cn";
 import { capitalizeFirst, formatTimeRange } from "../../lib/format";
 import { useToast } from "../../lib/toast";
@@ -77,6 +78,7 @@ function QuickChip({ active, onClick, children }: { active?: boolean; onClick: (
  * dá para voltar à pesquisa ou mandar o link para alguém da equipe.
  */
 export function FreeRooms() {
+  const canManage = useCanManage();
   const toast = useToast();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -256,6 +258,7 @@ export function FreeRooms() {
                       </div>
                     )}
                     <div className="mt-auto space-y-2 pt-5">
+                      {canManage && (
                       <Button
                         size="sm"
                         icon={CalendarPlusIcon}
@@ -268,6 +271,7 @@ export function FreeRooms() {
                       >
                         Reservar
                       </Button>
+                      )}
                       <div className="flex gap-2">
                         <Button variant="secondary" size="sm" icon={CopyIcon} className="flex-1" onClick={() => void copyAnswer(r)}>
                           Copiar resposta

@@ -5,12 +5,12 @@ import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
 import { prisma } from "../lib/prisma";
 import { zonedDayRange } from "../lib/timezone";
-import { requireAdmin } from "../middleware/auth";
+import { requireStaff } from "../middleware/auth";
 
 // Histórico geral (Fase 9): consulta do que foi gravado em audit_logs, do mais
 // recente para o mais antigo, em páginas (cursor), com filtros.
 export const auditRouter = Router();
-auditRouter.use(requireAdmin);
+auditRouter.use(requireStaff);
 
 const dateKey = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data no formato AAAA-MM-DD.");
 

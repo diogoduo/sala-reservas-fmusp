@@ -10,6 +10,7 @@ import { errorHandler, notFoundHandler } from "./middleware/error-handler";
 import { accessRouter, requireAccessCode } from "./routes/access";
 import { adminRouter } from "./routes/admin";
 import { auditRouter } from "./routes/audit";
+import { usersRouter } from "./routes/users";
 import { adminActionsRouter } from "./routes/admin-actions";
 import { sanctionsRouter } from "./routes/sanctions";
 import { authRouter } from "./routes/auth";
@@ -53,6 +54,7 @@ export function createApp() {
   app.use("/api/resources", resourcesRouter);
   app.use("/api/reservations", reservationsRouter);
   app.use("/api/audit", auditRouter);
+  app.use("/api/admin/users", usersRouter);
   app.use("/api/admin", adminRouter);
   app.use("/api/admin", adminActionsRouter);
   app.use("/api/admin", sanctionsRouter);

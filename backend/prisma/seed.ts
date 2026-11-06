@@ -2,7 +2,7 @@
  * Dados iniciais para desenvolvimento. Idempotente (pode rodar várias vezes).
  * Salas e usuários abaixo são FICTÍCIOS — substitua pelo catálogo real na Fase 3.
  */
-import { PrismaClient, RoomStatus, RoomType, UserRole } from "@prisma/client";
+import { PrismaClient, RoomStatus, RoomType, UserRole, type Permission } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -81,12 +81,19 @@ const ROOMS: {
   },
 ];
 
-// Contas usadas pelo Mock USP (Fase 2): um e-mail de cada domínio autorizado.
-const DEV_USERS = [
-  { uspNumber: "1000001", name: "SAD — Serviço de Apoio Didático", email: "admin@fm.usp.br", role: UserRole.ADMIN },
-  { uspNumber: "1000002", name: "Aluno Teste", email: "aluno@usp.br", role: UserRole.USER },
-  { uspNumber: "1000003", name: "Docente Teste", email: "docente@fm.usp.br", role: UserRole.USER },
-  { uspNumber: "1000004", name: "Funcionário HC Teste", email: "funcionario@hc.fm.usp.br", role: UserRole.USER },
+// Contas usadas pelo Mock USP (Fase 2): um e-mail de cada domínio autorizado e,
+// desde a Fase 9, uma de cada perfil. São fictícias (".demo" no e-mail, para não
+// coincidir com caixas reais da USP). Mantenha igual em prisma/seed-demo.ts.
+const DEV_USERS: { uspNumber: string; name: string; email: string; role: UserRole; permissions: Permission[] }[] = [
+  { uspNumber: "1000001", name: "SAD — Serviço de Apoio Didático", email: "admin@fm.usp.br", role: UserRole.ADMIN, permissions: [] },
+  { uspNumber: "1000002", name: "Aluno Teste", email: "aluno@usp.br", role: UserRole.USER, permissions: [] },
+  // Docente com permissão dada pelo SAD (até a planilha de disciplinas chegar, é concedida à mão).
+  { uspNumber: "1000003", name: "Docente Teste", email: "docente@fm.usp.br", role: UserRole.USER, permissions: ["REQUEST_UNDERGRADUATE", "REQUEST_GRADUATE"] },
+  { uspNumber: "1000004", name: "Funcionário HC Teste", email: "funcionario@hc.fm.usp.br", role: UserRole.USER, permissions: [] },
+  { uspNumber: "1000005", name: "Sueli — Pós-Graduação (demo)", email: "sueli.demo@fm.usp.br", role: UserRole.USER, permissions: ["REQUEST_DEFENSE", "REQUEST_GRADUATE"] },
+  { uspNumber: "1000006", name: "Juliana — Graduação (demo)", email: "juliana.demo@fm.usp.br", role: UserRole.USER, permissions: ["REQUEST_GRADUATE", "REQUEST_UNDERGRADUATE"] },
+  { uspNumber: "1000007", name: "Vanessa — NUCEV (demo)", email: "vanessa.demo@fm.usp.br", role: UserRole.NUCEV, permissions: [] },
+  { uspNumber: "1000008", name: "Maria — NUCEV (demo)", email: "maria.demo@fm.usp.br", role: UserRole.NUCEV, permissions: [] },
 ];
 
 async function main() {
@@ -135,7 +142,7 @@ async function main() {
     for (const user of DEV_USERS) {
       await prisma.user.upsert({
         where: { email: user.email },
-        update: { name: user.name, role: user.role },
+        update: { name: user.name, role: user.role, permissions: user.permissions },
         create: user,
       });
     }

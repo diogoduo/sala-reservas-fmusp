@@ -20,10 +20,22 @@ datasource db {
 // ----------------------------------------------------------------------------
 
 enum UserRole {
-  USER
-  ADMIN
+  USER // Solicitante
+  ADMIN // SAD — Serviço de Apoio Didático
+  NUCEV // Núcleo de Eventos: consulta tudo; no módulo de Eventos, cuida da análise ao encerramento
 
   @@map("user_role")
+}
+
+/// O que uma pessoa pode fazer além do que o papel já permite (Fase 9). Pedir
+/// Graduação, Pós-Graduação e Defesa é exclusivo de quem tem a permissão; o SAD
+/// concede na tela Pessoas.
+enum Permission {
+  REQUEST_UNDERGRADUATE // pedir reservas de Graduação
+  REQUEST_GRADUATE // pedir reservas de Pós-Graduação
+  REQUEST_DEFENSE // pedir reservas de Defesa/Dissertação
+
+  @@map("permission")
 }
 
 enum RoomType {
@@ -85,8 +97,9 @@ model User {
   uspNumber String?  @unique @map("usp_number") // nº USP (loginUsuario da Senha Única)
   name      String
   email     String   @unique // sempre minúsculo; domínio validado no app e no banco
-  role      UserRole @default(USER)
-  icalToken String?  @unique @map("ical_token") // segredo do feed .ics; gerado sob demanda
+  role        UserRole     @default(USER)
+  permissions Permission[] @default([])
+  icalToken   String?      @unique @map("ical_token") // segredo do feed .ics; gerado sob demanda
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   reservations          Reservation[]       @relation("ReservationRequester")

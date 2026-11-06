@@ -11,9 +11,11 @@ const PALETTE = [
 ];
 
 function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
+  const all = name.trim().split(/\s+/);
   // Nome que começa com sigla ("SAD — Serviço de Apoio Didático") mostra a sigla.
-  if (/^[A-Z]{2,4}$/.test(parts[0] ?? "")) return parts[0]!;
+  if (/^[A-Z]{2,4}$/.test(all[0] ?? "")) return all[0]!;
+  // "Maria — NUCEV (demo)": só o nome, antes do travessão, e só palavras que começam com letra.
+  const parts = (name.split(" — ")[0] ?? name).trim().split(/\s+/).filter((p) => /^\p{L}/u.test(p));
   return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "")).toUpperCase() || "?";
 }
 

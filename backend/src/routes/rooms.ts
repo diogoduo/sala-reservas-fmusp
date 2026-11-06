@@ -1,4 +1,4 @@
-import { Prisma, RoomStatus, RoomType } from "@prisma/client";
+import { Prisma, RoomStatus, RoomType, type UserRole } from "@prisma/client";
 import express, { Router } from "express";
 import { z } from "zod";
 import { diffFields, recordAudit, roomLabel } from "../audit/log";
@@ -6,7 +6,7 @@ import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
 import { uuidParam } from "../lib/params";
 import { prisma } from "../lib/prisma";
-import { requireAdmin, requireAuth } from "../middleware/auth";
+import { isStaff, requireAdmin, requireAuth } from "../middleware/auth";
 import { roomPhotosInclude } from "../photos/include";
 import { renderPhotoVersions } from "../photos/storage";
 import { parseRequestedResources } from "../reservations/requested-resources";
@@ -45,13 +45,13 @@ function roomSnapshot(room: RoomWithResources) {
 }
 
 /**
- * Modelo, patrimônio e "outros equipamentos" são inventário interno: só o SAD
- * (Admin) vê. Para o solicitante, a sala mostra só os tipos de recurso. As
+ * Modelo, patrimônio e "outros equipamentos" são inventário interno: só a equipe
+ * (SAD e NUCEV) vê. Para o solicitante, a sala mostra só os tipos de recurso. As
  * cadeiras extras (professor, rodinha…) também ficam de fora: não contam como
  * lugar e não pode haver cadeira sobressalente (Portaria 2793, Art. 5º §2º).
  */
-function forViewer(room: RoomWithResources, role: string | undefined) {
-  if (role === "ADMIN") return room;
+function forViewer(room: RoomWithResources, role: UserRole | undefined) {
+  if (isStaff(role)) return room;
   const { equipmentNotes: _notes, extraSeats: _extra, ...publicRoom } = room;
   return {
     ...publicRoom,
@@ -138,7 +138,7 @@ roomsRouter.get(
       }),
     ]);
 
-    const isAdmin = req.user?.role === "ADMIN";
+    const isAdmin = isStaff(req.user?.role);
     const resourceIds = [...new Set(reservations.flatMap((r) => parseRequestedResources(r.requestedResources).map((x) => x.resourceId)))];
     const resourceNames = new Map(
       isAdmin && resourceIds.length > 0

@@ -18,7 +18,7 @@
  * numeração de protocolos para 000001. O regulamento (texto e PDFs) e os
  * recursos ficam. Sem --reset, só roda num banco sem salas e sem reservas.
  */
-import { PrismaClient, type ActivityType, type Prisma, type ReservationStatus, type RoomStatus, type RoomType, type SeatType, type UserRole } from "@prisma/client";
+import { PrismaClient, type ActivityType, type Prisma, type ReservationStatus, type RoomStatus, type RoomType, type Permission, type SeatType, type UserRole } from "@prisma/client";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
@@ -230,12 +230,16 @@ const NOTEBOOKS: { model: string; location: "SAD" | "NIT"; notes?: string }[] = 
   { model: "Lenovo IdeaPad 3", location: "NIT" },
 ];
 
-// Contas da tela de login (Mock USP) — as mesmas de prisma/seed.ts.
-const DEV_USERS: { uspNumber: string; name: string; email: string; role: UserRole }[] = [
-  { uspNumber: "1000001", name: "SAD — Serviço de Apoio Didático", email: "admin@fm.usp.br", role: "ADMIN" },
-  { uspNumber: "1000002", name: "Aluno Teste", email: "aluno@usp.br", role: "USER" },
-  { uspNumber: "1000003", name: "Docente Teste", email: "docente@fm.usp.br", role: "USER" },
-  { uspNumber: "1000004", name: "Funcionário HC Teste", email: "funcionario@hc.fm.usp.br", role: "USER" },
+// Contas da tela de login (Mock USP) — as mesmas de prisma/seed.ts, uma de cada perfil.
+const DEV_USERS: { uspNumber: string; name: string; email: string; role: UserRole; permissions: Permission[] }[] = [
+  { uspNumber: "1000001", name: "SAD — Serviço de Apoio Didático", email: "admin@fm.usp.br", role: "ADMIN", permissions: [] },
+  { uspNumber: "1000002", name: "Aluno Teste", email: "aluno@usp.br", role: "USER", permissions: [] },
+  { uspNumber: "1000003", name: "Docente Teste", email: "docente@fm.usp.br", role: "USER", permissions: ["REQUEST_UNDERGRADUATE", "REQUEST_GRADUATE"] },
+  { uspNumber: "1000004", name: "Funcionário HC Teste", email: "funcionario@hc.fm.usp.br", role: "USER", permissions: [] },
+  { uspNumber: "1000005", name: "Sueli — Pós-Graduação (demo)", email: "sueli.demo@fm.usp.br", role: "USER", permissions: ["REQUEST_DEFENSE", "REQUEST_GRADUATE"] },
+  { uspNumber: "1000006", name: "Juliana — Graduação (demo)", email: "juliana.demo@fm.usp.br", role: "USER", permissions: ["REQUEST_GRADUATE", "REQUEST_UNDERGRADUATE"] },
+  { uspNumber: "1000007", name: "Vanessa — NUCEV (demo)", email: "vanessa.demo@fm.usp.br", role: "NUCEV", permissions: [] },
+  { uspNumber: "1000008", name: "Maria — NUCEV (demo)", email: "maria.demo@fm.usp.br", role: "NUCEV", permissions: [] },
 ];
 
 // Pessoas fictícias (".demo" no e-mail para não coincidir com caixas reais).
@@ -243,7 +247,7 @@ const PEOPLE = {
   helena: { name: "Profa. Helena Martins", email: "helena.martins.demo@usp.br", dept: "Departamento de Medicina Interna" },
   ricardo: { name: "Prof. Ricardo Alves", email: "ricardo.alves.demo@usp.br", dept: "Departamento de Cirurgia" },
   eduardo: { name: "Prof. Eduardo Lima", email: "eduardo.lima.demo@usp.br", dept: "Departamento de Morfologia" },
-  juliana: { name: "Profa. Juliana Costa", email: "juliana.costa.demo@usp.br", dept: "Departamento de Saúde Coletiva" },
+  marina: { name: "Profa. Marina Costa", email: "marina.costa.demo@usp.br", dept: "Departamento de Saúde Coletiva" },
   paulo: { name: "Dr. Paulo Mendes", email: "paulo.mendes.demo@usp.br", dept: "Programa de Pós-Graduação em Ciências Médicas" },
   camila: { name: "Camila Rocha", email: "camila.rocha.demo@usp.br", dept: "Centro Acadêmico" },
   bruno: { name: "Bruno Ferreira", email: "bruno.ferreira.demo@usp.br", dept: "Liga Acadêmica de Cardiologia" },
@@ -349,10 +353,10 @@ const SINGLES: Request[] = [
   grad("docente", "DEM0170", "Fisiologia Cardiovascular", 85, "EXAM", 2, { rooms: ["Anfiteatro B"] }),
   grad("helena", "DEM0142", "Semiologia Médica", 40, "MAKEUP", 3, { rooms: ["Sala 101", "Sala 102"] }),
   grad("eduardo", "DEM0215", "Neuroanatomia", 30, "PRACTICAL", 1, { rooms: ["Laboratório de Habilidades", "Sala 103"] }),
-  grad("juliana", "DEM0330", "Epidemiologia", 48, "LECTURE", 3, { rooms: ["Sala 201"] }),
+  grad("marina", "DEM0330", "Epidemiologia", 48, "LECTURE", 3, { rooms: ["Sala 201"] }),
   grad("docente", "DEM0172", "Fisiologia Renal", 36, "LECTURE", 2, { rooms: ["Sala 202", "Sala 102"] }),
   grad("eduardo", "DEM0211", "Histologia", 28, "PRACTICAL", 1, { rooms: ["Sala 104", "Sala 103"], resources: [["Lousa Interativa"]] }),
-  grad("juliana", "DEM0305", "Bioestatística", 20, "EXAM", 4, { rooms: ["Laboratório de Informática 2"], resources: [["Computador de Apoio", 20], ["Bloqueio de internet para prova", undefined, "Canvas"]] }),
+  grad("marina", "DEM0305", "Bioestatística", 20, "EXAM", 4, { rooms: ["Laboratório de Informática 2"], resources: [["Computador de Apoio", 20], ["Bloqueio de internet para prova", undefined, "Canvas"]] }),
   pos("paulo", "PGD5031", "Bioética em Pesquisa", 22, { rooms: ["Sala 203", "Sala 202"] }),
   pos("ricardo", "PGD5044", "Técnicas Cirúrgicas Avançadas", 18, { rooms: ["Laboratório de Habilidades"] }),
   pos("paulo", "PGD5050", "Escrita Científica", 15, { rooms: ["Sala de Estudos", "Sala 203"], resources: [["Equipamento pessoal"]] }),
@@ -360,7 +364,7 @@ const SINGLES: Request[] = [
   culture("bruno", "LEAGUE", "Liga de Cardiologia — Aula aberta: ECG na prática", "LEAGUE", 60, "18:30 Aula\n20:00 Casos clínicos", { rooms: ["Anfiteatro C"], duration: 150, starts: ["18:30"] }),
   culture("ricardo", "COURSE", "Curso de Suporte Básico de Vida", "DEPARTMENT", 30, "08:00 Teoria\n10:00 Prática em manequins", { rooms: ["Laboratório de Habilidades", "Espaço Multiuso"], duration: 240, starts: ["08:00"], setup: 60 }),
   culture("camila", "CEREMONY", "Cerimônia de Boas-Vindas aos Calouros", "CAOC", 200, "19:00 Abertura\n19:30 Homenagens\n20:30 Encerramento", { rooms: ["Teatro Principal"], duration: 180, starts: ["19:00"], setup: 60, resources: [["Sistema de Som"], ["Microfones", 4], ["Datashow/Projetor"]] }),
-  culture("juliana", "CONGRESS", "Jornada de Saúde Coletiva", "DEPARTMENT", 110, "08:30 Credenciamento\n09:00 Conferência\n14:00 Mesas temáticas", { rooms: ["Anfiteatro A"], duration: 480, starts: ["08:00"], setup: 60, resources: [["Webconferência", undefined, "YouTube"], ["Microfones", 3]] }),
+  culture("marina", "CONGRESS", "Jornada de Saúde Coletiva", "DEPARTMENT", 110, "08:30 Credenciamento\n09:00 Conferência\n14:00 Mesas temáticas", { rooms: ["Anfiteatro A"], duration: 480, starts: ["08:00"], setup: 60, resources: [["Webconferência", undefined, "YouTube"], ["Microfones", 3]] }),
   culture("aluno", "LEAGUE", "Liga de Neurologia — Reunião científica", "LEAGUE", 35, "19:00 Apresentação de casos", { rooms: ["Sala 202", "Sala 101"], duration: 120, starts: ["19:00"] }),
   culture("camila", "STUDENT_ACTIVITY", "Workshop de Currículo e Residência", "CAOC", 50, "14:00 Oficina\n16:00 Perguntas", { rooms: ["Espaço Multiuso", "Sala 201"], duration: 180 }),
   defense("Mariana Souza", "Biomarcadores de inflamação em pacientes com sepse", "DOCTORATE"),
@@ -383,12 +387,12 @@ const SERIES: { request: Request; weekdays: number[]; start: string; room: strin
   { request: grad("helena", "DEM0142", "Semiologia Médica", 110, "LECTURE", 3, { resources: [["Microfones", 1]] }), weekdays: [2, 4], start: "08:00", room: "Anfiteatro A" },
   { request: grad("eduardo", "DEM0210", "Anatomia Aplicada", 48, "LECTURE", 1), weekdays: [1, 3], start: "10:00", room: "Sala 201" },
   { request: pos("paulo", "PGD5012", "Metodologia da Pesquisa Clínica", 30), weekdays: [3], start: "14:00", room: "Sala 202" },
-  { request: grad("juliana", "DEM0305", "Bioestatística", 30, "PRACTICAL", 4, { resources: [["Computador de Apoio", 30]] }), weekdays: [5], start: "13:00", room: "Laboratório de Informática 1" },
+  { request: grad("marina", "DEM0305", "Bioestatística", 30, "PRACTICAL", 4, { resources: [["Computador de Apoio", 30]] }), weekdays: [5], start: "13:00", room: "Laboratório de Informática 1" },
   {
     request: culture("ricardo", "COURSE", "Curso de Atualização em Emergências", "DEPARTMENT", 80, "08:00 Aula teórica\n10:30 Discussão de casos", { duration: 240 }),
     weekdays: [6], start: "08:00", room: "Anfiteatro B",
   },
-  { request: grad("juliana", "DEM0128", "Habilidades Clínicas", 20, "PRACTICAL", 2), weekdays: [1, 4], start: "14:00", room: "Laboratório de Habilidades" },
+  { request: grad("marina", "DEM0128", "Habilidades Clínicas", 20, "PRACTICAL", 2), weekdays: [1, 4], start: "14:00", room: "Laboratório de Habilidades" },
   { request: pos("ricardo", "PGD5020", "Seminários Avançados em Cirurgia", 20, { duration: 120 }), weekdays: [4], start: "18:00", room: "Sala 203", pending: true },
 ];
 
@@ -448,7 +452,7 @@ async function main() {
   // Pessoas
   const userId = new Map<string, string>();
   for (const u of DEV_USERS) {
-    const row = await prisma.user.upsert({ where: { email: u.email }, update: { name: u.name, role: u.role }, create: u });
+    const row = await prisma.user.upsert({ where: { email: u.email }, update: { name: u.name, role: u.role, permissions: u.permissions }, create: u });
     userId.set(u.email, row.id);
   }
   for (const [key, p] of Object.entries(PEOPLE)) {
@@ -738,6 +742,21 @@ async function main() {
       },
     });
     created++;
+  }
+
+  // Fase 9: Graduação, Pós e Defesa são exclusivos de quem tem permissão. Quem
+  // pediu esses tipos nesta base recebe a permissão correspondente.
+  const restricted: Record<string, Permission> = { UNDERGRADUATE: "REQUEST_UNDERGRADUATE", GRADUATE: "REQUEST_GRADUATE", DEFENSE: "REQUEST_DEFENSE" };
+  const asked = await prisma.reservation.findMany({
+    where: { activityType: { in: ["UNDERGRADUATE", "GRADUATE", "DEFENSE"] }, user: { role: "USER" } },
+    select: { userId: true, activityType: true },
+    distinct: ["userId", "activityType"],
+  });
+  const grants = new Map<string, Set<Permission>>();
+  for (const a of asked) grants.set(a.userId, (grants.get(a.userId) ?? new Set()).add(restricted[a.activityType!]!));
+  for (const [id, perms] of grants) {
+    const user = await prisma.user.findUniqueOrThrow({ where: { id }, select: { permissions: true } });
+    await prisma.user.update({ where: { id }, data: { permissions: [...new Set([...user.permissions, ...perms])].sort() } });
   }
 
   // Resumo, com o que a apresentação precisa ver no futuro.

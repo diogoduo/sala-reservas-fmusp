@@ -1,6 +1,6 @@
 import { ClockCounterClockwiseIcon, MinusIcon, PlusIcon } from "@phosphor-icons/react";
 import { useState } from "react";
-import { auditActionMeta, auditDetailLines, auditFieldLabel, formatAuditValue, listDiff, orderedChanges, useAuditLog } from "../../lib/audit";
+import { auditActionMeta, auditDetailLines, auditFieldLabel, auditListItem, formatAuditValue, listDiff, orderedChanges, useAuditLog } from "../../lib/audit";
 import type { AuditEntry } from "../../lib/types";
 import { Button } from "../ui/Button";
 import { Alert, Skeleton } from "../ui/Feedback";
@@ -21,13 +21,13 @@ function Changes({ entry }: { entry: AuditEntry }) {
                 {list.added.map((item) => (
                   <span key={`+${item}`} className="inline-flex items-start gap-1 text-success-foreground">
                     <PlusIcon size={14} weight="bold" aria-label="incluído" className="mt-0.5 shrink-0" />
-                    {item}
+                    {auditListItem(field, item)}
                   </span>
                 ))}
                 {list.removed.map((item) => (
                   <span key={`-${item}`} className="inline-flex items-start gap-1 text-muted line-through">
                     <MinusIcon size={14} weight="bold" aria-label="removido" className="mt-0.5 shrink-0" />
-                    {item}
+                    {auditListItem(field, item)}
                   </span>
                 ))}
               </span>

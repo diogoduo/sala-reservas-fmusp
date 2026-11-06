@@ -10,6 +10,7 @@ import {
   HammerIcon,
   HashIcon,
   KeyIcon,
+  LockSimpleIcon,
   MapPinIcon,
   PaperPlaneTiltIcon,
   PencilSimpleLineIcon,
@@ -22,6 +23,8 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ACTIVITY_TYPE_LABELS, ACTIVITY_TYPES } from "../../lib/activities";
+import { useAuth } from "../../lib/auth";
+import { canRequestActivity } from "../../lib/permissions";
 import { api, ApiError } from "../../lib/api";
 import { addDays, formatDayMonth, holidayName, weekdayOf } from "../../lib/calendar";
 import { cn } from "../../lib/cn";
@@ -232,13 +235,17 @@ function RulesSummary() {
 }
 
 function ActivityPicker({ onPick, standing, asAdmin }: { onPick: (type: ActivityType) => void; standing: Standing | null; asAdmin: boolean }) {
+  const { user } = useAuth();
   const suspended = !asAdmin && standing?.suspension;
+  // Graduação, Pós e Defesa só aparecem para quem tem a permissão do SAD (Fase 9).
+  const types = ACTIVITY_TYPES.filter((type) => asAdmin || (user !== null && canRequestActivity(user, type)));
+  const hidden = ACTIVITY_TYPES.filter((type) => !types.includes(type));
   return (
     <div className="space-y-6">
       <PageHeader title="Reservar uma sala" description="Comece pelo tipo de atividade — cada uma tem um formulário próprio." />
       {suspended && <SuspensionNotice suspension={standing.suspension!} />}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {ACTIVITY_TYPES.map((type, index) => (
+        {types.map((type, index) => (
           <button
             key={type}
             type="button"
@@ -262,6 +269,15 @@ function ActivityPicker({ onPick, standing, asAdmin }: { onPick: (type: Activity
           </button>
         ))}
       </div>
+      {hidden.length > 0 && (
+        <p className="flex items-start gap-2 text-sm text-muted">
+          <LockSimpleIcon size={18} aria-hidden className="mt-0.5 shrink-0" />
+          <span>
+            {hidden.map((type) => ACTIVITY_TYPE_LABELS[type]).join(", ").replace(/, ([^,]*)$/, " e $1")}: pedidos só por quem tem permissão do SAD
+            (como os serviços de Graduação e de Pós-Graduação). Se você precisa pedir, fale com o SAD.
+          </span>
+        </p>
+      )}
       {!asAdmin && <RulesSummary />}
       <Alert tone="info" title="Como funciona">
         Você descreve o que precisa e recebe um número de protocolo; o SAD (Serviço de Apoio Didático) escolhe a sala disponível mais

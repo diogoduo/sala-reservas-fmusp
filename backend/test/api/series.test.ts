@@ -21,7 +21,7 @@ interface CreatedReservation {
 
 beforeAll(async () => {
   await resetDatabase();
-  await createUser("aluno@usp.br");
+  await createUser("aluno@usp.br", "USER", ["REQUEST_UNDERGRADUATE"]);
 });
 
 afterAll(() => prisma.$disconnect());

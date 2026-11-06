@@ -83,16 +83,18 @@ const mockOnly = (_req: unknown, res: import("express").Response, next: import("
 };
 
 // Lista de contas de teste para a tela "Dev Mode": qualquer usuário já cadastrado
-// no banco (o seed cria uma de cada domínio autorizado) pode ser escolhido sem senha.
+// no banco (o seed cria uma de cada domínio autorizado e uma de cada perfil) pode
+// ser escolhido sem senha. Primeiro o SAD, o NUCEV e quem tem permissão; depois o resto.
 authRouter.get(
   "/mock/users",
   mockOnly,
   asyncHandler(async (_req, res) => {
     const users = await prisma.user.findMany({
-      select: { id: true, name: true, email: true, role: true },
-      orderBy: { email: "asc" },
+      select: { id: true, name: true, email: true, role: true, permissions: true },
+      orderBy: { name: "asc" },
     });
-    res.json({ users });
+    const rank = (u: (typeof users)[number]) => (u.role === "ADMIN" ? 0 : u.role === "NUCEV" ? 1 : u.permissions.length > 0 ? 2 : 3);
+    res.json({ users: users.sort((a, b) => rank(a) - rank(b)) });
   }),
 );
 
@@ -118,7 +120,7 @@ authRouter.post(
       }));
 
     setSessionCookie(res, signSessionToken(user));
-    res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role, permissions: user.permissions } });
   }),
 );
 

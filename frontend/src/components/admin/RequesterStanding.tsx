@@ -1,6 +1,7 @@
 import { GavelIcon, ProhibitIcon, UserMinusIcon, WarningIcon } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "../../lib/api";
+import { useCanManage } from "../../lib/auth";
 import { useConfirm } from "../../lib/confirm";
 import { plural } from "../../lib/format";
 import { notifyReservationsChanged } from "../../lib/reservations";
@@ -126,6 +127,7 @@ function SanctionDialog({ user, onClose, onDone }: { user: Standing["user"]; onC
  * sanções. Daqui o SAD aplica ou retira uma sanção.
  */
 export function RequesterStanding({ userId }: { userId: string }) {
+  const canManage = useCanManage();
   const toast = useToast();
   const confirm = useConfirm();
   const [standing, setStanding] = useState<Standing | null>(null);
@@ -170,9 +172,11 @@ export function RequesterStanding({ userId }: { userId: string }) {
             {standing.sanctions.length > 0 && ` · ${plural(standing.sanctions.length, "sanção", "sanções")} registradas`}
           </span>
         </p>
-        <Button size="sm" variant="ghost" icon={GavelIcon} onClick={() => setSanctioning(true)}>
-          Aplicar sanção
-        </Button>
+        {canManage && (
+          <Button size="sm" variant="ghost" icon={GavelIcon} onClick={() => setSanctioning(true)}>
+            Aplicar sanção
+          </Button>
+        )}
       </div>
       {noShows >= 3 && (
         <p className="flex gap-2 text-warning-foreground">
@@ -189,9 +193,11 @@ export function RequesterStanding({ userId }: { userId: string }) {
               e 22).
             </span>
           </p>
-          <Button size="sm" variant="secondary" onClick={() => void lift(active)}>
-            Retirar
-          </Button>
+          {canManage && (
+            <Button size="sm" variant="secondary" onClick={() => void lift(active)}>
+              Retirar
+            </Button>
+          )}
         </div>
       )}
       {standing.sanctions.length > 0 && (

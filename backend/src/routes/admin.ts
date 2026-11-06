@@ -8,7 +8,7 @@ import { uuidParam } from "../lib/params";
 import { prisma } from "../lib/prisma";
 import { sendInBackground } from "../mail/mailer";
 import { approvedMails, rejectedMails } from "../mail/notifications";
-import { requireAdmin } from "../middleware/auth";
+import { staffReadOnly } from "../middleware/auth";
 import { roomPhotosInclude } from "../photos/include";
 import { rankRoomOptions } from "../reservations/allocation";
 import { findConflictingOccurrences, isOverlapViolation, loadBusyIntervals, lockRoomForUpdate } from "../reservations/conflicts";
@@ -19,7 +19,8 @@ import { approveReservationSchema, rejectReservationSchema, reviewScopeSchema, t
 // Fase 6 — fila de aprovação: o Admin vê as solicitações, escolhe a sala mais
 // adequada e aprova (alocando a sala) ou rejeita (com justificativa).
 export const adminRouter = Router();
-adminRouter.use(requireAdmin);
+// O NUCEV acompanha (só consulta); qualquer ação continua sendo do SAD.
+adminRouter.use(staffReadOnly);
 adminRouter.param("id", uuidParam("RESERVATION_NOT_FOUND", "Reserva não encontrada."));
 
 export const adminReservationInclude = {

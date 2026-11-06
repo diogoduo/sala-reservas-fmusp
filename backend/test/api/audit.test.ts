@@ -12,7 +12,7 @@ let admin: User;
 
 beforeAll(async () => {
   await resetDatabase();
-  ana = await createUser("ana@usp.br");
+  ana = await createUser("ana@usp.br", "USER", ["REQUEST_UNDERGRADUATE"]);
   admin = await createUser("admin@fm.usp.br", "ADMIN");
   room = await createRoom("Sala 101");
 });

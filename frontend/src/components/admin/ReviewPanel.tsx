@@ -11,6 +11,7 @@ import {
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { ACTIVITY_TYPE_LABELS, activityDetailRows, PRIORITY_LABELS, priorityOf } from "../../lib/activities";
 import { api, ApiError } from "../../lib/api";
+import { useCanManage } from "../../lib/auth";
 import { cn } from "../../lib/cn";
 import { formatDateTimeRange, formatShortDate, formatTimeRange, plural } from "../../lib/format";
 import { activityStart, formatMinutes } from "../../lib/reservations";
@@ -253,7 +254,9 @@ interface ReviewDrawerProps {
 export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: ReviewDrawerProps) {
   const toast = useToast();
   const first = group[0]!;
-  const isPending = first.status === "PENDING";
+  // O NUCEV abre o mesmo painel, só para consultar: sem escolha de sala nem aprovação.
+  const canManage = useCanManage();
+  const isPending = first.status === "PENDING" && canManage;
 
   const [target, setTarget] = useState<string>(group.length > 1 ? ALL : first.id);
   const [options, setOptions] = useState<RoomOption[] | null>(null);
@@ -373,7 +376,7 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
 
   const footer = !isPending ? (
     <>
-      {onChanged && <NoShowButton reservation={first} onChanged={onChanged} />}
+      {onChanged && canManage && <NoShowButton reservation={first} onChanged={onChanged} />}
       <Button variant="secondary" onClick={onClose}>
         Fechar
       </Button>
@@ -410,7 +413,9 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
       title={first.title}
       description={
         !isPending
-          ? "Solicitação já revisada."
+          ? first.status === "PENDING"
+            ? "Aguardando a análise do SAD."
+            : "Solicitação já revisada."
           : expired
             ? "A data já passou: só é possível rejeitar."
             : "Escolha a sala e aprove, ou rejeite com uma justificativa."

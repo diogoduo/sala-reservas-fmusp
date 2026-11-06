@@ -6,6 +6,7 @@ import {
   DoorOpenIcon,
   FilePdfIcon,
   GavelIcon,
+  IdentificationBadgeIcon,
   ImageIcon,
   ImagesIcon,
   LaptopIcon,
@@ -16,6 +17,7 @@ import {
   ScrollIcon,
   TrashIcon,
   UserMinusIcon,
+  UserPlusIcon,
   WrenchIcon,
   XCircleIcon,
   type Icon,
@@ -24,6 +26,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Tone } from "../components/ui/Badge";
 import { ACTIVITY_TYPE_LABELS } from "./activities";
 import { api } from "./api";
+import { PERMISSION_LABELS, ROLE_LABELS, type Permission, type UserRole } from "./permissions";
 import { formatMinutes } from "./reservations";
 import {
   NOTEBOOK_LOCATION_LABELS,
@@ -87,6 +90,8 @@ const ACTIONS: Record<string, ActionMeta> = {
   "notebook.create": { label: "Notebook cadastrado", tone: "success", icon: LaptopIcon },
   "notebook.update": { label: "Notebook alterado", tone: "info", icon: LaptopIcon },
   "notebook.delete": { label: "Notebook excluído", tone: "danger", icon: TrashIcon },
+  "user.create": { label: "Pessoa cadastrada pelo SAD", tone: "success", icon: UserPlusIcon },
+  "user.update": { label: "Acesso alterado", tone: "info", icon: IdentificationBadgeIcon },
   "sanction.create": { label: "Sanção aplicada", tone: "danger", icon: GavelIcon },
   "sanction.lift": { label: "Suspensão retirada", tone: "success", icon: LockOpenIcon },
 };
@@ -127,6 +132,8 @@ const FIELD_LABELS: Record<string, string> = {
   model: "Modelo",
   location: "Local",
   notes: "Observações",
+  role: "Papel",
+  permissions: "Permissões",
 };
 
 export const auditFieldLabel = (field: string) => FIELD_LABELS[field] ?? field;
@@ -148,8 +155,7 @@ export function formatAuditValue(entityType: AuditEntityType, field: string, val
   if (typeof value === "boolean") return value ? "Sim" : "Não";
   if (Array.isArray(value)) {
     if (value.length === 0) return "nenhum";
-    const items = field === "seatTypes" ? value.map((v) => SEAT_TYPE_LABELS[v as SeatType] ?? String(v)) : value.map(String);
-    return items.join(", ");
+    return value.map((v) => auditListItem(field, v)).join(", ");
   }
   switch (field) {
     case "status":
@@ -160,6 +166,8 @@ export function formatAuditValue(entityType: AuditEntityType, field: string, val
       return ROOM_TYPE_LABELS[value as RoomType] ?? String(value);
     case "activityType":
       return ACTIVITY_TYPE_LABELS[value as ActivityType] ?? String(value);
+    case "role":
+      return ROLE_LABELS[value as UserRole] ?? String(value);
     case "location":
       return NOTEBOOK_LOCATION_LABELS[value as NotebookLocation] ?? String(value);
     case "startTime":
@@ -170,6 +178,13 @@ export function formatAuditValue(entityType: AuditEntityType, field: string, val
     default:
       return String(value);
   }
+}
+
+/** Um item de lista em texto (tipo de cadeira, permissão…). */
+export function auditListItem(field: string, item: unknown): string {
+  if (field === "seatTypes") return SEAT_TYPE_LABELS[item as SeatType] ?? String(item);
+  if (field === "permissions") return PERMISSION_LABELS[item as Permission] ?? String(item);
+  return String(item);
 }
 
 /** Listas que mudaram: o que entrou e o que saiu, em vez de "antes → depois" inteiros. */
@@ -216,6 +231,10 @@ export function auditDetailLines(entry: AuditEntry): string[] {
         : "";
     lines.unshift(`${type}${until}`);
     if (num(d.cancelledCount) > 0) lines.push(`${plural(num(d.cancelledCount), "reserva futura cancelada", "reservas futuras canceladas")}`);
+  }
+  if (entry.action === "user.create") {
+    const perms = Array.isArray(d.permissions) ? d.permissions.map((p) => auditListItem("permissions", p)) : [];
+    lines.push([`Papel: ${ROLE_LABELS[d.role as UserRole] ?? String(d.role)}`, perms.length ? perms.join(", ") : null].filter(Boolean).join(" · "));
   }
   if (entry.action === "regulation.update" && d.bodyChanged) lines.push("Texto do regulamento alterado");
   if (entry.entityType === "room" && typeof d.caption === "string") lines.push(`Legenda: ${d.caption}`);

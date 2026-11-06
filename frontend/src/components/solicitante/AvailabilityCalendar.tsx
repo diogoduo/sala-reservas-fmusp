@@ -12,6 +12,7 @@ import { useNavigate } from "react-router";
 import { ACTIVITY_TYPE_LABELS } from "../../lib/activities";
 import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
+import { isStaff } from "../../lib/permissions";
 import { cn } from "../../lib/cn";
 import { capitalizeFirst, formatTimeRange, plural } from "../../lib/format";
 import { formatMinutes } from "../../lib/reservations";
@@ -110,7 +111,8 @@ function ReservationItem({ interval, isAdmin, day }: { interval: BusyInterval; i
  */
 export function AvailabilityCalendar({ roomId, initialDate }: { roomId: string; /** Abre já neste dia. */ initialDate?: Date }) {
   const { user } = useAuth();
-  const isAdmin = user?.role === "ADMIN";
+  // A equipe (SAD e NUCEV) vê quem pediu, os participantes e os recursos.
+  const isAdmin = isStaff(user?.role);
   const [monthOffset, setMonthOffset] = useState(() => {
     if (!initialDate) return 0;
     const now = new Date();

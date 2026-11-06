@@ -17,6 +17,7 @@ import { Badge } from "./ui/Badge";
 import { Button, Spinner } from "./ui/Button";
 import { Alert } from "./ui/Feedback";
 import { Input } from "./ui/Field";
+import { permissionSummary, ROLE_LABELS, type Permission, type UserRole } from "../lib/permissions";
 import { Logo } from "./ui/Logo";
 import { Card } from "./ui/Surface";
 
@@ -24,7 +25,8 @@ interface MockUser {
   id: string;
   name: string;
   email: string;
-  role: "USER" | "ADMIN";
+  role: UserRole;
+  permissions: Permission[];
 }
 
 const HIGHLIGHTS: { icon: Icon; title: string; text: string }[] = [
@@ -96,9 +98,10 @@ function MockLogin() {
                 {/* Nome e papel quebram de linha no celular em vez de cortar o nome. */}
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <p className="font-semibold">{u.name}</p>
-                  <Badge tone={u.role === "ADMIN" ? "primary" : "neutral"}>{u.role === "ADMIN" ? "Admin" : "Solicitante"}</Badge>
+                  <Badge tone={u.role === "ADMIN" ? "primary" : u.role === "NUCEV" ? "info" : "neutral"}>{ROLE_LABELS[u.role]}</Badge>
                 </div>
                 <p className="truncate text-sm text-muted">{u.email}</p>
+                {permissionSummary(u.permissions) && <p className="text-xs text-muted">{permissionSummary(u.permissions)}</p>}
               </div>
               {pendingEmail === u.email ? (
                 <Spinner className="text-primary" />

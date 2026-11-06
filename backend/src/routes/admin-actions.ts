@@ -18,7 +18,7 @@ import { zonedDateKey, zonedDayRange } from "../lib/timezone";
 import { env } from "../config/env";
 import { sendInBackground, sendNow } from "../mail/mailer";
 import { adminCancelledMails, adminModifiedMails, approvedMails, type AdminEditBefore } from "../mail/notifications";
-import { requireAdmin } from "../middleware/auth";
+import { staffReadOnly } from "../middleware/auth";
 import { roomPhotosInclude } from "../photos/include";
 import { summarizeActivity } from "../reservations/activities";
 import { findConflictingOccurrences, isOverlapViolation, lockRoomForUpdate } from "../reservations/conflicts";
@@ -33,7 +33,7 @@ import { adminReservationInclude } from "./admin";
 // O SAD pode alterar e cancelar qualquer reserva ativa (pendente ou aprovada),
 // e tem a Agenda: todas as reservas de um dia e a situação de cada sala.
 export const adminActionsRouter = Router();
-adminActionsRouter.use(requireAdmin);
+adminActionsRouter.use(staffReadOnly);
 adminActionsRouter.param("id", uuidParam("RESERVATION_NOT_FOUND", "Reserva não encontrada."));
 
 const ACTIVE_STATUSES: ReservationStatus[] = ["PENDING", "APPROVED"];

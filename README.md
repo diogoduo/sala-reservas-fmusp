@@ -661,8 +661,8 @@ equipamentos de cada sala, com modelo e patrimônio.
   regra (`rooms_active_capacity_check`).
 - Cada recurso da sala tem quantidade, modelo e patrimônio(s). O que não é um
   tipo de recurso vai em **Outros equipamentos**, em texto livre.
-- **Só o SAD vê modelo, patrimônio e outros equipamentos.** Para os demais
-  perfis, `GET /api/rooms` e `GET /api/rooms/:id` omitem esses campos.
+- **Só a equipe (SAD e NUCEV) vê modelo, patrimônio e outros equipamentos.**
+  Para o solicitante, `GET /api/rooms` e `GET /api/rooms/:id` omitem esses campos.
 - Recursos com `requestable = false` (nobreak, monitor, splitter…) ficam só no
   inventário:
   - não aparecem no formulário de reserva nem na consulta de salas;
@@ -820,6 +820,50 @@ Tudo o que muda dados fica registrado: quem fez, quando e o que mudou.
 - O que aconteceu antes desta fase não tem histórico.
 - `db:seed-demo --reset` também apaga o histórico.
 
+### Perfis e permissões
+
+Três papéis e, por pessoa, permissões que o SAD concede.
+
+| Papel | O que faz |
+|---|---|
+| **Solicitante** | Pede reservas e acompanha as próprias. |
+| **SAD** | Tudo: analisa, aloca, aprova, reserva, altera e cancela; salas, recursos, regulamento, sanções e pessoas. |
+| **NUCEV** (Núcleo de Eventos) | Acompanha as mesmas telas do SAD (Agenda, Solicitações, Salas livres, Histórico, inventário das salas) **só para consultar**. No módulo de Eventos, vai cuidar da análise ao encerramento; a pré-reserva, a reserva confirmada e as alterações de espaço ficam com o SAD. |
+
+- **Graduação, Pós-Graduação e Defesa são exclusivos** de quem tem a
+  permissão (`REQUEST_UNDERGRADUATE`, `REQUEST_GRADUATE`, `REQUEST_DEFENSE`,
+  em `users.permissions`; migration `roles_permissions`). Sem ela, a API
+  recusa com `ACTIVITY_NOT_ALLOWED`, e o formulário nem mostra esses tipos (mas
+  explica a quem pedir). Cultura e Extensão, Concurso e Reunião continuam
+  abertos a todos. O SAD reserva qualquer tipo pelas próprias telas.
+  - As reservas que já existiam continuam valendo, e ninguém recebeu permissão
+    automaticamente.
+  - ⚠️ **Docentes:** o plano é liberar cada docente para as próprias
+    disciplinas, a partir da planilha de disciplinas e docentes responsáveis
+    (pendente). Até lá, o SAD concede a permissão à mão.
+- **Vale na hora:** o papel e as permissões são lidos do banco a cada
+  requisição (`attachUser`), e não do cookie da sessão. Mudar o papel de
+  alguém ou tirar uma permissão não espera a pessoa entrar de novo. Cadastro
+  excluído perde a sessão.
+- **Na API:** as rotas de `/api/admin` aceitam o NUCEV só em consultas
+  (`staffReadOnly`: GET passa, qualquer ação responde `403`). Notebooks,
+  pessoas e as edições de salas, recursos e regulamento são só do SAD.
+- **Tela Pessoas** (`/admin/pessoas`, só o SAD): busca por nome, e-mail ou
+  nº USP, filtro por papel e por permissão, e **Editar acesso** (papel e
+  permissões). **Cadastrar pessoa** dá o acesso antes do primeiro login: na
+  Senha Única, a pessoa é reconhecida pelo e-mail e já entra com ele.
+  - Ninguém do SAD tira o próprio acesso de SAD (`SELF_DEMOTION`), para não
+    ficar sem ninguém por engano.
+  - API: `GET /api/admin/users?q=&role=&permission=&cursor=`,
+    `POST /api/admin/users` e `PATCH /api/admin/users/:id { role?, permissions? }`.
+    Toda mudança vai para o Histórico, com o antes e o depois.
+- **Contas de teste** (seed e base de demonstração; fictícias, com ".demo" no
+  e-mail): Sueli (pede Defesa e Pós-Graduação), Juliana (Graduação e
+  Pós-Graduação), Vanessa e Maria (NUCEV), além das que já existiam. O
+  Docente Teste tem Graduação e Pós. Na base de demonstração, quem tem pedidos
+  de Graduação, Pós ou Defesa recebe a permissão correspondente. A tela de
+  login mostra primeiro o SAD, o NUCEV e quem tem permissão.
+
 ## Interface
 
 Redesign completo do front-end, responsivo do celular ao computador, com tema
@@ -836,7 +880,7 @@ claro e escuro.
   fica inerte).
 - **Navegação com URL por tela** (react-router 7): `/minhas-reservas`,
   `/reservar`, `/salas`, `/regulamento`; `/admin/solicitacoes`, `/admin/agenda`,
-  `/admin/salas-livres`, `/admin/salas`, `/admin/recursos`, `/admin/regulamento`,
+  `/admin/salas-livres`, `/admin/salas`, `/admin/recursos`, `/admin/regulamento`, `/admin/pessoas`,
   `/admin/historico`. Barra lateral a partir de 1024 px, barra inferior no
   celular; com mais de 5 itens, os últimos ficam no botão **Mais**. O Admin vê
   na navegação quantas solicitações estão pendentes.

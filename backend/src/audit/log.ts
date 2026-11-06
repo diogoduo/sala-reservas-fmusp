@@ -36,7 +36,9 @@ export type AuditAction =
   | "notebook.create"
   | "notebook.update"
   | "notebook.delete"
-  // Pessoas (sanções; perfis e permissões a partir do bloco de perfis)
+  // Pessoas: cadastro, papel e permissões, sanções
+  | "user.create"
+  | "user.update"
   | "sanction.create"
   | "sanction.lift";
 

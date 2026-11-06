@@ -9,13 +9,15 @@ import {
   ScrollIcon,
   SignOutIcon,
   TrayIcon,
+  UsersThreeIcon,
   WrenchIcon,
   type Icon,
 } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 import { api } from "../../lib/api";
-import { useAuth, type AuthUser } from "../../lib/auth";
+import { useAuth } from "../../lib/auth";
+import { isStaff, ROLE_LABELS } from "../../lib/permissions";
 import { cn } from "../../lib/cn";
 import { groupBySeries, onReservationsChanged } from "../../lib/reservations";
 import type { AdminReservation } from "../../lib/types";
@@ -74,7 +76,6 @@ function HealthDot() {
   );
 }
 
-const ROLE_LABELS: Record<AuthUser["role"], string> = { ADMIN: "Admin", USER: "Solicitante" };
 
 /** A barra inferior do celular comporta 5 botões; com mais itens, o 5º vira "Mais". */
 const MOBILE_SLOTS = 5;
@@ -84,7 +85,7 @@ export function AppShell() {
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
   const isAdmin = user?.role === "ADMIN";
-  const pendingCount = usePendingCount(isAdmin);
+  const pendingCount = usePendingCount(isStaff(user?.role));
   const [moreOpen, setMoreOpen] = useState(false);
 
   // Ao trocar de página: volta ao topo e leva o foco ao conteúdo (leitores de tela anunciam a nova página).
@@ -105,9 +106,19 @@ export function AppShell() {
         { to: "/admin/salas", label: "Salas", shortLabel: "Salas", icon: DoorOpenIcon },
         { to: "/admin/recursos", label: "Recursos", shortLabel: "Recursos", icon: WrenchIcon },
         { to: "/admin/regulamento", label: "Regulamento", shortLabel: "Regras", icon: ScrollIcon },
+        { to: "/admin/pessoas", label: "Pessoas", shortLabel: "Pessoas", icon: UsersThreeIcon },
         { to: "/admin/historico", label: "Histórico", shortLabel: "Histórico", icon: ClockCounterClockwiseIcon },
       ]
-    : [
+    : user.role === "NUCEV"
+      ? [
+          { to: "/admin/agenda", label: "Agenda", shortLabel: "Agenda", icon: CalendarDotsIcon },
+          { to: "/admin/solicitacoes", label: "Solicitações", shortLabel: "Pedidos", icon: TrayIcon, badge: pendingCount },
+          { to: "/admin/salas-livres", label: "Salas livres", shortLabel: "Livres", icon: MagnifyingGlassIcon },
+          { to: "/salas", label: "Consultar salas", shortLabel: "Salas", icon: DoorOpenIcon },
+          { to: "/admin/historico", label: "Histórico", shortLabel: "Histórico", icon: ClockCounterClockwiseIcon },
+          { to: "/regulamento", label: "Regulamento", shortLabel: "Regras", icon: ScrollIcon },
+        ]
+      : [
         { to: "/minhas-reservas", label: "Minhas reservas", shortLabel: "Reservas", icon: CalendarCheckIcon },
         { to: "/reservar", label: "Reservar uma sala", shortLabel: "Reservar", icon: CalendarPlusIcon },
         { to: "/salas", label: "Consultar salas", shortLabel: "Salas", icon: DoorOpenIcon },

@@ -1,4 +1,4 @@
-import type { UserRole } from "@prisma/client";
+import type { Permission, UserRole } from "@prisma/client";
 import type { Express } from "express";
 import request from "supertest";
 import { prisma } from "../../src/lib/prisma";
@@ -10,8 +10,8 @@ export async function resetDatabase(): Promise<void> {
   await prisma.$executeRawUnsafe(`TRUNCATE ${tables.map((t) => `"${t.tablename}"`).join(", ")} RESTART IDENTITY CASCADE`);
 }
 
-export function createUser(email: string, role: UserRole = "USER") {
-  return prisma.user.create({ data: { email, name: email.split("@")[0]!, role } });
+export function createUser(email: string, role: UserRole = "USER", permissions: Permission[] = []) {
+  return prisma.user.create({ data: { email, name: email.split("@")[0]!, role, permissions } });
 }
 
 export function createRoom(name: string, capacity = 40) {

@@ -26,6 +26,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { ACTIVITY_TYPE_LABELS } from "../../lib/activities";
 import { api } from "../../lib/api";
+import { useCanManage } from "../../lib/auth";
 import { cn } from "../../lib/cn";
 import { capitalizeFirst, formatTimeRange, plural } from "../../lib/format";
 import { ACTIVITY_ICONS } from "../../lib/icons";
@@ -270,7 +271,7 @@ function ReservationRow({ reservation: r, onOpen }: { reservation: AdminReservat
   );
 }
 
-function RoomsTimeline({ day, onOpen, onBook }: { day: AgendaDay; onOpen: (r: AdminReservation) => void; onBook: (roomId: string) => void }) {
+function RoomsTimeline({ day, onOpen, onBook }: { day: AgendaDay; onOpen: (r: AdminReservation) => void; onBook?: (roomId: string) => void }) {
   const [filter, setFilter] = useState<"ALL" | "BUSY" | "FREE">("ALL");
   const rooms = useMemo(() => sortRooms(day.rooms), [day.rooms]);
   const busyByRoom = useMemo(() => {
@@ -347,7 +348,9 @@ function RoomsTimeline({ day, onOpen, onBook }: { day: AgendaDay; onOpen: (r: Ad
                             {ROOM_TYPE_LABELS[room.roomType]} · {room.capacity ?? "?"} lugares
                           </p>
                         </div>
-                        <IconButton icon={PlusIcon} size="sm" label={`Reservar ${room.name} neste dia`} onClick={() => onBook(room.id)} className="-mr-1" />
+                        {onBook && (
+                          <IconButton icon={PlusIcon} size="sm" label={`Reservar ${room.name} neste dia`} onClick={() => onBook(room.id)} className="-mr-1" />
+                        )}
                       </div>
                       <div className="relative h-14">
                         {HOURS.map((h) => (
@@ -417,6 +420,7 @@ function RoomsTimeline({ day, onOpen, onBook }: { day: AgendaDay; onOpen: (r: Ad
  * de cada sala, separando as ocupadas das livres.
  */
 export function AgendaAdmin() {
+  const canManage = useCanManage();
   const toast = useToast();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -471,9 +475,11 @@ export function AgendaAdmin() {
         title="Agenda"
         description="Tudo o que acontece em cada dia: as reservas por situação e as salas ocupadas e livres."
         actions={
-          <Button icon={CalendarPlusIcon} onClick={() => navigate(newReservationUrl())}>
-            Nova reserva
-          </Button>
+          canManage ? (
+            <Button icon={CalendarPlusIcon} onClick={() => navigate(newReservationUrl())}>
+              Nova reserva
+            </Button>
+          ) : undefined
         }
       />
 
@@ -535,7 +541,7 @@ export function AgendaAdmin() {
       {day === null ? (
         <Skeleton className="h-72 rounded-2xl" />
       ) : day.rooms.length > 0 ? (
-        <RoomsTimeline day={day} onOpen={(r) => openReservation(r.id)} onBook={(roomId) => navigate(newReservationUrl(roomId))} />
+        <RoomsTimeline day={day} onOpen={(r) => openReservation(r.id)} onBook={canManage ? (roomId) => navigate(newReservationUrl(roomId)) : undefined} />
       ) : (
         <EmptyState icon={DoorOpenIcon} title="Nenhuma sala ativa" />
       )}
@@ -548,6 +554,7 @@ export function AgendaAdmin() {
           title={opened.title}
           description={`${formatTimeRange(opened.startTime, opened.endTime)} · ${opened.room ? opened.room.name : "Sala a definir"}`}
           footer={
+            canManage ? (
             <>
               <NoShowButton reservation={opened} onChanged={load} />
               <AdminReservationActions
@@ -564,6 +571,11 @@ export function AgendaAdmin() {
                 </Button>
               )}
             </>
+            ) : (
+              <Button variant="secondary" onClick={() => openReservation(null)}>
+                Fechar
+              </Button>
+            )
           }
         >
           <RequestDetails group={[opened]} resources={resources} />

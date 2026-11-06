@@ -8,7 +8,7 @@ import { prisma } from "../lib/prisma";
 import { zonedDateKey } from "../lib/timezone";
 import { sendInBackground } from "../mail/mailer";
 import { adminCancelledMails } from "../mail/notifications";
-import { requireAdmin } from "../middleware/auth";
+import { staffReadOnly } from "../middleware/auth";
 import { activeSuspension, noShowsInLastYear } from "../reservations/portaria";
 import { sanctionSchema } from "../schemas/review";
 
@@ -18,7 +18,7 @@ import { sanctionSchema } from "../schemas/review";
 // regularização, com as reservas vigentes canceladas) ou descumprimento das
 // normas (Art. 22). O sistema registra e aplica; quem decide é a Diretoria/SAD.
 export const sanctionsRouter = Router();
-sanctionsRouter.use(requireAdmin);
+sanctionsRouter.use(staffReadOnly);
 sanctionsRouter.param("userId", uuidParam("USER_NOT_FOUND", "Usuário não encontrado."));
 sanctionsRouter.param("sanctionId", uuidParam("SANCTION_NOT_FOUND", "Sanção não encontrada."));
 

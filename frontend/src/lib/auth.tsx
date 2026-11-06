@@ -1,11 +1,14 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { api, ApiError } from "./api";
+import type { Permission, UserRole } from "./permissions";
 
 export interface AuthUser {
   id: string;
   name: string;
   email: string;
-  role: "USER" | "ADMIN";
+  role: UserRole;
+  /** O que a pessoa pode pedir além do básico (Fase 9). */
+  permissions: Permission[];
 }
 
 interface AuthContextValue {
@@ -60,6 +63,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{ user, loading, authMode, demo, refresh, logout }}>{children}</AuthContext.Provider>
   );
+}
+
+/** O SAD age (aprova, reserva, altera, cancela); o NUCEV só acompanha. */
+export function useCanManage(): boolean {
+  return useAuth().user?.role === "ADMIN";
 }
 
 export function useAuth(): AuthContextValue {

@@ -26,6 +26,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { ACTIVITY_TYPE_LABELS, PRIORITY_LABELS, priorityOf } from "../../lib/activities";
 import { api } from "../../lib/api";
+import { useCanManage } from "../../lib/auth";
 import { formatDateTimeRange, formatShortDate, formatTimeRange, plural } from "../../lib/format";
 import { ACTIVITY_ICONS } from "../../lib/icons";
 import { reservationWarnings } from "../../lib/portarias";
@@ -75,6 +76,7 @@ type ActiveSuspension = Sanction & { user: { id: string; name: string; email: st
 
 /** Solicitantes com novas reservas suspensas (Portaria 2793, Arts. 9º §2º, 11, 17 e 22). */
 function ActiveSuspensions() {
+  const canManage = useCanManage();
   const toast = useToast();
   const [list, setList] = useState<ActiveSuspension[]>([]);
   const load = () =>
@@ -111,9 +113,11 @@ function ActiveSuspensions() {
                 {s.until ? `Até ${new Date(s.until).toLocaleDateString("pt-BR", { timeZone: "UTC" })}` : "Até a regularização"} — {s.reason}
               </span>
             </span>
-            <Button size="sm" variant="secondary" onClick={() => void lift(s.id)}>
-              Retirar
-            </Button>
+            {canManage && (
+              <Button size="sm" variant="secondary" onClick={() => void lift(s.id)}>
+                Retirar
+              </Button>
+            )}
           </li>
         ))}
       </ul>
@@ -124,6 +128,7 @@ function ActiveSuspensions() {
 // Fila de aprovação (Fase 6): o Admin analisa cada solicitação, aloca a sala
 // mais adequada e aprova, ou rejeita com justificativa.
 export function RequestsAdmin() {
+  const canManage = useCanManage();
   const toast = useToast();
   const navigate = useNavigate();
   const [reservations, setReservations] = useState<AdminReservation[] | null>(null);
@@ -172,11 +177,17 @@ export function RequestsAdmin() {
     <div className="space-y-6">
       <PageHeader
         title="Solicitações"
-        description="Analise os pedidos, escolha a sala mais adequada e aprove ou rejeite."
+        description={
+          canManage
+            ? "Analise os pedidos, escolha a sala mais adequada e aprove ou rejeite."
+            : "Acompanhe os pedidos e a análise do SAD. Quem aprova, aloca e altera é o SAD."
+        }
         actions={
-          <Button icon={CalendarPlusIcon} onClick={() => navigate("/admin/reservar?voltar=/admin/solicitacoes")}>
-            Nova reserva
-          </Button>
+          canManage ? (
+            <Button icon={CalendarPlusIcon} onClick={() => navigate("/admin/reservar?voltar=/admin/solicitacoes")}>
+              Nova reserva
+            </Button>
+          ) : undefined
         }
       />
 
@@ -306,16 +317,16 @@ export function RequestsAdmin() {
                           : `Enviada em ${new Date(first.createdAt).toLocaleDateString("pt-BR")}`}
                     </p>
                     <div className="flex flex-wrap items-center gap-1">
-                      {actionTarget && (
+                      {actionTarget && canManage && (
                         <AdminReservationActions reservation={actionTarget} returnTo="/admin/solicitacoes" onChanged={() => void load()} />
                       )}
                       <Button
                         size="sm"
-                        variant={isPending ? "primary" : "secondary"}
+                        variant={isPending && canManage ? "primary" : "secondary"}
                         iconRight={ArrowRightIcon}
                         onClick={() => setOpenKey(key)}
                       >
-                        {isPending ? "Analisar" : "Ver detalhes"}
+                        {isPending && canManage ? "Analisar" : "Ver detalhes"}
                       </Button>
                     </div>
                   </div>
