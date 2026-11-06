@@ -415,6 +415,7 @@ async function renderPreview(dir: string) {
 async function reset() {
   const keep = DEV_USERS.map((u) => u.email);
   await prisma.$transaction([
+    prisma.auditLog.deleteMany(),
     prisma.userSanction.deleteMany(),
     prisma.reservation.deleteMany(),
     prisma.reservationSeries.deleteMany(),

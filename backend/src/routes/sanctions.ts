@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { datesDetail, recordAudit, reservationLabel } from "../audit/log";
 import { asyncHandler } from "../lib/async-handler";
 import { addDays } from "../lib/calendar";
 import { AppError } from "../lib/errors";
@@ -72,22 +73,49 @@ sanctionsRouter.post(
 
       // Art. 17: com inadimplência, as reservas vigentes são canceladas.
       let cancelledGroups: string[][] = [];
+      const cancellationReason = `Suspensão de reservas: ${input.reason}`;
       if (input.type === "SUSPENSION" && input.cancelFutureReservations) {
         const future = await tx.reservation.findMany({
           where: { userId: user.id, status: { in: ["PENDING", "APPROVED"] }, startTime: { gt: now } },
-          select: { id: true, seriesId: true },
+          select: { id: true, seriesId: true, protocol: true, title: true, status: true, startTime: true },
         });
         if (future.length > 0) {
           await tx.reservation.updateMany({
             where: { id: { in: future.map((f) => f.id) } },
-            data: { status: "CANCELLED", cancelledAt: now, cancelledById: adminId, cancellationReason: `Suspensão de reservas: ${input.reason}` },
+            data: { status: "CANCELLED", cancelledAt: now, cancelledById: adminId, cancellationReason },
           });
         }
-        // Um e-mail por pedido (série ou data avulsa), como nos outros cancelamentos.
-        const groups = new Map<string, string[]>();
-        for (const f of future) groups.set(f.seriesId ?? f.id, [...(groups.get(f.seriesId ?? f.id) ?? []), f.id]);
-        cancelledGroups = [...groups.values()];
+        // Um e-mail (e uma linha no histórico) por pedido, como nos outros cancelamentos.
+        const groups = new Map<string, typeof future>();
+        for (const f of future) groups.set(f.seriesId ?? f.id, [...(groups.get(f.seriesId ?? f.id) ?? []), f]);
+        for (const group of groups.values()) {
+          await recordAudit(tx, {
+            actor: req.user!,
+            action: "reservation.admin_cancel",
+            entityType: "reservation",
+            entityId: group[0]!.protocol,
+            label: reservationLabel(group[0]!),
+            changes: { status: { from: group[0]!.status, to: "CANCELLED" } },
+            details: { ...datesDetail(group), scope: "series", reason: cancellationReason },
+          });
+        }
+        cancelledGroups = [...groups.values()].map((group) => group.map((f) => f.id));
       }
+
+      await recordAudit(tx, {
+        actor: req.user!,
+        action: "sanction.create",
+        entityType: "user",
+        entityId: user.id,
+        label: `${user.name} (${user.email})`,
+        details: {
+          sanctionId: sanction.id,
+          type: input.type,
+          reason: input.reason,
+          until: untilKey,
+          cancelledCount: cancelledGroups.flat().length,
+        },
+      });
       return { sanction, cancelledGroups };
     });
 
@@ -100,15 +128,29 @@ sanctionsRouter.post(
 sanctionsRouter.post(
   "/sanctions/:sanctionId/lift",
   asyncHandler(async (req, res) => {
-    const sanction = await prisma.userSanction.findUnique({ where: { id: req.params.sanctionId } });
+    const sanction = await prisma.userSanction.findUnique({
+      where: { id: req.params.sanctionId },
+      include: { user: { select: { name: true, email: true } } },
+    });
     if (!sanction) throw new AppError(404, "SANCTION_NOT_FOUND", "Sanção não encontrada.");
     if (sanction.type !== "SUSPENSION" || sanction.liftedAt) {
       throw new AppError(409, "NOT_LIFTABLE", "Só uma suspensão em vigor pode ser retirada.");
     }
-    const updated = await prisma.userSanction.update({
-      where: { id: sanction.id },
-      data: { liftedAt: new Date(), liftedById: req.user!.id },
-      include: sanctionInclude,
+    const updated = await prisma.$transaction(async (tx) => {
+      const lifted = await tx.userSanction.update({
+        where: { id: sanction.id },
+        data: { liftedAt: new Date(), liftedById: req.user!.id },
+        include: sanctionInclude,
+      });
+      await recordAudit(tx, {
+        actor: req.user!,
+        action: "sanction.lift",
+        entityType: "user",
+        entityId: sanction.userId,
+        label: `${sanction.user.name} (${sanction.user.email})`,
+        details: { sanctionId: sanction.id, type: sanction.type, reason: sanction.reason },
+      });
+      return lifted;
     });
     res.json({ sanction: updated });
   }),

@@ -1,5 +1,6 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type Notebook } from "@prisma/client";
 import { Router } from "express";
+import { diffFields, recordAudit } from "../audit/log";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
 import { uuidParam } from "../lib/params";
@@ -21,6 +22,8 @@ function translateError(error: unknown): never {
   throw error;
 }
 
+const snapshot = (n: Notebook) => ({ assetTag: n.assetTag, model: n.model, location: n.location, notes: n.notes });
+
 notebooksRouter.get(
   "/",
   asyncHandler(async (_req, res) => {
@@ -33,7 +36,20 @@ notebooksRouter.post(
   "/",
   asyncHandler(async (req, res) => {
     const input = createNotebookSchema.parse(req.body);
-    const notebook = await prisma.notebook.create({ data: input }).catch(translateError);
+    const notebook = await prisma
+      .$transaction(async (tx) => {
+        const created = await tx.notebook.create({ data: input });
+        await recordAudit(tx, {
+          actor: req.user!,
+          action: "notebook.create",
+          entityType: "notebook",
+          entityId: created.id,
+          label: created.assetTag,
+          details: snapshot(created),
+        });
+        return created;
+      })
+      .catch(translateError);
     res.status(201).json({ notebook });
   }),
 );
@@ -42,7 +58,17 @@ notebooksRouter.patch(
   "/:id",
   asyncHandler(async (req, res) => {
     const input = updateNotebookSchema.parse(req.body);
-    const notebook = await prisma.notebook.update({ where: { id: req.params.id }, data: input }).catch(translateError);
+    const notebook = await prisma
+      .$transaction(async (tx) => {
+        const before = await tx.notebook.findUniqueOrThrow({ where: { id: req.params.id } });
+        const after = await tx.notebook.update({ where: { id: before.id }, data: input });
+        const changes = diffFields(snapshot(before), snapshot(after));
+        if (Object.keys(changes).length > 0) {
+          await recordAudit(tx, { actor: req.user!, action: "notebook.update", entityType: "notebook", entityId: after.id, label: after.assetTag, changes });
+        }
+        return after;
+      })
+      .catch(translateError);
     res.json({ notebook });
   }),
 );
@@ -50,7 +76,19 @@ notebooksRouter.patch(
 notebooksRouter.delete(
   "/:id",
   asyncHandler(async (req, res) => {
-    await prisma.notebook.delete({ where: { id: req.params.id } }).catch(translateError);
+    await prisma
+      .$transaction(async (tx) => {
+        const deleted = await tx.notebook.delete({ where: { id: req.params.id } });
+        await recordAudit(tx, {
+          actor: req.user!,
+          action: "notebook.delete",
+          entityType: "notebook",
+          entityId: deleted.id,
+          label: deleted.assetTag,
+          details: snapshot(deleted),
+        });
+      })
+      .catch(translateError);
     res.status(204).end();
   }),
 );

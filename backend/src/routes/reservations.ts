@@ -1,6 +1,15 @@
 import { Prisma, type ReservationStatus } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
+import {
+  datesDetail,
+  describeRequestedResources,
+  diffFields,
+  recordAudit,
+  reservationLabel,
+  reservationSnapshot,
+  roomLabel,
+} from "../audit/log";
 import { asyncHandler } from "../lib/async-handler";
 import { formatDayMonth } from "../lib/calendar";
 import { AppError } from "../lib/errors";
@@ -13,7 +22,7 @@ import { roomPhotosInclude } from "../photos/include";
 import { summarizeActivity } from "../reservations/activities";
 import { activeSuspension, assertNotSuspended, nextProtocol, noShowsInLastYear, reservedWindow, withoutHolidays } from "../reservations/portaria";
 import { expandRecurrence, type Occurrence } from "../reservations/recurrence";
-import { normalizeRequestedResources } from "../reservations/requested-resources";
+import { normalizeRequestedResources, parseRequestedResources } from "../reservations/requested-resources";
 import {
   assertMinAdvance,
   assertRegularSchedule,
@@ -120,6 +129,20 @@ reservationsRouter.post(
             }),
           );
         }
+        await recordAudit(tx, {
+          actor: req.user!,
+          action: "reservation.request",
+          entityType: "reservation",
+          entityId: protocol,
+          label: reservationLabel({ protocol, title }),
+          details: {
+            ...datesDetail(reservations),
+            activityType: input.activityType,
+            expectedAttendees,
+            recurrence: input.recurrence?.rrule ?? null,
+            skippedHolidays: skippedDates.length,
+          },
+        });
         return { protocol, series, reservations };
       },
       { timeout: 30_000 },
@@ -250,6 +273,15 @@ reservationsRouter.post(
       if (updated.count !== ids.length) {
         throw new AppError(409, "RESERVATION_NOT_CANCELLABLE", "A situação desta reserva mudou enquanto você cancelava. Recarregue a lista.");
       }
+      await recordAudit(tx, {
+        actor: req.user!,
+        action: "reservation.cancel",
+        entityType: "reservation",
+        entityId: reservation.protocol,
+        label: reservationLabel(reservation),
+        changes: { status: { from: reservation.status, to: "CANCELLED" } },
+        details: { ...datesDetail(targets), scope, keptCount: kept.length },
+      });
       return { cancelledIds: ids, keptIds: kept.map((k) => k.id) };
     });
 
@@ -316,6 +348,26 @@ reservationsRouter.put(
         const shiftMs = window.start.getTime() - reservation.startTime.getTime();
         const durationMs = window.end.getTime() - window.start.getTime();
 
+        // Histórico: a data da URL antes e depois (numa série, as outras mudam do mesmo jeito).
+        const current = targets.find((t) => t.id === reservation.id) ?? targets[0]!;
+        const before = reservationSnapshot({
+          ...current,
+          roomName: roomLabel(current.room),
+          resources: await describeRequestedResources(tx, parseRequestedResources(current.requestedResources)),
+        });
+        const after = reservationSnapshot({
+          status: "PENDING",
+          startTime: new Date(current.startTime.getTime() + shiftMs),
+          endTime: new Date(current.startTime.getTime() + shiftMs + durationMs),
+          title,
+          expectedAttendees,
+          activityType: input.activityType,
+          setupMinutes: input.setupMinutes,
+          supportNotes: input.supportNotes ?? null,
+          roomName: null,
+          resources: await describeRequestedResources(tx, requestedResources),
+        });
+
         for (const target of targets) {
           const start = new Date(target.startTime.getTime() + shiftMs);
           const end = new Date(start.getTime() + durationMs);
@@ -363,6 +415,15 @@ reservationsRouter.put(
             },
           });
         }
+        await recordAudit(tx, {
+          actor: req.user!,
+          action: "reservation.edit",
+          entityType: "reservation",
+          entityId: reservation.protocol,
+          label: reservationLabel({ protocol: reservation.protocol, title }),
+          changes: diffFields(before, after),
+          details: { ...datesDetail(targets), scope: input.scope },
+        });
         return targets.map((t) => t.id);
       },
       { timeout: 30_000 },

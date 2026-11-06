@@ -1,6 +1,15 @@
 import { Prisma, type ReservationStatus } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
+import {
+  datesDetail,
+  describeRequestedResources,
+  diffFields,
+  recordAudit,
+  reservationLabel,
+  reservationSnapshot,
+  roomLabel,
+} from "../audit/log";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
 import { uuidParam } from "../lib/params";
@@ -15,7 +24,7 @@ import { summarizeActivity } from "../reservations/activities";
 import { findConflictingOccurrences, isOverlapViolation, lockRoomForUpdate } from "../reservations/conflicts";
 import { expandRecurrence, type Occurrence } from "../reservations/recurrence";
 import { nextProtocol, noShowsInLastYear, reservedWindow, withoutHolidays } from "../reservations/portaria";
-import { normalizeRequestedResources } from "../reservations/requested-resources";
+import { normalizeRequestedResources, parseRequestedResources } from "../reservations/requested-resources";
 import { assertValidDuration, isExtraordinarySchedule } from "../reservations/rules";
 import { adminCreateReservationSchema, adminUpdateReservationSchema, approvalChecklistSchema } from "../schemas/reservation";
 import { adminCancelReservationSchema } from "../schemas/review";
@@ -28,9 +37,6 @@ adminActionsRouter.use(requireAdmin);
 adminActionsRouter.param("id", uuidParam("RESERVATION_NOT_FOUND", "Reserva não encontrada."));
 
 const ACTIVE_STATUSES: ReservationStatus[] = ["PENDING", "APPROVED"];
-
-const roomLabel = (room: { name: string; building: string; floor: string } | null) =>
-  room ? `${room.name} — ${room.building}, ${room.floor}` : null;
 
 /** A reserva da URL e, com escopo "series", as próximas datas ativas da mesma série. */
 async function resolveTargets(tx: Prisma.TransactionClient, id: string, scope: "single" | "series") {
@@ -157,6 +163,21 @@ adminActionsRouter.post(
               }),
             );
           }
+          await recordAudit(tx, {
+            actor: req.user!,
+            action: "reservation.admin_create",
+            entityType: "reservation",
+            entityId: protocol,
+            label: reservationLabel({ protocol, title }),
+            details: {
+              ...datesDetail(reservations),
+              room: roomLabel(room),
+              activityType: input.activityType,
+              expectedAttendees,
+              recurrence: input.recurrence?.rrule ?? null,
+              outsideRegularHoursCount: planned.filter((p) => p.outside).length,
+            },
+          });
           return { protocol, series, reservations, skippedDates };
         },
         { timeout: 30_000 },
@@ -217,11 +238,13 @@ adminActionsRouter.put(
 
         // Conflito, sala por sala (a sala é travada antes de checar).
         const byRoom = new Map<string, typeof planned>();
+        const roomsById = new Map<string, { name: string; building: string; floor: string }>();
         for (const p of planned) if (p.roomId) byRoom.set(p.roomId, [...(byRoom.get(p.roomId) ?? []), p]);
         for (const [roomId, occurrences] of byRoom) {
           await lockRoomForUpdate(tx, roomId);
           const room = await tx.room.findUnique({ where: { id: roomId } });
           if (!room) throw new AppError(404, "ROOM_NOT_FOUND", "Sala não encontrada.");
+          roomsById.set(roomId, room);
           if (room.status !== "ACTIVE" && roomId !== reservation.roomId) {
             throw new AppError(409, "ROOM_NOT_ACTIVE", "Só é possível mover a reserva para uma sala Ativa.");
           }
@@ -264,6 +287,37 @@ adminActionsRouter.put(
           }
           throw error;
         }
+
+        // Histórico: a data da URL antes e depois (numa série, as outras mudam do mesmo jeito).
+        const current = planned.find((p) => p.id === reservation.id) ?? planned[0]!;
+        const newRoom = current.roomId ? (roomsById.get(current.roomId) ?? reservation.room) : null;
+        await recordAudit(tx, {
+          actor: req.user!,
+          action: "reservation.admin_edit",
+          entityType: "reservation",
+          entityId: reservation.protocol,
+          label: reservationLabel({ protocol: reservation.protocol, title }),
+          changes: diffFields(
+            reservationSnapshot({
+              ...reservation,
+              roomName: roomLabel(reservation.room),
+              resources: await describeRequestedResources(tx, parseRequestedResources(reservation.requestedResources)),
+            }),
+            reservationSnapshot({
+              status: reservation.status,
+              startTime: current.start,
+              endTime: current.end,
+              title,
+              expectedAttendees,
+              activityType: input.activityType,
+              setupMinutes: input.setupMinutes,
+              supportNotes: input.supportNotes ?? null,
+              roomName: roomLabel(newRoom),
+              resources: await describeRequestedResources(tx, requestedResources),
+            }),
+          ),
+          details: { ...datesDetail(targets), scope: input.scope },
+        });
         return planned.map((p) => p.id);
       },
       { timeout: 30_000 },
@@ -286,8 +340,9 @@ adminActionsRouter.post(
 
     const cancelledIds = await prisma.$transaction(async (tx) => {
       const now = new Date();
-      const { targets } = await resolveTargets(tx, req.params.id!, scope);
-      const ids = targets.filter((t) => t.endTime > now).map((t) => t.id);
+      const { reservation, targets } = await resolveTargets(tx, req.params.id!, scope);
+      const cancelled = targets.filter((t) => t.endTime > now);
+      const ids = cancelled.map((t) => t.id);
       if (ids.length === 0) {
         throw new AppError(400, "RESERVATION_IN_PAST", "Esta reserva já terminou; não há o que cancelar.");
       }
@@ -298,6 +353,15 @@ adminActionsRouter.post(
       if (updated.count !== ids.length) {
         throw new AppError(409, "RESERVATION_NOT_ACTIVE", "A situação desta reserva mudou enquanto você cancelava. Recarregue.");
       }
+      await recordAudit(tx, {
+        actor: req.user!,
+        action: "reservation.admin_cancel",
+        entityType: "reservation",
+        entityId: reservation.protocol,
+        label: reservationLabel(reservation),
+        changes: { status: { from: reservation.status, to: "CANCELLED" } },
+        details: { ...datesDetail(cancelled), scope, reason },
+      });
       return ids;
     });
 
@@ -323,10 +387,20 @@ adminActionsRouter.post(
     if (reservation.startTime > new Date()) {
       throw new AppError(400, "NOT_STARTED", "A reserva ainda não começou.");
     }
-    await prisma.reservation.update({
-      where: { id: reservation.id },
-      data: { noShowAt: reservation.noShowAt ?? new Date(), noShowById: reservation.noShowById ?? req.user!.id },
-    });
+    // Registrar de novo não muda nada (nem gera outra linha no histórico).
+    if (!reservation.noShowAt) {
+      await prisma.$transaction(async (tx) => {
+        await tx.reservation.update({ where: { id: reservation.id }, data: { noShowAt: new Date(), noShowById: req.user!.id } });
+        await recordAudit(tx, {
+          actor: req.user!,
+          action: "reservation.no_show",
+          entityType: "reservation",
+          entityId: reservation.protocol,
+          label: reservationLabel(reservation),
+          details: datesDetail([reservation]),
+        });
+      });
+    }
     const noShows = await noShowsInLastYear(prisma, reservation.userId);
     res.json({ noShowCount: noShows.length });
   }),
@@ -337,7 +411,19 @@ adminActionsRouter.delete(
   asyncHandler(async (req, res) => {
     const reservation = await prisma.reservation.findUnique({ where: { id: req.params.id } });
     if (!reservation) throw new AppError(404, "RESERVATION_NOT_FOUND", "Reserva não encontrada.");
-    await prisma.reservation.update({ where: { id: reservation.id }, data: { noShowAt: null, noShowById: null } });
+    if (reservation.noShowAt) {
+      await prisma.$transaction(async (tx) => {
+        await tx.reservation.update({ where: { id: reservation.id }, data: { noShowAt: null, noShowById: null } });
+        await recordAudit(tx, {
+          actor: req.user!,
+          action: "reservation.no_show_undo",
+          entityType: "reservation",
+          entityId: reservation.protocol,
+          label: reservationLabel(reservation),
+          details: datesDetail([reservation]),
+        });
+      });
+    }
     const noShows = await noShowsInLastYear(prisma, reservation.userId);
     res.json({ noShowCount: noShows.length });
   }),

@@ -1,5 +1,6 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type Resource } from "@prisma/client";
 import { Router } from "express";
+import { diffFields, recordAudit } from "../audit/log";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
 import { uuidParam } from "../lib/params";
@@ -9,6 +10,15 @@ import { createResourceSchema, updateResourceSchema } from "../schemas/resource"
 
 export const resourcesRouter = Router();
 resourcesRouter.param("id", uuidParam("RESOURCE_NOT_FOUND", "Recurso não encontrado."));
+
+const snapshot = (r: Resource) => ({
+  name: r.name,
+  description: r.description,
+  requestsQuantity: r.requestsQuantity,
+  requestable: r.requestable,
+  detailPrompt: r.detailPrompt,
+  detailOptions: r.detailOptions,
+});
 
 resourcesRouter.get(
   "/",
@@ -25,7 +35,18 @@ resourcesRouter.post(
   asyncHandler(async (req, res) => {
     const input = createResourceSchema.parse(req.body);
     try {
-      const resource = await prisma.resource.create({ data: input });
+      const resource = await prisma.$transaction(async (tx) => {
+        const created = await tx.resource.create({ data: input });
+        await recordAudit(tx, {
+          actor: req.user!,
+          action: "resource.create",
+          entityType: "resource",
+          entityId: created.id,
+          label: created.name,
+          details: snapshot(created),
+        });
+        return created;
+      });
       res.status(201).json({ resource });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -42,7 +63,15 @@ resourcesRouter.patch(
   asyncHandler(async (req, res) => {
     const input = updateResourceSchema.parse(req.body);
     try {
-      const resource = await prisma.resource.update({ where: { id: req.params.id }, data: input });
+      const resource = await prisma.$transaction(async (tx) => {
+        const before = await tx.resource.findUniqueOrThrow({ where: { id: req.params.id } });
+        const after = await tx.resource.update({ where: { id: before.id }, data: input });
+        const changes = diffFields(snapshot(before), snapshot(after));
+        if (Object.keys(changes).length > 0) {
+          await recordAudit(tx, { actor: req.user!, action: "resource.update", entityType: "resource", entityId: after.id, label: after.name, changes });
+        }
+        return after;
+      });
       res.json({ resource });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -63,7 +92,17 @@ resourcesRouter.delete(
   requireAdmin,
   asyncHandler(async (req, res) => {
     try {
-      await prisma.resource.delete({ where: { id: req.params.id } });
+      await prisma.$transaction(async (tx) => {
+        const deleted = await tx.resource.delete({ where: { id: req.params.id } });
+        await recordAudit(tx, {
+          actor: req.user!,
+          action: "resource.delete",
+          entityType: "resource",
+          entityId: deleted.id,
+          label: deleted.name,
+          details: snapshot(deleted),
+        });
+      });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
         throw new AppError(404, "RESOURCE_NOT_FOUND", "Recurso não encontrado.");

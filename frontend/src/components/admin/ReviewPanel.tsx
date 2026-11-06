@@ -20,6 +20,7 @@ import type { AdminReservation, ApprovalChecklist, RequestedResource, Resource, 
 import { capacityWarning, checklistWarnings, reservationWarnings, type PortariaWarning } from "../../lib/portarias";
 import { PortariaWarnings } from "./PortariaWarnings";
 import { NoShowButton } from "./ReservationActions";
+import { ReservationHistory } from "./AuditTrail";
 import { RequesterStanding } from "./RequesterStanding";
 import { StatusBadge } from "../StatusBadge";
 import { Avatar } from "../ui/Avatar";
@@ -166,6 +167,8 @@ export function RequestDetails({ group, resources }: { group: AdminReservation[]
         )}
         <DetailRow label="Enviada em">{new Date(first.createdAt).toLocaleString("pt-BR")}</DetailRow>
       </dl>
+
+      <ReservationHistory protocol={first.protocol} />
     </section>
   );
 }

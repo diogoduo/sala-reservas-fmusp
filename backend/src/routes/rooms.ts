@@ -1,6 +1,7 @@
 import { Prisma, RoomStatus, RoomType } from "@prisma/client";
 import express, { Router } from "express";
 import { z } from "zod";
+import { diffFields, recordAudit, roomLabel } from "../audit/log";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
 import { uuidParam } from "../lib/params";
@@ -21,6 +22,27 @@ const roomInclude = {
 } satisfies Prisma.RoomInclude;
 
 type RoomWithResources = Prisma.RoomGetPayload<{ include: typeof roomInclude }>;
+
+/** O que o histórico compara numa sala, com o inventário em texto. */
+function roomSnapshot(room: RoomWithResources) {
+  return {
+    name: room.name,
+    building: room.building,
+    floor: room.floor,
+    capacity: room.capacity,
+    roomType: room.roomType,
+    status: room.status,
+    extraSeats: room.extraSeats,
+    dimensions: room.dimensions,
+    equipmentNotes: room.equipmentNotes,
+    seatTypes: room.seatTypes,
+    wideDoor: room.wideDoor,
+    specialNeeds: room.specialNeeds,
+    resources: room.resources
+      .map((r) => `${r.resource.name} ×${r.quantity}${r.model ? ` (${r.model})` : ""}${r.assetTags ? ` [${r.assetTags}]` : ""}`)
+      .sort((a, b) => a.localeCompare(b, "pt-BR")),
+  };
+}
 
 /**
  * Modelo, patrimônio e "outros equipamentos" são inventário interno: só o SAD
@@ -192,7 +214,16 @@ roomsRouter.post(
         });
       }
 
-      return tx.room.findUniqueOrThrow({ where: { id: created.id }, include: roomInclude });
+      const room = await tx.room.findUniqueOrThrow({ where: { id: created.id }, include: roomInclude });
+      await recordAudit(tx, {
+        actor: req.user!,
+        action: "room.create",
+        entityType: "room",
+        entityId: room.id,
+        label: roomLabel(room),
+        details: roomSnapshot(room),
+      });
+      return room;
     });
 
     res.status(201).json({ room });
@@ -216,6 +247,7 @@ roomsRouter.patch(
     }
 
     const room = await prisma.$transaction(async (tx) => {
+      const before = await tx.room.findUniqueOrThrow({ where: { id: roomId }, include: roomInclude });
       try {
         await tx.room.update({ where: { id: roomId }, data: fields });
       } catch (error) {
@@ -235,7 +267,12 @@ roomsRouter.patch(
         }
       }
 
-      return tx.room.findUniqueOrThrow({ where: { id: roomId }, include: roomInclude });
+      const after = await tx.room.findUniqueOrThrow({ where: { id: roomId }, include: roomInclude });
+      const changes = diffFields(roomSnapshot(before), roomSnapshot(after));
+      if (Object.keys(changes).length > 0) {
+        await recordAudit(tx, { actor: req.user!, action: "room.update", entityType: "room", entityId: roomId, label: roomLabel(after), changes });
+      }
+      return after;
     });
 
     res.json({ room });
@@ -259,7 +296,7 @@ roomsRouter.post(
   express.raw({ type: "image/*", limit: "30mb" }),
   asyncHandler(async (req, res) => {
     const roomId = req.params.id!;
-    const room = await prisma.room.findUnique({ where: { id: roomId }, select: { id: true } });
+    const room = await prisma.room.findUnique({ where: { id: roomId }, select: { id: true, name: true, building: true, floor: true } });
     if (!room) throw new AppError(404, "ROOM_NOT_FOUND", "Sala não encontrada.");
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
       throw new AppError(400, "INVALID_IMAGE", "Envie o arquivo da foto (JPG, PNG ou WebP).");
@@ -267,10 +304,21 @@ roomsRouter.post(
     const { caption } = photoCaptionSchema.parse({ caption: req.query.caption });
 
     const versions = await renderPhotoVersions(req.body);
-    const last = await prisma.roomPhoto.aggregate({ where: { roomId }, _max: { position: true } });
-    const photo = await prisma.roomPhoto.create({
-      data: { roomId, caption, ...versions, position: (last._max.position ?? -1) + 1 },
-      select: roomPhotosInclude.select,
+    const photo = await prisma.$transaction(async (tx) => {
+      const last = await tx.roomPhoto.aggregate({ where: { roomId }, _max: { position: true } });
+      const created = await tx.roomPhoto.create({
+        data: { roomId, caption, ...versions, position: (last._max.position ?? -1) + 1 },
+        select: roomPhotosInclude.select,
+      });
+      await recordAudit(tx, {
+        actor: req.user!,
+        action: "room.photo_add",
+        entityType: "room",
+        entityId: roomId,
+        label: roomLabel(room),
+        details: { photoId: created.id, caption },
+      });
+      return created;
     });
     res.status(201).json({ photo });
   }),
@@ -281,11 +329,26 @@ roomsRouter.patch(
   requireAdmin,
   asyncHandler(async (req, res) => {
     const { caption } = photoCaptionSchema.parse(req.body);
-    await findPhoto(req.params.id!, req.params.photoId!);
-    const photo = await prisma.roomPhoto.update({
-      where: { id: req.params.photoId },
-      data: { caption },
-      select: roomPhotosInclude.select,
+    const before = await findPhoto(req.params.id!, req.params.photoId!);
+    const photo = await prisma.$transaction(async (tx) => {
+      const updated = await tx.roomPhoto.update({
+        where: { id: before.id },
+        data: { caption },
+        select: { ...roomPhotosInclude.select, room: { select: { name: true, building: true, floor: true } } },
+      });
+      const { room, ...photo } = updated;
+      if ((before.caption ?? null) !== (caption ?? null)) {
+        await recordAudit(tx, {
+          actor: req.user!,
+          action: "room.photo_caption",
+          entityType: "room",
+          entityId: before.roomId,
+          label: roomLabel(room),
+          changes: { caption: { from: before.caption, to: caption ?? null } },
+          details: { photoId: before.id },
+        });
+      }
+      return photo;
     });
     res.json({ photo });
   }),
@@ -302,7 +365,18 @@ roomsRouter.put(
     const sameSet = current.length === ids.length && current.every((p) => ids.includes(p.id));
     if (!sameSet) throw new AppError(400, "INVALID_PHOTO_ORDER", "A nova ordem precisa ter todas as fotos da sala, uma vez cada.");
 
-    await prisma.$transaction(ids.map((id, position) => prisma.roomPhoto.update({ where: { id }, data: { position } })));
+    const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId }, select: { name: true, building: true, floor: true } });
+    await prisma.$transaction(async (tx) => {
+      for (const [position, id] of ids.entries()) await tx.roomPhoto.update({ where: { id }, data: { position } });
+      await recordAudit(tx, {
+        actor: req.user!,
+        action: "room.photo_order",
+        entityType: "room",
+        entityId: roomId,
+        label: roomLabel(room),
+        details: { coverPhotoId: ids[0] ?? null, count: ids.length },
+      });
+    });
     const photos = await prisma.roomPhoto.findMany({ where: { roomId }, ...roomPhotosInclude });
     res.json({ photos });
   }),
@@ -313,7 +387,18 @@ roomsRouter.delete(
   requireAdmin,
   asyncHandler(async (req, res) => {
     const photo = await findPhoto(req.params.id!, req.params.photoId!);
-    await prisma.roomPhoto.delete({ where: { id: photo.id } });
+    const room = await prisma.room.findUniqueOrThrow({ where: { id: photo.roomId }, select: { name: true, building: true, floor: true } });
+    await prisma.$transaction(async (tx) => {
+      await tx.roomPhoto.delete({ where: { id: photo.id } });
+      await recordAudit(tx, {
+        actor: req.user!,
+        action: "room.photo_delete",
+        entityType: "room",
+        entityId: photo.roomId,
+        label: roomLabel(room),
+        details: { photoId: photo.id, caption: photo.caption },
+      });
+    });
     res.status(204).end();
   }),
 );
@@ -325,7 +410,17 @@ roomsRouter.delete(
   requireAdmin,
   asyncHandler(async (req, res) => {
     try {
-      await prisma.room.delete({ where: { id: req.params.id } });
+      await prisma.$transaction(async (tx) => {
+        const room = await tx.room.delete({ where: { id: req.params.id } });
+        await recordAudit(tx, {
+          actor: req.user!,
+          action: "room.delete",
+          entityType: "room",
+          entityId: room.id,
+          label: roomLabel(room),
+          details: { capacity: room.capacity, roomType: room.roomType, status: room.status },
+        });
+      });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === "P2025") throw new AppError(404, "ROOM_NOT_FOUND", "Sala não encontrada.");

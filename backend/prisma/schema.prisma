@@ -98,6 +98,7 @@ model User {
   sanctions             UserSanction[]      @relation("SanctionedUser")
   sanctionsApplied      UserSanction[]      @relation("SanctionApplier")
   sanctionsLifted       UserSanction[]      @relation("SanctionLifter")
+  auditLogs             AuditLog[]
 
   @@map("users")
 }
@@ -403,4 +404,37 @@ model RoomBlock {
 
   @@index([roomId, startTime])
   @@map("room_blocks")
+}
+
+// ----------------------------------------------------------------------------
+// Histórico geral (Fase 9): quem fez o quê, quando, e o que mudou. Gravado na
+// mesma transação da alteração (src/audit/log.ts); o sistema só acrescenta
+// linhas, nunca altera nem apaga.
+// ----------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// Quem fez. Nulo = o próprio sistema (ou a pessoa foi excluída: o nome fica em actorName).
+  actorId    String?  @map("actor_id") @db.Uuid
+  actorName  String?  @map("actor_name")
+  /// Ex.: "reservation.approve", "room.update" (lista em src/audit/log.ts).
+  action     String
+  /// "reservation", "room", "resource", "sanction", "regulation", "notebook", "user".
+  entityType String   @map("entity_type")
+  /// Reservas: o protocolo (as datas de uma série compartilham o número); demais: o id.
+  entityId   String   @map("entity_id")
+  /// Texto para a lista, gravado na hora (ex.: "000123/2026 — Aula de Anatomia").
+  label      String?
+  /// Só os campos que mudaram: { campo: { from, to } }.
+  changes    Json?
+  /// Contexto da ação: datas afetadas, motivo, escopo…
+  details    Json?
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@map("audit_logs")
 }

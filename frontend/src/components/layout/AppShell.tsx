@@ -2,6 +2,8 @@ import {
   CalendarCheckIcon,
   CalendarDotsIcon,
   CalendarPlusIcon,
+  ClockCounterClockwiseIcon,
+  DotsThreeOutlineIcon,
   DoorOpenIcon,
   MagnifyingGlassIcon,
   ScrollIcon,
@@ -19,6 +21,7 @@ import { groupBySeries, onReservationsChanged } from "../../lib/reservations";
 import type { AdminReservation } from "../../lib/types";
 import { Avatar } from "../ui/Avatar";
 import { Button, IconButton } from "../ui/Button";
+import { Dialog } from "../ui/Dialog";
 import { Logo, LogoMark } from "../ui/Logo";
 import { ThemeCycleButton, ThemeSegmented } from "./ThemeToggle";
 
@@ -73,17 +76,22 @@ function HealthDot() {
 
 const ROLE_LABELS: Record<AuthUser["role"], string> = { ADMIN: "Admin", USER: "Solicitante" };
 
+/** A barra inferior do celular comporta 5 botões; com mais itens, o 5º vira "Mais". */
+const MOBILE_SLOTS = 5;
+
 export function AppShell() {
   const { user, logout } = useAuth();
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
   const isAdmin = user?.role === "ADMIN";
   const pendingCount = usePendingCount(isAdmin);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   // Ao trocar de página: volta ao topo e leva o foco ao conteúdo (leitores de tela anunciam a nova página).
   useEffect(() => {
     window.scrollTo(0, 0);
     mainRef.current?.focus({ preventScroll: true });
+    setMoreOpen(false);
   }, [location.pathname]);
 
   if (!user) return null;
@@ -97,6 +105,7 @@ export function AppShell() {
         { to: "/admin/salas", label: "Salas", shortLabel: "Salas", icon: DoorOpenIcon },
         { to: "/admin/recursos", label: "Recursos", shortLabel: "Recursos", icon: WrenchIcon },
         { to: "/admin/regulamento", label: "Regulamento", shortLabel: "Regras", icon: ScrollIcon },
+        { to: "/admin/historico", label: "Histórico", shortLabel: "Histórico", icon: ClockCounterClockwiseIcon },
       ]
     : [
         { to: "/minhas-reservas", label: "Minhas reservas", shortLabel: "Reservas", icon: CalendarCheckIcon },
@@ -104,6 +113,9 @@ export function AppShell() {
         { to: "/salas", label: "Consultar salas", shortLabel: "Salas", icon: DoorOpenIcon },
         { to: "/regulamento", label: "Regulamento", shortLabel: "Regras", icon: ScrollIcon },
       ];
+  const mobileItems = items.length <= MOBILE_SLOTS ? items : items.slice(0, MOBILE_SLOTS - 1);
+  const overflowItems = items.slice(mobileItems.length);
+  const overflowActive = overflowItems.some((item) => location.pathname.startsWith(item.to));
 
   return (
     <div className="min-h-dvh lg:grid lg:grid-cols-[17rem_1fr]">
@@ -193,8 +205,11 @@ export function AppShell() {
         aria-label="Navegação principal"
         className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden"
       >
-        <div className="mx-auto grid max-w-md" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
-          {items.map((item) => (
+        <div
+          className="mx-auto grid max-w-md"
+          style={{ gridTemplateColumns: `repeat(${mobileItems.length + (overflowItems.length > 0 ? 1 : 0)}, minmax(0, 1fr))` }}
+        >
+          {mobileItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -221,8 +236,47 @@ export function AppShell() {
               )}
             </NavLink>
           ))}
+          {overflowItems.length > 0 && (
+            <button
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen(true)}
+              className={cn(
+                "flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
+                overflowActive ? "text-primary" : "text-muted hover:text-foreground",
+              )}
+            >
+              <DotsThreeOutlineIcon size={24} weight={overflowActive ? "fill" : "regular"} aria-hidden />
+              Mais
+            </button>
+          )}
         </div>
       </nav>
+
+      <Dialog open={moreOpen} onClose={() => setMoreOpen(false)} title="Mais opções" size="sm">
+        <nav aria-label="Mais opções" className="space-y-1">
+          {overflowItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                cn(
+                  "flex h-12 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors",
+                  isActive ? "bg-primary-soft text-primary-soft-foreground" : "text-foreground hover:bg-surface-muted",
+                )
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <item.icon size={22} weight={isActive ? "fill" : "regular"} aria-hidden />
+                  {item.label}
+                </>
+              )}
+            </NavLink>
+          ))}
+        </nav>
+      </Dialog>
     </div>
   );
 }

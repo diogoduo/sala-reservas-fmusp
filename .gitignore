@@ -14,3 +14,7 @@ cookies.txt
 # local: são carregados no banco por backend/prisma/import-fmusp.ts.
 FM/
 backend/prisma/data/
+# Plantas dos prédios (PDF/DWG): material interno, usado só para montar o mapa.
+plantas faculdade/
+# Fotos e dados das salas (FM, FOFITO, PAMB, Teatro): material interno, entra pelo import.
+salas/

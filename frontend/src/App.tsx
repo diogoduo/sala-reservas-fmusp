@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router";
 import { AgendaAdmin } from "./components/admin/AgendaAdmin";
+import { AuditLogPage } from "./components/admin/AuditLogPage";
 import { FreeRooms } from "./components/admin/FreeRooms";
 import { RequestsAdmin } from "./components/admin/RequestsAdmin";
 import { ResourcesAdmin } from "./components/admin/ResourcesAdmin";
@@ -39,6 +40,7 @@ export default function App() {
             <Route path="/admin/salas" element={<RoomsAdmin />} />
             <Route path="/admin/recursos" element={<ResourcesAdmin />} />
             <Route path="/admin/regulamento" element={<RegulationPage />} />
+            <Route path="/admin/historico" element={<AuditLogPage />} />
             <Route path="*" element={<Navigate to="/admin/solicitacoes" replace />} />
           </>
         ) : (

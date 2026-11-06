@@ -290,3 +290,29 @@ export interface RegulationFile {
   size: number;
   createdAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Histórico geral (Fase 9)
+// ---------------------------------------------------------------------------
+
+export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user";
+
+export interface AuditEntry {
+  id: string;
+  createdAt: string;
+  actorId: string | null;
+  /** Nome de quem fez, gravado na hora. Nulo = o próprio sistema. */
+  actorName: string | null;
+  action: string;
+  entityType: AuditEntityType;
+  /** Reservas: o protocolo. Demais: o id. */
+  entityId: string;
+  label: string | null;
+  changes: Record<string, { from: unknown; to: unknown }> | null;
+  details: Record<string, unknown> | null;
+}
+
+export interface AuditPage {
+  items: AuditEntry[];
+  nextCursor: string | null;
+}

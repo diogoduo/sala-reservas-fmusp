@@ -448,8 +448,8 @@ npm run db:seed-demo -- --preview=pasta                # só gera as ilustraçõ
 ```
 
 O `--reset` apaga todas as reservas e séries, as salas (com fotos e
-inventário), os bloqueios, os notebooks, as sanções e os usuários que não são
-as 4 contas de teste, e volta a numeração dos protocolos para 000001.
+inventário), os bloqueios, os notebooks, as sanções, o histórico e os usuários
+que não são as 4 contas de teste, e volta a numeração dos protocolos para 000001.
 
 Sem `--reset`, o script se recusa a rodar num banco que já tem salas ou
 reservas. Para a apresentação, o caminho mais seguro é um banco separado no
@@ -781,6 +781,45 @@ quando tem observações para a TI/infraestrutura, mesmo sem recursos.
   virar erro para quem clicou. Em produção, o próximo passo seria uma tabela de
   *outbox* com novas tentativas.
 
+## Fase 9 — Fundação (perfis, espaços, preços e histórico)
+
+Primeira fase do módulo de Eventos do SAD/NUCEV: a base sobre a qual entram o
+formulário de evento, o orçamento e a pré-reserva. Feita em blocos.
+
+### Histórico (auditoria)
+
+Tudo o que muda dados fica registrado: quem fez, quando e o que mudou.
+
+- **Tabela `audit_logs`** (migration `audit_log`), gravada por
+  `src/audit/log.ts` **na mesma transação** da alteração: se a ação falha, não
+  sobra linha no histórico; se a linha não grava, a ação é desfeita.
+- Cada linha tem quem fez (`actor_id` e o nome na hora, que fica mesmo se a
+  pessoa for excluída), a ação (`reservation.approve`, `room.update`…), o que
+  foi alterado (`entity_type` + `entity_id`), um texto para a lista e:
+  - **`changes`**: só os campos que mudaram, `{ campo: { from, to } }`. Salvar
+    uma sala sem mudar nada não gera linha;
+  - **`details`**: o contexto (datas afetadas, motivo, escopo, sala).
+- **Reservas** são registradas pelo **protocolo**: uma ação sobre uma série
+  inteira gera uma linha só, com as datas em `details`. Fica registrado o
+  pedido, a alteração e o cancelamento pelo solicitante; a aprovação (com a
+  sala), a rejeição (com o motivo), a reserva, a alteração e o cancelamento
+  pelo SAD; e as ausências.
+- Também ficam registrados: salas (cadastro, alterações com o inventário,
+  exclusão e fotos), recursos, regulamento (o título e se o texto mudou; o
+  texto inteiro não é copiado), PDFs das portarias, notebooks e sanções. A
+  suspensão que cancela reservas futuras gera uma linha por pedido cancelado.
+- **API** (só o SAD): `GET /api/audit?entityType=&entityId=&actorId=&q=&from=&to=&limit=&cursor=`,
+  do mais recente para o mais antigo, em páginas de até 100 (`nextCursor`).
+- **Telas:**
+  - **Histórico** (`/admin/historico`): busca por protocolo, sala, recurso ou
+    pessoa, filtro pelo que mudou e por período (na URL). A lista é agrupada
+    por dia e mostra "antes → depois" de cada campo. Nas listas, como os
+    recursos de uma sala, mostra o que entrou e o que saiu;
+  - **Histórico do pedido**, no painel de cada reserva (Agenda, Solicitações e
+    Analisar): todas as ações sobre aquele protocolo.
+- O que aconteceu antes desta fase não tem histórico.
+- `db:seed-demo --reset` também apaga o histórico.
+
 ## Interface
 
 Redesign completo do front-end, responsivo do celular ao computador, com tema
@@ -797,8 +836,10 @@ claro e escuro.
   fica inerte).
 - **Navegação com URL por tela** (react-router 7): `/minhas-reservas`,
   `/reservar`, `/salas`, `/regulamento`; `/admin/solicitacoes`, `/admin/agenda`,
-  `/admin/salas-livres`, `/admin/salas`, `/admin/recursos`, `/admin/regulamento`. Barra lateral a partir de 1024 px, barra inferior no
-  celular. O Admin vê na navegação quantas solicitações estão pendentes.
+  `/admin/salas-livres`, `/admin/salas`, `/admin/recursos`, `/admin/regulamento`,
+  `/admin/historico`. Barra lateral a partir de 1024 px, barra inferior no
+  celular; com mais de 5 itens, os últimos ficam no botão **Mais**. O Admin vê
+  na navegação quantas solicitações estão pendentes.
   Em produção, o próprio Express devolve o `index.html` para essas rotas
   (fallback de SPA, em `backend/src/app.ts`).
 - **Interações:**

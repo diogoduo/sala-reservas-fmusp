@@ -1,6 +1,7 @@
 import { Prisma, ReservationStatus, type Reservation } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
+import { datesDetail, recordAudit, reservationLabel, roomLabel } from "../audit/log";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
 import { uuidParam } from "../lib/params";
@@ -256,6 +257,20 @@ adminRouter.post(
         include: adminReservationInclude,
         orderBy: { startTime: "asc" },
       });
+      await recordAudit(tx, {
+        actor: req.user!,
+        action: "reservation.approve",
+        entityType: "reservation",
+        entityId: targets[0]!.protocol,
+        label: reservationLabel(targets[0]!),
+        changes: { status: { from: "PENDING", to: "APPROVED" }, room: { from: null, to: roomLabel(room) } },
+        details: {
+          ...datesDetail(approved),
+          scope: input.scope,
+          leftPendingCount: conflicting.length,
+          ...(approvalChecklist && { approvalChecklist }),
+        },
+      });
       return { approved, skipped: conflicting.map((c) => ({ id: c.id, startTime: c.start })) };
     });
 
@@ -286,6 +301,15 @@ adminRouter.post(
         data: { status: "REJECTED", rejectionReason: input.reason, reviewedById: reviewerId, reviewedAt: now },
       });
       if (updated.count !== ids.length) throw new AppError(409, "RESERVATION_NOT_PENDING", conflictMessage);
+      await recordAudit(tx, {
+        actor: req.user!,
+        action: "reservation.reject",
+        entityType: "reservation",
+        entityId: targets[0]!.protocol,
+        label: reservationLabel(targets[0]!),
+        changes: { status: { from: "PENDING", to: "REJECTED" } },
+        details: { ...datesDetail(targets), scope: input.scope, reason: input.reason },
+      });
       return ids;
     });
 
