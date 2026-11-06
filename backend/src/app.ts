@@ -22,6 +22,7 @@ import { reservationsRouter } from "./routes/reservations";
 import { resourcesRouter } from "./routes/resources";
 import { pricesRouter } from "./routes/prices";
 import { quotesRouter } from "./routes/quotes";
+import { eventsRouter } from "./routes/events";
 import { roomsRouter } from "./routes/rooms";
 
 /**
@@ -55,6 +56,7 @@ export function createApp() {
   app.use("/api/rooms", roomsRouter);
   app.use("/api/prices", pricesRouter);
   app.use("/api/quotes", quotesRouter);
+  app.use("/api/events", eventsRouter);
   app.use("/api/resources", resourcesRouter);
   app.use("/api/reservations", reservationsRouter);
   app.use("/api/audit", auditRouter);

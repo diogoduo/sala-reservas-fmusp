@@ -118,6 +118,7 @@ model User {
   sanctionsApplied      UserSanction[]      @relation("SanctionApplier")
   sanctionsLifted       UserSanction[]      @relation("SanctionLifter")
   auditLogs             AuditLog[]
+  events                Event[]
 
   @@map("users")
 }
@@ -170,6 +171,7 @@ model Room {
   reservations Reservation[]
   series       ReservationSeries[]
   blocks       RoomBlock[]
+  eventSpaces  EventSpaceRequest[]
 
   @@unique([building, floor, name])
   @@index([status])
@@ -198,8 +200,9 @@ model PriceCategory {
   position  Int       @default(0)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  rooms   Room[]
-  entries PriceEntry[]
+  rooms       Room[]
+  entries     PriceEntry[]
+  eventSpaces EventSpaceRequest[]
 
   @@map("price_categories")
 }
@@ -536,4 +539,110 @@ model AuditLog {
   @@index([createdAt])
   @@index([actorId, createdAt])
   @@map("audit_logs")
+}
+
+// ----------------------------------------------------------------------------
+// Eventos (Fases 11 a 13): o solicitante pede vários dias e espaços; o NUCEV
+// analisa e orça; o SAD escolhe as salas, pré-reserva e confirma.
+// ----------------------------------------------------------------------------
+
+enum EventStatus {
+  SUBMITTED // Recebido: aguardando a análise do NUCEV
+  IN_REVIEW // Em análise
+  QUOTE_SENT // Orçamento enviado ao solicitante
+  CHANGES_REQUESTED // O solicitante pediu alteração
+  QUOTE_APPROVED // Orçamento aprovado pelo solicitante
+  PRE_RESERVED // Espaços pré-reservados pelo SAD, com validade
+  PAYMENT_SUBMITTED // Comprovante enviado: o NUCEV confere
+  PAYMENT_VALIDATED // Pagamento validado: o SAD confirma a reserva
+  CONFIRMED // Reserva confirmada ("em andamento" e "finalizado" vêm das datas)
+  CANCELLED // Cancelado
+  REJECTED // Recusado
+  EXPIRED // A pré-reserva venceu sem pagamento
+
+  @@map("event_status")
+}
+
+model Event {
+  id                 String      @id @default(uuid()) @db.Uuid
+  /// "EV-000001/2026", da sequência event_protocol_seq.
+  protocol           String      @unique
+  userId             String      @map("user_id") @db.Uuid
+  title              String
+  /// Tipo, como no formulário de Cultura e Extensão (Congresso, Cursos, Solenidade…).
+  kind               String
+  /// Objetivo e programação.
+  description        String
+  targetAudience     String      @map("target_audience")
+  expectedAttendees  Int         @map("expected_attendees")
+  /// Entidade organizadora (Portaria 2793, Art. 4º).
+  entity             String
+  /// Unidade com desconto institucional (Portaria 2794, Art. 4º III), pela entidade.
+  institutional      Boolean
+  hasRegistrationFee Boolean     @map("has_registration_fee")
+  sponsored          Boolean
+  responsible        String
+  responsibleContact String      @map("responsible_contact")
+  department         String
+  coffeeBreak        Boolean     @default(false) @map("coffee_break")
+  coffeeAttendees    Int?        @map("coffee_attendees")
+  /// Equipamentos e infraestrutura pedidos (texto).
+  infrastructure     String?
+  notes              String?
+  /// Orçamento estimado quando o pedido foi enviado (motor da Fase 10).
+  estimate           Json?
+  status             EventStatus @default(SUBMITTED)
+  cancelledAt        DateTime?   @map("cancelled_at") @db.Timestamptz(3)
+  cancellationReason String?     @map("cancellation_reason")
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user   User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  days   EventDay[]
+  spaces EventSpaceRequest[]
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@map("events")
+}
+
+/// Um dia do evento: o horário da atividade e a montagem e desmontagem.
+model EventDay {
+  id              String   @id @default(uuid()) @db.Uuid
+  eventId         String   @map("event_id") @db.Uuid
+  date            DateTime @db.Date
+  startTime       DateTime @map("start_time") @db.Timestamptz(3)
+  endTime         DateTime @map("end_time") @db.Timestamptz(3)
+  setupMinutes    Int      @default(0) @map("setup_minutes")
+  teardownMinutes Int      @default(0) @map("teardown_minutes")
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, date])
+  @@map("event_days")
+}
+
+/// O que o solicitante pede: N espaços de uma categoria ("10 salas para 90
+/// pessoas") ou um espaço pelo nome (Teatro, Átrio), em todos ou em alguns dias.
+model EventSpaceRequest {
+  id              String     @id @default(uuid()) @db.Uuid
+  eventId         String     @map("event_id") @db.Uuid
+  position        Int        @default(0)
+  priceCategoryId String?    @map("price_category_id") @db.Uuid
+  roomId          String?    @map("room_id") @db.Uuid
+  count           Int        @default(1)
+  /// Pessoas por espaço (só no pedido por categoria).
+  minCapacity     Int?       @map("min_capacity")
+  /// "Sala principal", "Coffee break", "Credenciamento"…
+  purpose         String?
+  coffeeInRoom    Boolean    @default(false) @map("coffee_in_room")
+  /// Dias de uso; vazio = todos os dias do evento.
+  dates           DateTime[] @db.Date
+
+  event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  priceCategory PriceCategory? @relation(fields: [priceCategoryId], references: [id], onDelete: SetNull)
+  room          Room?          @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
+  @@index([eventId])
+  @@map("event_space_requests")
 }

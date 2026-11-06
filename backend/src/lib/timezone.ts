@@ -30,3 +30,8 @@ export function zonedTime(dateKey: string, time: string, timeZone = env.APP_TIME
   const [h, m] = time.split(":").map(Number);
   return new Date(zonedDayRange(dateKey, timeZone).start.getTime() + ((h ?? 0) * 60 + (m ?? 0)) * 60_000);
 }
+
+/** Instante → "08:30" no fuso da aplicação. */
+export function zonedClock(date: Date, timeZone = env.APP_TIMEZONE): string {
+  return new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date);
+}

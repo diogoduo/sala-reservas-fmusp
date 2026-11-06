@@ -994,6 +994,50 @@ cada regra tem o seu teste (`test/unit/quote.test.ts`):
 - A equipe técnica de áudio e vídeo (Art. 4º II, Art. 18 da 2793) é cobrada à
   parte e não entra no cálculo.
 
+
+## Fase 11 — Solicitar evento
+
+Item **Eventos** no menu de quem pede Cultura e Extensão (eventos são
+atividades de Cultura e Extensão, Portaria 2793, Cap. XI; quem não tem essa
+permissão, como a Sueli e a Juliana, não vê o item). Formulário em etapas:
+
+1. **Evento:** nome, tipo, objetivo e programação, público previsto e
+   público-alvo, entidade organizadora, inscrição e patrocínio, responsável.
+   Unidade da FMUSP/HC, USP, SES ou Adolfo Lutz já leva o desconto
+   institucional; evento da FMUSP sem inscrição e sem patrocínio aparece como
+   "pode ser isento" (Art. 4º I), para o NUCEV conferir.
+2. **Dias e horários:** um ou vários dias, cada um com montagem e
+   desmontagem (entram no uso dos espaços); aviso de domingo; 3 dias de
+   antecedência.
+3. **Espaços:** por categoria e quantidade ("4 salas de aula para 40
+   pessoas") ou por nome (Teatro, um átrio), em todos ou em alguns dias, com a
+   finalidade. Cada linha mostra, dia a dia, quantos espaços que servem estão
+   livres e sugere os livres (`POST /api/events/availability`, só orienta). O
+   SAD define as salas na análise.
+4. **Coffee e infraestrutura:** coffee break com o número de pessoas; a tela
+   lista os espaços que podem ter coffee, com a capacidade, e avisa se o
+   escolhido não comporta. Equipamentos e observações.
+5. **Resumo:** tudo o que foi pedido, a disponibilidade e o **orçamento
+   estimado** (Fase 10), com o aceite do regulamento.
+
+- O pedido entra como **Recebido**, com protocolo próprio
+  (`EV-000001/2026`, sequência `event_protocol_seq`) e o orçamento estimado
+  guardado. Rascunho no navegador: recarregar a página não perde o
+  preenchimento.
+- **Meus eventos** (`/eventos`) e a tela do evento, com a situação e o que
+  acontece agora; o solicitante cancela antes da pré-reserva.
+- **SAD e NUCEV:** lista **Eventos** (`/admin/eventos`) com filtro por
+  situação e busca, e a mesma tela do evento. A análise, o orçamento oficial
+  e a pré-reserva entram na Fase 12.
+- Modelo: `events`, `event_days` e `event_space_requests` (migration
+  `events`); as situações já cobrem as Fases 12 e 13 (Recebido, Em análise,
+  Orçamento enviado, Alteração pedida, Orçamento aprovado, Pré-reservado,
+  Comprovante enviado, Pagamento validado, Confirmado, Cancelado, Recusado e
+  Pré-reserva vencida; "em andamento" e "finalizado" vêm das datas).
+- API: `POST /api/events`, `GET /api/events/mine`, `GET /api/events` (SAD e
+  NUCEV), `GET /api/events/:id`, `POST /api/events/:id/cancel`,
+  `POST /api/events/availability`.
+
 ## Interface
 
 Redesign completo do front-end, responsivo do celular ao computador, com tema

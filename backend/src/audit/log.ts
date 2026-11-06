@@ -46,9 +46,12 @@ export type AuditAction =
   | "price.table_update"
   | "price.table_delete"
   | "price.category_create"
-  | "price.category_update";
+  | "price.category_update"
+  // Eventos (Fases 11 a 13)
+  | "event.request"
+  | "event.cancel";
 
-export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user" | "price";
+export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user" | "price" | "event";
 
 /** Quem fez a ação. `null` = o próprio sistema. */
 export type AuditActor = { id: string; name: string } | null;
