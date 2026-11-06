@@ -12,11 +12,19 @@
  *   npm run db:seed-demo -- --reset --start=2026-11-09 --days=35
  *   npm run db:seed-demo -- --reset --month=2026-10       (o mês inteiro, como antes)
  *   npm run db:seed-demo -- --preview=pasta               (só gera as ilustrações em PNG)
+ *   npm run db:seed-demo -- --reset --salas-reais         (salas reais da FMUSP, com as reservas fictícias)
  *
  * --reset APAGA reservas, séries, salas (com fotos e inventário), bloqueios,
- * notebooks, sanções e os usuários que não são as 4 contas de teste, e volta a
+ * notebooks, sanções e os usuários que não são as contas de teste, e volta a
  * numeração de protocolos para 000001. O regulamento (texto e PDFs) e os
  * recursos ficam. Sem --reset, só roda num banco sem salas e sem reservas.
+ *
+ * --salas-reais (para a apresentação): no lugar das 20 salas fictícias, carrega
+ * as salas reais (prisma/data/fmusp.json e as fotos de FM/, como o
+ * db:import-fmusp) e põe as reservas fictícias nelas (REAL_ROOM_FOR). Com
+ * --reset, as salas reais que já estão no banco ficam (fotos e inventário não
+ * são carregados de novo); só as outras salas são apagadas. Aceita
+ * --fotos=pasta e --sem-fotos, como o import.
  */
 import { PrismaClient, type ActivityType, type Prisma, type ReservationStatus, type RoomStatus, type RoomType, type Permission, type SeatType, type UserRole } from "@prisma/client";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -26,16 +34,45 @@ import { DEFAULT_PERMISSIONS, sortPermissions } from "../src/auth/permissions";
 import { holidayName, weekdayOf } from "../src/lib/calendar";
 import { renderPhotoVersions } from "../src/photos/storage";
 import { PALETTES, roomIllustration, VIEWS } from "./demo/illustrations";
-import { createMissingSupportAreas } from "./support-areas";
+import { importFmusp, loadFmuspData } from "./import-fmusp";
+import { createMissingSupportAreas, SUPPORT_AREAS } from "./support-areas";
 
 const prisma = new PrismaClient();
 // "--reset" vira { reset: "true" }; "--start=2026-11-09" vira { start: "2026-11-09" }.
 const args: Record<string, string> = Object.fromEntries(
   process.argv.slice(2).map((a) => {
-    const [key, value] = a.replace(/^--/, "").split("=");
-    return [key!, value ?? "true"];
+    const [key, ...value] = a.replace(/^--/, "").split("=");
+    return [key!, value.length > 0 ? value.join("=") : "true"];
   }),
 );
+const REAL_ROOMS = args["salas-reais"] === "true";
+
+/**
+ * --salas-reais: cada sala fictícia vira uma sala real parecida (tipo e
+ * capacidade), sem repetir, para as reservas continuarem sem conflito.
+ */
+const REAL_ROOM_FOR: Record<string, string> = {
+  "Teatro Principal": "Teatro",
+  "Anfiteatro A": "Anfiteatro de Anatomia 1303",
+  "Anfiteatro B": "Anfiteatro 3104",
+  "Anfiteatro C": "Anfiteatro 1306",
+  "Sala do Conselho": "Sala de Aula 2353",
+  "Sala de Reunião 1": "Sala de Reunião 2218",
+  "Sala de Reunião 2": "Sala de Reunião 2107-A",
+  "Laboratório de Habilidades": "Sala de Aula 3196",
+  "Sala 101": "Sala de Aula 1107",
+  "Sala 102": "Sala de Aula 2366",
+  "Sala 103": "Sala de Aula 2220",
+  "Sala 104": "Sala de Aula 3202",
+  "Sala 201": "Anfiteatro 1104",
+  "Sala 202": "Sala de Aula 2368",
+  "Sala 203": "Sala de Aula 2223",
+  "Sala de Estudos": "Sala de Aula 1357",
+  "Laboratório de Informática 1": "Sala de Informática 1154",
+  "Laboratório de Informática 2": "Sala de Informática 1366 A",
+  "Espaço Multiuso": "Anfiteatro 2303",
+  "Sala 301": "Congregação 3000",
+};
 
 // ---------------------------------------------------------------------------
 // Datas (fuso de São Paulo, sem horário de verão desde 2019)
@@ -367,7 +404,7 @@ const SINGLES: Request[] = [
   culture("bruno", "LEAGUE", "Liga de Cardiologia — Aula aberta: ECG na prática", "LEAGUE", 60, "18:30 Aula\n20:00 Casos clínicos", { rooms: ["Anfiteatro C"], duration: 150, starts: ["18:30"] }),
   culture("ricardo", "COURSE", "Curso de Suporte Básico de Vida", "DEPARTMENT", 30, "08:00 Teoria\n10:00 Prática em manequins", { rooms: ["Laboratório de Habilidades", "Espaço Multiuso"], duration: 240, starts: ["08:00"], setup: 60 }),
   culture("camila", "CEREMONY", "Cerimônia de Boas-Vindas aos Calouros", "CAOC", 200, "19:00 Abertura\n19:30 Homenagens\n20:30 Encerramento", { rooms: ["Teatro Principal"], duration: 180, starts: ["19:00"], setup: 60, resources: [["Sistema de Som"], ["Microfones", 4], ["Datashow/Projetor"]] }),
-  culture("marina", "CONGRESS", "Jornada de Saúde Coletiva", "DEPARTMENT", 110, "08:30 Credenciamento\n09:00 Conferência\n14:00 Mesas temáticas", { rooms: ["Anfiteatro A"], duration: 480, starts: ["08:00"], setup: 60, resources: [["Webconferência", undefined, "YouTube"], ["Microfones", 3]] }),
+  culture("marina", "CONGRESS", "Jornada de Saúde Coletiva", "DEPARTMENT", 95, "08:30 Credenciamento\n09:00 Conferência\n14:00 Mesas temáticas", { rooms: ["Anfiteatro A"], duration: 480, starts: ["08:00"], setup: 60, resources: [["Webconferência", undefined, "YouTube"], ["Microfones", 3]] }),
   culture("aluno", "LEAGUE", "Liga de Neurologia — Reunião científica", "LEAGUE", 35, "19:00 Apresentação de casos", { rooms: ["Sala 202", "Sala 101"], duration: 120, starts: ["19:00"] }),
   culture("camila", "STUDENT_ACTIVITY", "Workshop de Currículo e Residência", "CAOC", 50, "14:00 Oficina\n16:00 Perguntas", { rooms: ["Espaço Multiuso", "Sala 201"], duration: 180 }),
   defense("Mariana Souza", "Biomarcadores de inflamação em pacientes com sepse", "DOCTORATE"),
@@ -387,7 +424,7 @@ const SINGLES: Request[] = [
 
 /** Aulas que se repetem toda semana na janela. `pending`: série pedida há pouco, ainda em análise (só datas daqui a 7 dias ou mais). */
 const SERIES: { request: Request; weekdays: number[]; start: string; room: string; pending?: boolean }[] = [
-  { request: grad("helena", "DEM0142", "Semiologia Médica", 110, "LECTURE", 3, { resources: [["Microfones", 1]] }), weekdays: [2, 4], start: "08:00", room: "Anfiteatro A" },
+  { request: grad("helena", "DEM0142", "Semiologia Médica", 95, "LECTURE", 3, { resources: [["Microfones", 1]] }), weekdays: [2, 4], start: "08:00", room: "Anfiteatro A" },
   { request: grad("eduardo", "DEM0210", "Anatomia Aplicada", 48, "LECTURE", 1), weekdays: [1, 3], start: "10:00", room: "Sala 201" },
   { request: pos("paulo", "PGD5012", "Metodologia da Pesquisa Clínica", 30), weekdays: [3], start: "14:00", room: "Sala 202" },
   { request: grad("marina", "DEM0305", "Bioestatística", 30, "PRACTICAL", 4, { resources: [["Computador de Apoio", 30]] }), weekdays: [5], start: "13:00", room: "Laboratório de Informática 1" },
@@ -419,7 +456,10 @@ async function renderPreview(dir: string) {
   console.log(`Ilustrações em ${dir}`);
 }
 
-async function reset() {
+type RoomKey = { building: string; floor: string; name: string };
+
+/** `keepRooms`: salas que ficam (com fotos e inventário); as demais são apagadas. */
+async function reset(keepRooms: RoomKey[] = []) {
   const keep = DEV_USERS.map((u) => u.email);
   await prisma.$transaction([
     prisma.auditLog.deleteMany(),
@@ -427,7 +467,8 @@ async function reset() {
     prisma.reservation.deleteMany(),
     prisma.reservationSeries.deleteMany(),
     prisma.roomBlock.deleteMany(),
-    prisma.room.deleteMany(), // fotos e inventário vão junto (cascade)
+    // Fotos e inventário vão junto (cascade).
+    prisma.room.deleteMany(keepRooms.length > 0 ? { where: { NOT: keepRooms } } : undefined),
     prisma.notebook.deleteMany(),
     prisma.user.deleteMany({ where: { email: { notIn: keep } } }),
   ]);
@@ -438,11 +479,15 @@ async function reset() {
 async function main() {
   if (args.preview) return renderPreview(args.preview);
 
+  // Com --salas-reais, o fmusp.json precisa estar aqui antes de apagar qualquer coisa.
+  const realKeys: RoomKey[] = REAL_ROOMS
+    ? [...loadFmuspData().rooms, ...SUPPORT_AREAS].map(({ building, floor, name }) => ({ building, floor, name }))
+    : [];
   const [roomCount, reservationCount] = await Promise.all([prisma.room.count(), prisma.reservation.count()]);
   if ((roomCount > 0 || reservationCount > 0) && !args.reset) {
-    throw new Error(`O banco já tem ${roomCount} salas e ${reservationCount} reservas. Para APAGAR e trocar pela base fictícia, rode com --reset.`);
+    throw new Error(`O banco já tem ${roomCount} salas e ${reservationCount} reservas. Para APAGAR e trocar pela base de demonstração, rode com --reset.`);
   }
-  if (args.reset) await reset();
+  if (args.reset) await reset(realKeys);
 
   // Recursos (mantém os que já existem, só garante os da demonstração).
   const resourceId = new Map<string, string>();
@@ -467,10 +512,24 @@ async function main() {
   const uid = (person: Person) => userId.get(PEOPLE[person].email)!;
   const sadId = uid("sad");
 
-  // Salas, inventário (patrimônios fictícios) e ilustrações
-  let assetTag = 271350;
+  // Salas. As reservas abaixo usam os nomes das salas fictícias; com
+  // --salas-reais, cada nome aponta para a sala real de REAL_ROOM_FOR.
   const roomByName = new Map<string, { id: string; capacity: number | null }>();
-  for (const [i, room] of ROOMS.entries()) {
+  /** "Sala 202 — Anexo Didático, 2º andar", para o "antes" das reservas alteradas. */
+  const roomText = new Map<string, string>();
+  if (REAL_ROOMS) {
+    // Salas reais, inventário, notebooks, áreas de apoio e fotos, como o db:import-fmusp.
+    await importFmusp(prisma, { photosDir: args.fotos, skipPhotos: args["sem-fotos"] === "true" });
+    for (const [demoName, realName] of Object.entries(REAL_ROOM_FOR)) {
+      const row = await prisma.room.findFirst({ where: { name: realName }, select: { id: true, capacity: true, name: true, building: true, floor: true } });
+      if (!row) throw new Error(`Sala real não encontrada: ${realName} (confira REAL_ROOM_FOR e o fmusp.json).`);
+      roomByName.set(demoName, { id: row.id, capacity: row.capacity });
+      roomText.set(demoName, `${row.name} — ${row.building}, ${row.floor}`);
+    }
+  }
+  // Salas fictícias, inventário (patrimônios fictícios) e ilustrações
+  let assetTag = 271350;
+  for (const [i, room] of REAL_ROOMS ? [] : ROOMS.entries()) {
     // Um recurso por sala: a última linha vale (ex.: os 30 computadores do laboratório).
     const equipment = [...new Map(room.equipment.map((e) => [e[0], e])).values()];
     const row = await prisma.room.create({
@@ -489,6 +548,7 @@ async function main() {
       },
     });
     roomByName.set(room.name, { id: row.id, capacity: room.capacity });
+    roomText.set(room.name, `${room.name} — ${room.building}, ${room.floor}`);
     const views = room.roomType === "CLASSROOM" || room.roomType === "AUDITORIUM" || room.roomType === "THEATER" ? VIEWS : VIEWS.slice(0, 2);
     for (const [position, view] of views.entries()) {
       const svg = roomIllustration(room.roomType, room.capacity ?? 30, PALETTES[i % PALETTES.length]!, view.camera);
@@ -497,11 +557,14 @@ async function main() {
     }
     process.stdout.write(".");
   }
-  console.log(`\n${ROOMS.length} salas`);
-  // Áreas de apoio e de coffee break (as mesmas das salas reais), sem fotos.
-  console.log(`${await createMissingSupportAreas(prisma)} áreas de apoio`);
+  if (!REAL_ROOMS) {
+    console.log(`\n${ROOMS.length} salas`);
+    // Áreas de apoio e de coffee break (as mesmas das salas reais), sem fotos.
+    console.log(`${await createMissingSupportAreas(prisma)} áreas de apoio`);
+  }
 
-  for (const [i, nb] of NOTEBOOKS.entries()) {
+  // Notebooks fictícios (com --salas-reais, ficam os reais, do import).
+  for (const [i, nb] of REAL_ROOMS ? [] : NOTEBOOKS.entries()) {
     await prisma.notebook.create({ data: { assetTag: `PAT-${380120 + i * 7}`, model: nb.model, location: nb.location, notes: nb.notes ?? null } });
   }
 
@@ -636,7 +699,7 @@ async function main() {
           startTime: addDaysTo(at(modifiedDay, "10:00"), -2).toISOString(),
           endTime: addDaysTo(at(modifiedDay, "12:00"), -2).toISOString(),
           roomId: null,
-          roomName: "Sala 202 — Anexo Didático, 2º andar",
+          roomName: roomText.get("Sala 202") ?? "Sala 202",
           expectedAttendees: 36,
           title: "DEM0172 — Fisiologia Renal",
         }
@@ -706,7 +769,7 @@ async function main() {
             startTime: before.toISOString(),
             endTime: new Date(before.getTime() + (end.getTime() - start.getTime())).toISOString(),
             roomId: null,
-            roomName: r.rooms[0] ? `${r.rooms[0]} — ${ROOMS.find((x) => x.name === r.rooms[0])!.building}` : null,
+            roomName: r.rooms[0] ? (roomText.get(r.rooms[0]) ?? r.rooms[0]) : null,
             expectedAttendees: r.attendees,
             title: r.title,
           },
@@ -780,7 +843,7 @@ async function main() {
   console.log(
     `No futuro: ${pendingFuture} pedidos pendentes, ${approvedFuture} aprovadas, ${modifiedFuture} alteradas, ${cultureFuture} pedidos de Cultura e Extensão em análise; ${seriesCount} séries.`,
   );
-  console.log("Base de demonstração pronta.");
+  console.log(REAL_ROOMS ? "Base de demonstração pronta, nas salas reais." : "Base de demonstração pronta.");
 }
 
 main()

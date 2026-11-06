@@ -29,12 +29,12 @@ const ATRIUM_RULES =
 const PANTRY_RULES = "Apoio ao coffee break e ao buffet; não recebe público.";
 
 export const SUPPORT_AREAS: SupportArea[] = [
-  { name: "Átrio esquerdo (SVO)", building: "Prédio Principal", floor: "Térreo", capacity: null, coffeeAllowed: true, recommendedAbove: 250, requiresBoardApproval: true, usageRules: ATRIUM_RULES },
-  { name: "Átrio do relógio de ponto", building: "Prédio Principal", floor: "Térreo", capacity: null, coffeeAllowed: true, recommendedAbove: 250, requiresBoardApproval: true, usageRules: ATRIUM_RULES },
+  { name: "Átrio esquerdo (SVO)", building: "Prédio Principal", floor: "Subsolo", capacity: null, coffeeAllowed: true, recommendedAbove: 250, requiresBoardApproval: true, usageRules: ATRIUM_RULES },
+  { name: "Átrio do relógio de ponto", building: "Prédio Principal", floor: "Subsolo", capacity: null, coffeeAllowed: true, recommendedAbove: 250, requiresBoardApproval: true, usageRules: ATRIUM_RULES },
   { name: "Hall de transição do 4º andar", building: "Prédio Principal", floor: "4º andar", capacity: 60, coffeeAllowed: true },
   { name: "Área de coffee do 5º andar", building: "Prédio Principal", floor: "5º andar", capacity: 250, coffeeAllowed: true },
   { name: "Copa do 5º andar", building: "Prédio Principal", floor: "5º andar", capacity: null, coffeeAllowed: false, usageRules: PANTRY_RULES },
-  { name: "Hall do Teatro", building: "Teatro", floor: "1º andar", capacity: 255, coffeeAllowed: true },
+  { name: "Hall do Teatro (Foyer)", building: "Teatro", floor: "1º andar", capacity: 255, coffeeAllowed: true },
   { name: "Copa do Teatro", building: "Teatro", floor: "1º andar", capacity: null, coffeeAllowed: false, usageRules: PANTRY_RULES },
   { name: "Hall do NINA", building: "Instituto Oscar Freire (IOF)", floor: "2º andar", capacity: 100, coffeeAllowed: true },
 ];

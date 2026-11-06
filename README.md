@@ -445,7 +445,18 @@ npm run db:seed-demo -- --reset                        # APAGA e recria (janela:
 npm run db:seed-demo -- --reset --start=2026-11-09 --days=35   # outra janela
 npm run db:seed-demo -- --reset --month=2026-10        # o mês inteiro
 npm run db:seed-demo -- --preview=pasta                # só gera as ilustrações em PNG
+npm run db:seed-demo -- --reset --salas-reais          # salas reais (fmusp.json + FM/) com as reservas fictícias
 ```
+
+**Salas reais na demonstração (`--salas-reais`, Fase 9):** no lugar das 20
+salas fictícias, carrega as salas reais com fotos, inventário e notebooks (o
+mesmo do `db:import-fmusp`, então precisa do `prisma/data/fmusp.json` e da
+pasta `FM/`) e põe as mesmas reservas fictícias nelas: cada sala fictícia vira
+uma sala real parecida (`REAL_ROOM_FOR` em `prisma/seed-demo.ts`). Com
+`--reset`, as salas reais e as áreas de apoio que já estão no banco ficam (as
+fotos não são carregadas de novo, e rodar outra vez leva segundos); as outras
+salas são apagadas. É o modo da apresentação: salas de verdade e uma Agenda
+cheia, com pessoas e pedidos fictícios.
 
 O `--reset` apaga todas as reservas e séries, as salas (com fotos e
 inventário), os bloqueios, os notebooks, as sanções, o histórico e os usuários
@@ -900,14 +911,16 @@ formulário de evento e o orçamento vão usar.
   documento SAD/NUCEV §6 e da Portaria 2794, Art. 3º): Átrio esquerdo (SVO) e
   Átrio do relógio de ponto (acima de 250, com autorização da Diretoria), Hall
   de transição do 4º andar (60), Área de coffee do 5º andar (250), Hall do
-  Teatro (255), Hall do NINA (100), Copa do 5º andar e Copa do Teatro. Só cria
+  Teatro (Foyer, 255), Hall do NINA (100), Copa do 5º andar e Copa do Teatro. Só cria
   o que falta e não mexe no que o SAD editou. Entra no `db:import-fmusp` e no
   `db:seed-demo`; num banco que já tem as salas, `npm run db:espacos`.
 - A migration marca como "pode ter coffee" as salas 2366, 2368, 2223 e 1357
   (Portaria 2794, Art. 5º §1º), com a regra dos 20% nas regras de uso.
-- ⚠️ **A confirmar:** o andar dos átrios (cadastrados como Térreo); se a "Área
-  de coffee do 5º andar" é a área de vivência/terraço da Portaria 2794; se o
-  Hall do Teatro é o Foyer da portaria. O pedido automático de autorização à
+- Os átrios ficam no Subsolo; o Hall do Teatro é o Foyer do Teatro da Portaria
+  2794 (cadastrado como "Hall do Teatro (Foyer)"). Nas listas, as áreas de
+  apoio vêm depois das salas.
+- ⚠️ **A confirmar:** se a "Área de coffee do 5º andar" é a área de
+  vivência/terraço da Portaria 2794. O pedido automático de autorização à
   Diretoria (e-mail e acompanhamento) entra com o módulo de Eventos.
 
 ## Interface

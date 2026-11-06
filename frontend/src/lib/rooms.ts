@@ -2,8 +2,9 @@ import type { Room } from "./types";
 
 const collator = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" });
 
-/** "Térreo" = 0, "2º andar" = 2; o que não tiver número vai para o fim. */
+/** "Subsolo" = −1, "Térreo" = 0, "2º andar" = 2; o que não tiver número vai para o fim. */
 function floorRank(floor: string) {
+  if (/subsolo/i.test(floor)) return -1;
   if (/t[ée]rreo/i.test(floor)) return 0;
   const n = floor.match(/\d+/);
   return n ? Number(n[0]) : 99;
@@ -16,14 +17,18 @@ function roomNumber(name: string) {
 }
 
 /**
- * Ordem de exibição das salas: o prédio com mais salas primeiro (o Prédio
- * Principal), depois andar e número da sala, como nas planilhas do SAD.
+ * Ordem de exibição das salas: primeiro as salas e depois as áreas de apoio
+ * (átrios, halls, copas); dentro de cada grupo, o prédio com mais salas
+ * primeiro (o Prédio Principal), depois andar e número da sala, como nas
+ * planilhas do SAD.
  */
-export function sortRooms<T extends Pick<Room, "building" | "floor" | "name">>(rooms: T[]): T[] {
+export function sortRooms<T extends Pick<Room, "building" | "floor" | "name"> & { roomType?: Room["roomType"] }>(rooms: T[]): T[] {
   const perBuilding = new Map<string, number>();
   for (const room of rooms) perBuilding.set(room.building, (perBuilding.get(room.building) ?? 0) + 1);
+  const isSupport = (room: T) => Number(room.roomType === "SUPPORT_AREA");
   return [...rooms].sort(
     (a, b) =>
+      isSupport(a) - isSupport(b) ||
       perBuilding.get(b.building)! - perBuilding.get(a.building)! ||
       collator.compare(a.building, b.building) ||
       floorRank(a.floor) - floorRank(b.floor) ||

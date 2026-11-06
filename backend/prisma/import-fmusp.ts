@@ -58,24 +58,27 @@ interface RoomData {
   photos?: PhotoSource[];
 }
 
-interface FmuspData {
+export interface FmuspData {
   retireRooms: { building: string; floor: string; name: string }[];
   resources: { name: string; description: string | null; requestable: boolean }[];
   rooms: RoomData[];
   notebooks?: { assetTag: string; location: NotebookLocation; model?: string }[];
 }
 
-const prisma = new PrismaClient();
+export interface ImportOptions {
+  /** Padrão: prisma/data/fmusp.json */
+  dataFile?: string;
+  /** Padrão: FM/ na raiz do projeto. */
+  photosDir?: string;
+  skipPhotos?: boolean;
+}
 
-const args = process.argv.slice(2);
-const dataFile = path.resolve(args.find((a) => !a.startsWith("--")) ?? path.join(__dirname, "data", "fmusp.json"));
-const photosDir = path.resolve(args.find((a) => a.startsWith("--fotos="))?.slice("--fotos=".length) ?? path.join(__dirname, "..", "..", "FM"));
-const skipPhotos = args.includes("--sem-fotos");
+export const DEFAULT_DATA_FILE = path.join(__dirname, "data", "fmusp.json");
+const DEFAULT_PHOTOS_DIR = path.join(__dirname, "..", "..", "FM");
 
-function loadData(): FmuspData {
+export function loadFmuspData(dataFile = DEFAULT_DATA_FILE): FmuspData {
   if (!existsSync(dataFile)) {
-    console.error(`Arquivo não encontrado: ${dataFile}\nOs dados reais da FMUSP não ficam no repositório.`);
-    process.exit(1);
+    throw new Error(`Arquivo não encontrado: ${dataFile}\nOs dados reais da FMUSP não ficam no repositório.`);
   }
   return JSON.parse(readFileSync(dataFile, "utf8")) as FmuspData;
 }
@@ -140,7 +143,7 @@ function coverScore(file: string) {
   return 3;
 }
 
-async function importPhotos(data: FmuspData) {
+async function importPhotos(prisma: PrismaClient, data: FmuspData, photosDir: string, skipPhotos: boolean) {
   if (skipPhotos) return;
   if (!existsSync(photosDir)) {
     console.log(`Pasta de fotos não encontrada (${photosDir}); salas importadas sem fotos.`);
@@ -185,8 +188,10 @@ async function importPhotos(data: FmuspData) {
   console.log(`Fotos: ${added} importada(s).`);
 }
 
-async function main() {
-  const data = loadData();
+/** Carrega salas, inventário, notebooks, áreas de apoio e fotos. Idempotente. */
+export async function importFmusp(prisma: PrismaClient, options: ImportOptions = {}) {
+  const data = loadFmuspData(options.dataFile ? path.resolve(options.dataFile) : DEFAULT_DATA_FILE);
+  const photosDir = options.photosDir ? path.resolve(options.photosDir) : DEFAULT_PHOTOS_DIR;
 
   const summary = await prisma.$transaction(
     async (tx) => {
@@ -282,12 +287,20 @@ async function main() {
   );
 
   // Fora da transação: gerar as versões das fotos leva alguns segundos por foto.
-  await importPhotos(data);
+  await importPhotos(prisma, data, photosDir, options.skipPhotos ?? false);
 }
 
-main()
-  .catch((error) => {
-    console.error(error);
-    process.exit(1);
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  const prisma = new PrismaClient();
+  importFmusp(prisma, {
+    dataFile: args.find((a) => !a.startsWith("--")),
+    photosDir: args.find((a) => a.startsWith("--fotos="))?.slice("--fotos=".length),
+    skipPhotos: args.includes("--sem-fotos"),
   })
-  .finally(() => prisma.$disconnect());
+    .catch((error) => {
+      console.error(error instanceof Error ? error.message : error);
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}
