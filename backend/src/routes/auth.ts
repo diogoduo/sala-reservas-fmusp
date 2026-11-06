@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../lib/async-handler";
 import { assertAllowedEmailDomain, resolveInitialRole } from "../auth/domain";
+import { hasCustomPermissions } from "../auth/permissions";
 import { completeSenhaUnicaLogin, startSenhaUnicaLogin } from "../auth/senhaunica";
 import {
   clearOAuthFlowCookie,
@@ -84,7 +85,8 @@ const mockOnly = (_req: unknown, res: import("express").Response, next: import("
 
 // Lista de contas de teste para a tela "Dev Mode": qualquer usuário já cadastrado
 // no banco (o seed cria uma de cada domínio autorizado e uma de cada perfil) pode
-// ser escolhido sem senha. Primeiro o SAD, o NUCEV e quem tem permissão; depois o resto.
+// ser escolhido sem senha. Primeiro o SAD, o NUCEV e quem tem permissões fora do
+// padrão (pede Graduação, Pós ou Defesa, ou teve algum tipo retirado); depois o resto.
 authRouter.get(
   "/mock/users",
   mockOnly,
@@ -93,7 +95,8 @@ authRouter.get(
       select: { id: true, name: true, email: true, role: true, permissions: true },
       orderBy: { name: "asc" },
     });
-    const rank = (u: (typeof users)[number]) => (u.role === "ADMIN" ? 0 : u.role === "NUCEV" ? 1 : u.permissions.length > 0 ? 2 : 3);
+    const rank = (u: (typeof users)[number]) =>
+      u.role === "ADMIN" ? 0 : u.role === "NUCEV" ? 1 : hasCustomPermissions(u.permissions) ? 2 : 3;
     res.json({ users: users.sort((a, b) => rank(a) - rank(b)) });
   }),
 );

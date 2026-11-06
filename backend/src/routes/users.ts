@@ -3,6 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { diffFields, recordAudit } from "../audit/log";
 import { assertAllowedEmailDomain } from "../auth/domain";
+import { DEFAULT_PERMISSIONS, sortPermissions } from "../auth/permissions";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
 import { uuidParam } from "../lib/params";
@@ -10,7 +11,7 @@ import { prisma } from "../lib/prisma";
 import { requireAdmin } from "../middleware/auth";
 
 // Fase 9 — Pessoas: o SAD vê quem tem cadastro, muda o papel (Solicitante, SAD,
-// NUCEV) e concede as permissões de pedir Graduação, Pós-Graduação e Defesa.
+// NUCEV) e concede ou retira as permissões de pedir cada tipo de atividade.
 // Também cadastra alguém antes do primeiro acesso: no primeiro login pela Senha
 // Única, a pessoa é reconhecida pelo e-mail e já entra com o papel e as permissões.
 export const usersRouter = Router();
@@ -21,8 +22,6 @@ usersRouter.param("id", uuidParam("USER_NOT_FOUND", "Pessoa não encontrada."));
 const userSelect = { id: true, name: true, email: true, uspNumber: true, role: true, permissions: true, createdAt: true } as const;
 
 const label = (u: { name: string; email: string }) => `${u.name} (${u.email})`;
-/** Ordem fixa: o histórico não acusa mudança só porque a lista veio em outra ordem. */
-const sortPermissions = (list: Permission[]) => [...new Set(list)].sort();
 
 const listQuerySchema = z.object({
   q: z.string().trim().min(1).max(200).optional(),
@@ -69,7 +68,7 @@ const createUserSchema = z.object({
     .optional()
     .or(z.literal("").transform(() => undefined)),
   role: z.nativeEnum(UserRole).default("USER"),
-  permissions: z.array(z.nativeEnum(Permission)).max(20).default([]),
+  permissions: z.array(z.nativeEnum(Permission)).max(20).default(DEFAULT_PERMISSIONS),
 });
 
 usersRouter.post(

@@ -10,8 +10,9 @@ export async function resetDatabase(): Promise<void> {
   await prisma.$executeRawUnsafe(`TRUNCATE ${tables.map((t) => `"${t.tablename}"`).join(", ")} RESTART IDENTITY CASCADE`);
 }
 
-export function createUser(email: string, role: UserRole = "USER", permissions: Permission[] = []) {
-  return prisma.user.create({ data: { email, name: email.split("@")[0]!, role, permissions } });
+/** Sem `permissions`, a pessoa fica com o padrão do banco (Cultura e Extensão e Concurso). */
+export function createUser(email: string, role: UserRole = "USER", permissions?: Permission[]) {
+  return prisma.user.create({ data: { email, name: email.split("@")[0]!, role, ...(permissions && { permissions }) } });
 }
 
 export function createRoom(name: string, capacity = 40) {
@@ -48,6 +49,39 @@ export function undergraduateRequest(title: string, startTime: Date, endTime: Da
 }
 
 let protocolCounter = 0;
+
+/** Corpo mínimo de um pedido de Reunião (aberto a todos). */
+export function meetingRequest(title: string, startTime: Date, endTime: Date) {
+  return {
+    activityType: "ADMINISTRATIVE",
+    description: `[teste] ${title}`,
+    termsAccepted: true,
+    noAlcoholCommitment: true,
+    startTime: startTime.toISOString(),
+    endTime: endTime.toISOString(),
+    details: { kind: "MEETING", meetingTitle: title, participantCount: 8, responsible: "Responsável Teste", department: "Setor Teste" },
+  };
+}
+
+/** Corpo mínimo de um pedido de Concurso. */
+export function publicExamRequest(title: string, startTime: Date, endTime: Date) {
+  return {
+    activityType: "PUBLIC_EXAM",
+    description: `[teste] ${title}`,
+    termsAccepted: true,
+    noAlcoholCommitment: true,
+    startTime: startTime.toISOString(),
+    endTime: endTime.toISOString(),
+    details: {
+      examTitle: title,
+      audience: 10,
+      candidateCount: 3,
+      responsible: "Responsável Teste",
+      department: "Departamento Teste",
+      candidateNames: "Candidato A, Candidato B, Candidato C",
+    },
+  };
+}
 
 /** Pedido pendente gravado direto no banco (sem passar pelas regras do solicitante). */
 export function createPendingReservation(userId: string, startTime: Date, endTime: Date, seriesId?: string) {

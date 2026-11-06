@@ -237,7 +237,8 @@ function RulesSummary() {
 function ActivityPicker({ onPick, standing, asAdmin }: { onPick: (type: ActivityType) => void; standing: Standing | null; asAdmin: boolean }) {
   const { user } = useAuth();
   const suspended = !asAdmin && standing?.suspension;
-  // Graduação, Pós e Defesa só aparecem para quem tem a permissão do SAD (Fase 9).
+  // Cada tipo, menos Reunião, só aparece para quem tem a permissão (Fase 9). Cultura e
+  // Extensão e Concurso vêm no padrão; Graduação, Pós e Defesa o SAD concede.
   const types = ACTIVITY_TYPES.filter((type) => asAdmin || (user !== null && canRequestActivity(user, type)));
   const hidden = ACTIVITY_TYPES.filter((type) => !types.includes(type));
   return (
@@ -273,8 +274,8 @@ function ActivityPicker({ onPick, standing, asAdmin }: { onPick: (type: Activity
         <p className="flex items-start gap-2 text-sm text-muted">
           <LockSimpleIcon size={18} aria-hidden className="mt-0.5 shrink-0" />
           <span>
-            {hidden.map((type) => ACTIVITY_TYPE_LABELS[type]).join(", ").replace(/, ([^,]*)$/, " e $1")}: pedidos só por quem tem permissão do SAD
-            (como os serviços de Graduação e de Pós-Graduação). Se você precisa pedir, fale com o SAD.
+            O seu acesso não inclui {hidden.map((type) => ACTIVITY_TYPE_LABELS[type]).join(", ").replace(/, ([^,]*)$/, " e $1")}. Quem
+            concede é o SAD: se você precisa pedir, fale com o SAD.
           </span>
         </p>
       )}

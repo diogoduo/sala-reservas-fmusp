@@ -830,14 +830,21 @@ Três papéis e, por pessoa, permissões que o SAD concede.
 | **SAD** | Tudo: analisa, aloca, aprova, reserva, altera e cancela; salas, recursos, regulamento, sanções e pessoas. |
 | **NUCEV** (Núcleo de Eventos) | Acompanha as mesmas telas do SAD (Agenda, Solicitações, Salas livres, Histórico, inventário das salas) **só para consultar**. No módulo de Eventos, vai cuidar da análise ao encerramento; a pré-reserva, a reserva confirmada e as alterações de espaço ficam com o SAD. |
 
-- **Graduação, Pós-Graduação e Defesa são exclusivos** de quem tem a
-  permissão (`REQUEST_UNDERGRADUATE`, `REQUEST_GRADUATE`, `REQUEST_DEFENSE`,
-  em `users.permissions`; migration `roles_permissions`). Sem ela, a API
-  recusa com `ACTIVITY_NOT_ALLOWED`, e o formulário nem mostra esses tipos (mas
-  explica a quem pedir). Cultura e Extensão, Concurso e Reunião continuam
-  abertos a todos. O SAD reserva qualquer tipo pelas próprias telas.
-  - As reservas que já existiam continuam valendo, e ninguém recebeu permissão
-    automaticamente.
+- **Cada tipo de atividade, menos Reunião, tem uma permissão** em
+  `users.permissions` (migrations `roles_permissions`,
+  `permission_open_types` e `permission_defaults`). Sem ela, a API recusa
+  com `ACTIVITY_NOT_ALLOWED`, e o formulário nem mostra o tipo (mas explica a
+  quem pedir). O SAD reserva qualquer tipo pelas próprias telas.
+
+  | Permissão | Quem tem |
+  |---|---|
+  | Graduação, Pós-Graduação, Defesa (`REQUEST_UNDERGRADUATE`, `REQUEST_GRADUATE`, `REQUEST_DEFENSE`) | Só quem recebeu do SAD |
+  | Cultura e Extensão, Concurso (`REQUEST_CULTURE_EXTENSION`, `REQUEST_PUBLIC_EXAM`) | Todo cadastro, por padrão; o SAD pode tirar (ex.: de quem só pede defesas) |
+  | Reunião | Todos, sem permissão |
+
+  - As reservas que já existiam continuam valendo. Ninguém ganhou Graduação,
+    Pós ou Defesa automaticamente; quem já tinha cadastro ganhou Cultura e
+    Extensão e Concurso, que antes eram abertos a todos.
   - ⚠️ **Docentes:** o plano é liberar cada docente para as próprias
     disciplinas, a partir da planilha de disciplinas e docentes responsáveis
     (pendente). Até lá, o SAD concede a permissão à mão.
@@ -858,11 +865,13 @@ Três papéis e, por pessoa, permissões que o SAD concede.
     `POST /api/admin/users` e `PATCH /api/admin/users/:id { role?, permissions? }`.
     Toda mudança vai para o Histórico, com o antes e o depois.
 - **Contas de teste** (seed e base de demonstração; fictícias, com ".demo" no
-  e-mail): Sueli (pede Defesa e Pós-Graduação), Juliana (Graduação e
-  Pós-Graduação), Vanessa e Maria (NUCEV), além das que já existiam. O
-  Docente Teste tem Graduação e Pós. Na base de demonstração, quem tem pedidos
-  de Graduação, Pós ou Defesa recebe a permissão correspondente. A tela de
-  login mostra primeiro o SAD, o NUCEV e quem tem permissão.
+  e-mail): Sueli (pede só Defesa, Pós-Graduação e Reunião), Juliana (só
+  Graduação, Pós-Graduação e Reunião), Vanessa e Maria (NUCEV), além das que
+  já existiam. O Docente Teste tem o padrão mais Graduação e Pós. Na base de
+  demonstração, quem tem pedidos de Graduação, Pós ou Defesa recebe a
+  permissão correspondente. A tela de login mostra primeiro o SAD, o NUCEV e
+  quem tem permissões fora do padrão; a lista de Pessoas mostra só o que foge
+  do padrão ("Pedir Graduação", "Sem Concurso").
 
 ## Interface
 

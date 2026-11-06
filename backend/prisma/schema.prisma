@@ -27,13 +27,16 @@ enum UserRole {
   @@map("user_role")
 }
 
-/// O que uma pessoa pode fazer além do que o papel já permite (Fase 9). Pedir
-/// Graduação, Pós-Graduação e Defesa é exclusivo de quem tem a permissão; o SAD
-/// concede na tela Pessoas.
+/// Que tipos de atividade a pessoa pode pedir (Fase 9). Graduação, Pós-Graduação
+/// e Defesa só com a permissão; Cultura e Extensão e Concurso vêm ligados para
+/// todos (o SAD pode tirar, ex.: de quem só cuida das defesas). Reunião não tem
+/// permissão: todos pedem. O SAD concede e retira na tela Pessoas.
 enum Permission {
   REQUEST_UNDERGRADUATE // pedir reservas de Graduação
   REQUEST_GRADUATE // pedir reservas de Pós-Graduação
   REQUEST_DEFENSE // pedir reservas de Defesa/Dissertação
+  REQUEST_CULTURE_EXTENSION // pedir reservas de Cultura e Extensão (padrão)
+  REQUEST_PUBLIC_EXAM // pedir reservas de Concurso (padrão)
 
   @@map("permission")
 }
@@ -98,7 +101,7 @@ model User {
   name      String
   email     String   @unique // sempre minúsculo; domínio validado no app e no banco
   role        UserRole     @default(USER)
-  permissions Permission[] @default([])
+  permissions Permission[] @default([REQUEST_CULTURE_EXTENSION, REQUEST_PUBLIC_EXAM])
   icalToken   String?      @unique @map("ical_token") // segredo do feed .ics; gerado sob demanda
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 

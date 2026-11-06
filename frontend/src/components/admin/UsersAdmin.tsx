@@ -3,6 +3,8 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import {
+  DEFAULT_PERMISSIONS,
+  permissionChanges,
   PERMISSION_LABELS,
   PERMISSIONS,
   ROLE_DESCRIPTIONS,
@@ -36,6 +38,8 @@ const PERMISSION_HINTS: Record<Permission, string> = {
   REQUEST_UNDERGRADUATE: "Aulas, provas e reposições da Graduação (ex.: Serviço de Graduação, docentes).",
   REQUEST_GRADUATE: "Disciplinas da Pós-Graduação (ex.: Serviço de Pós-Graduação, docentes).",
   REQUEST_DEFENSE: "Defesas de mestrado e doutorado (ex.: Serviço de Pós-Graduação).",
+  REQUEST_CULTURE_EXTENSION: "Eventos, cursos e palestras fora do currículo. Todo cadastro já vem com esta.",
+  REQUEST_PUBLIC_EXAM: "Concursos e processos seletivos. Todo cadastro já vem com esta.",
 };
 
 /** Papel e permissões, iguais no cadastro e na edição. */
@@ -85,7 +89,7 @@ function AccessFields({
         <p className="text-sm text-muted">
           {role === "ADMIN"
             ? "O SAD já reserva qualquer tipo de atividade."
-            : "Graduação, Pós-Graduação e Defesa só são pedidas por quem tem a permissão. Os outros tipos ficam abertos a todos."}
+            : "Graduação, Pós-Graduação e Defesa só com a permissão. Cultura e Extensão e Concurso todo cadastro já tem, e dá para tirar. Reunião todos podem pedir."}
         </p>
         {PERMISSIONS.map((p) => (
           <Switch
@@ -98,6 +102,27 @@ function AccessFields({
           />
         ))}
       </fieldset>
+    </div>
+  );
+}
+
+/** Só o que foge do padrão: o que o SAD concedeu e o que tirou (o SAD já pede tudo). */
+function PermissionBadges({ person }: { person: Person }) {
+  if (person.role === "ADMIN") return null;
+  const { granted, removed } = permissionChanges(person.permissions);
+  if (granted.length + removed.length === 0) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1.5">
+      {granted.map((x) => (
+        <Badge key={x} tone="success">
+          {PERMISSION_LABELS[x]}
+        </Badge>
+      ))}
+      {removed.map((x) => (
+        <Badge key={x} tone="neutral">
+          Sem {PERMISSION_LABELS[x].replace(/^Pedir /, "")}
+        </Badge>
+      ))}
     </div>
   );
 }
@@ -157,7 +182,7 @@ function NewPersonDialog({ onClose, onCreated }: { onClose: () => void; onCreate
   const [email, setEmail] = useState("");
   const [uspNumber, setUspNumber] = useState("");
   const [role, setRole] = useState<UserRole>("USER");
-  const [permissions, setPermissions] = useState<Permission[]>([]);
+  const [permissions, setPermissions] = useState<Permission[]>(DEFAULT_PERMISSIONS);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -268,7 +293,7 @@ export function UsersAdmin() {
     <div className="space-y-6">
       <PageHeader
         title="Pessoas"
-        description="Papel e permissões de cada pessoa. Graduação, Pós-Graduação e Defesa só são pedidas por quem tem a permissão."
+        description="Papel e o que cada pessoa pode pedir. Na lista aparece só o que foge do padrão (Cultura e Extensão, Concurso e Reunião)."
         actions={
           <Button icon={UserPlusIcon} onClick={() => setCreating(true)}>
             Cadastrar pessoa
@@ -326,15 +351,7 @@ export function UsersAdmin() {
                     <Badge tone={ROLE_TONES[p.role]}>{ROLE_LABELS[p.role]}</Badge>
                   </div>
                   <p className="truncate text-sm text-muted">{p.email}</p>
-                  {p.permissions.length > 0 && (
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {PERMISSIONS.filter((x) => p.permissions.includes(x)).map((x) => (
-                        <Badge key={x} tone="success">
-                          {PERMISSION_LABELS[x]}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
+                  <PermissionBadges person={p} />
                 </div>
                 <Button variant="secondary" size="sm" icon={PencilSimpleLineIcon} onClick={() => setEditing(p)} className="ml-auto">
                   Editar acesso

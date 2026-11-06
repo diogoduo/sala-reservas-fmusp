@@ -22,6 +22,7 @@ import { PrismaClient, type ActivityType, type Prisma, type ReservationStatus, t
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
+import { DEFAULT_PERMISSIONS, sortPermissions } from "../src/auth/permissions";
 import { holidayName, weekdayOf } from "../src/lib/calendar";
 import { renderPhotoVersions } from "../src/photos/storage";
 import { PALETTES, roomIllustration, VIEWS } from "./demo/illustrations";
@@ -231,15 +232,16 @@ const NOTEBOOKS: { model: string; location: "SAD" | "NIT"; notes?: string }[] = 
 ];
 
 // Contas da tela de login (Mock USP) — as mesmas de prisma/seed.ts, uma de cada perfil.
+// Sueli e Juliana pedem só os tipos delas e Reunião (sem Cultura e Extensão e Concurso).
 const DEV_USERS: { uspNumber: string; name: string; email: string; role: UserRole; permissions: Permission[] }[] = [
-  { uspNumber: "1000001", name: "SAD — Serviço de Apoio Didático", email: "admin@fm.usp.br", role: "ADMIN", permissions: [] },
-  { uspNumber: "1000002", name: "Aluno Teste", email: "aluno@usp.br", role: "USER", permissions: [] },
-  { uspNumber: "1000003", name: "Docente Teste", email: "docente@fm.usp.br", role: "USER", permissions: ["REQUEST_UNDERGRADUATE", "REQUEST_GRADUATE"] },
-  { uspNumber: "1000004", name: "Funcionário HC Teste", email: "funcionario@hc.fm.usp.br", role: "USER", permissions: [] },
+  { uspNumber: "1000001", name: "SAD — Serviço de Apoio Didático", email: "admin@fm.usp.br", role: "ADMIN", permissions: DEFAULT_PERMISSIONS },
+  { uspNumber: "1000002", name: "Aluno Teste", email: "aluno@usp.br", role: "USER", permissions: DEFAULT_PERMISSIONS },
+  { uspNumber: "1000003", name: "Docente Teste", email: "docente@fm.usp.br", role: "USER", permissions: [...DEFAULT_PERMISSIONS, "REQUEST_UNDERGRADUATE", "REQUEST_GRADUATE"] },
+  { uspNumber: "1000004", name: "Funcionário HC Teste", email: "funcionario@hc.fm.usp.br", role: "USER", permissions: DEFAULT_PERMISSIONS },
   { uspNumber: "1000005", name: "Sueli — Pós-Graduação (demo)", email: "sueli.demo@fm.usp.br", role: "USER", permissions: ["REQUEST_DEFENSE", "REQUEST_GRADUATE"] },
   { uspNumber: "1000006", name: "Juliana — Graduação (demo)", email: "juliana.demo@fm.usp.br", role: "USER", permissions: ["REQUEST_GRADUATE", "REQUEST_UNDERGRADUATE"] },
-  { uspNumber: "1000007", name: "Vanessa — NUCEV (demo)", email: "vanessa.demo@fm.usp.br", role: "NUCEV", permissions: [] },
-  { uspNumber: "1000008", name: "Maria — NUCEV (demo)", email: "maria.demo@fm.usp.br", role: "NUCEV", permissions: [] },
+  { uspNumber: "1000007", name: "Vanessa — NUCEV (demo)", email: "vanessa.demo@fm.usp.br", role: "NUCEV", permissions: DEFAULT_PERMISSIONS },
+  { uspNumber: "1000008", name: "Maria — NUCEV (demo)", email: "maria.demo@fm.usp.br", role: "NUCEV", permissions: DEFAULT_PERMISSIONS },
 ];
 
 // Pessoas fictícias (".demo" no e-mail para não coincidir com caixas reais).
@@ -452,7 +454,8 @@ async function main() {
   // Pessoas
   const userId = new Map<string, string>();
   for (const u of DEV_USERS) {
-    const row = await prisma.user.upsert({ where: { email: u.email }, update: { name: u.name, role: u.role, permissions: u.permissions }, create: u });
+    const permissions = sortPermissions(u.permissions);
+    const row = await prisma.user.upsert({ where: { email: u.email }, update: { name: u.name, role: u.role, permissions }, create: { ...u, permissions } });
     userId.set(u.email, row.id);
   }
   for (const [key, p] of Object.entries(PEOPLE)) {
@@ -745,7 +748,8 @@ async function main() {
   }
 
   // Fase 9: Graduação, Pós e Defesa são exclusivos de quem tem permissão. Quem
-  // pediu esses tipos nesta base recebe a permissão correspondente.
+  // pediu esses tipos nesta base recebe a permissão correspondente (Cultura e
+  // Extensão e Concurso já vêm no padrão de todo cadastro).
   const restricted: Record<string, Permission> = { UNDERGRADUATE: "REQUEST_UNDERGRADUATE", GRADUATE: "REQUEST_GRADUATE", DEFENSE: "REQUEST_DEFENSE" };
   const asked = await prisma.reservation.findMany({
     where: { activityType: { in: ["UNDERGRADUATE", "GRADUATE", "DEFENSE"] }, user: { role: "USER" } },
@@ -756,7 +760,7 @@ async function main() {
   for (const a of asked) grants.set(a.userId, (grants.get(a.userId) ?? new Set()).add(restricted[a.activityType!]!));
   for (const [id, perms] of grants) {
     const user = await prisma.user.findUniqueOrThrow({ where: { id }, select: { permissions: true } });
-    await prisma.user.update({ where: { id }, data: { permissions: [...new Set([...user.permissions, ...perms])].sort() } });
+    await prisma.user.update({ where: { id }, data: { permissions: sortPermissions([...user.permissions, ...perms]) } });
   }
 
   // Resumo, com o que a apresentação precisa ver no futuro.

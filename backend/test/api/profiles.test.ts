@@ -4,7 +4,16 @@ import { createApp } from "../../src/app";
 import { prisma } from "../../src/lib/prisma";
 import { zonedDateKey } from "../../src/lib/timezone";
 import { upcoming } from "../dates";
-import { createPendingReservation, createRoom, createUser, loginAs, resetDatabase, undergraduateRequest } from "./helpers";
+import {
+  createPendingReservation,
+  createRoom,
+  createUser,
+  loginAs,
+  meetingRequest,
+  publicExamRequest,
+  resetDatabase,
+  undergraduateRequest,
+} from "./helpers";
 
 const app = createApp();
 let room: Room;
@@ -17,6 +26,7 @@ beforeAll(async () => {
   aluno = await createUser("aluno@usp.br");
   admin = await createUser("admin@fm.usp.br", "ADMIN");
   await createUser("juliana@fm.usp.br", "USER", ["REQUEST_UNDERGRADUATE", "REQUEST_GRADUATE"]);
+  await createUser("sueli@fm.usp.br", "USER", ["REQUEST_DEFENSE", "REQUEST_GRADUATE"]);
   await createUser("vanessa@fm.usp.br", "NUCEV");
   await createUser("outra@fm.usp.br");
   room = await createRoom("Sala 101");
@@ -42,21 +52,37 @@ describe("Graduação, Pós e Defesa são exclusivos de quem tem permissão", ()
     await juliana.post("/api/reservations").send(aula("Anatomia")).expect(201);
   });
 
+  it("Cultura e Extensão e Concurso vêm no padrão, e o SAD pode tirar; Reunião é de todos", async () => {
+    const start = upcoming(3, 10, "14:00");
+    const end = new Date(start.getTime() + 2 * 3_600_000);
+    // Quem entra pela primeira vez já pede Concurso.
+    const novo = await loginAs(app, "novo@fm.usp.br");
+    expect((await novo.get("/api/auth/me").expect(200)).body.user.permissions).toEqual(["REQUEST_CULTURE_EXTENSION", "REQUEST_PUBLIC_EXAM"]);
+    await novo.post("/api/reservations").send(publicExamRequest("Concurso de docente", start, end)).expect(201);
+
+    // Sueli só tem Defesa e Pós: Concurso é recusado, Reunião entra.
+    const sueli = await loginAs(app, "sueli@fm.usp.br");
+    const res = await sueli.post("/api/reservations").send(publicExamRequest("Concurso", start, end)).expect(403);
+    expect(res.body.error.message).toContain("Concurso");
+    await sueli.post("/api/reservations").send(meetingRequest("Reunião da CPG", start, end)).expect(201);
+  });
+
   it("a permissão dada pelo SAD vale na hora, sem novo login, e fica no histórico", async () => {
     const agent = await loginAs(app, "aluno@usp.br");
     await agent.post("/api/reservations").send(aula("Fisiologia")).expect(403);
 
     const sad = await loginAs(app, "admin@fm.usp.br");
-    const res = await sad.patch(`/api/admin/users/${aluno.id}`).send({ permissions: ["REQUEST_UNDERGRADUATE"] }).expect(200);
-    expect(res.body.user.permissions).toEqual(["REQUEST_UNDERGRADUATE"]);
+    const granted = ["REQUEST_CULTURE_EXTENSION", "REQUEST_PUBLIC_EXAM", "REQUEST_UNDERGRADUATE"];
+    const res = await sad.patch(`/api/admin/users/${aluno.id}`).send({ permissions: ["REQUEST_UNDERGRADUATE", "REQUEST_CULTURE_EXTENSION", "REQUEST_PUBLIC_EXAM"] }).expect(200);
+    expect(res.body.user.permissions).toEqual(granted);
     await agent.post("/api/reservations").send(aula("Fisiologia")).expect(201);
 
     const [entry] = await prisma.auditLog.findMany({ where: { action: "user.update", entityId: aluno.id } });
     expect(entry).toMatchObject({ actorId: admin.id });
-    expect(entry!.changes).toEqual({ permissions: { from: [], to: ["REQUEST_UNDERGRADUATE"] } });
+    expect(entry!.changes).toEqual({ permissions: { from: ["REQUEST_CULTURE_EXTENSION", "REQUEST_PUBLIC_EXAM"], to: granted } });
 
     // Tirar a permissão também vale na hora.
-    await sad.patch(`/api/admin/users/${aluno.id}`).send({ permissions: [] }).expect(200);
+    await sad.patch(`/api/admin/users/${aluno.id}`).send({ permissions: ["REQUEST_CULTURE_EXTENSION", "REQUEST_PUBLIC_EXAM"] }).expect(200);
     await agent.post("/api/reservations").send(aula("Bioquímica")).expect(403);
   });
 });
@@ -105,20 +131,24 @@ describe("Pessoas (SAD)", () => {
     const sad = await loginAs(app, "admin@fm.usp.br");
     const body = { name: "Maria NUCEV", email: "Maria.Nova@fm.usp.br", role: "NUCEV" };
     const created = await sad.post("/api/admin/users").send(body).expect(201);
-    expect(created.body.user).toMatchObject({ email: "maria.nova@fm.usp.br", role: "NUCEV", permissions: [] });
+    expect(created.body.user).toMatchObject({
+      email: "maria.nova@fm.usp.br",
+      role: "NUCEV",
+      permissions: ["REQUEST_CULTURE_EXTENSION", "REQUEST_PUBLIC_EXAM"],
+    });
     expect((await sad.post("/api/admin/users").send(body).expect(409)).body.error.code).toBe("USER_EXISTS");
     const foreign = await sad.post("/api/admin/users").send({ ...body, email: "maria@gmail.com" }).expect(403);
     expect(foreign.body.error.code).toBe("EMAIL_DOMAIN_NOT_ALLOWED");
 
     const maria = await loginAs(app, "maria.nova@fm.usp.br");
     const me = await maria.get("/api/auth/me").expect(200);
-    expect(me.body.user).toMatchObject({ role: "NUCEV", permissions: [] });
+    expect(me.body.user).toMatchObject({ role: "NUCEV", permissions: ["REQUEST_CULTURE_EXTENSION", "REQUEST_PUBLIC_EXAM"] });
   });
 
   it("lista com busca e filtro por permissão", async () => {
     const sad = await loginAs(app, "admin@fm.usp.br");
     const res = await sad.get("/api/admin/users?permission=REQUEST_GRADUATE").expect(200);
-    expect(res.body.users.map((u: { email: string }) => u.email)).toEqual(["juliana@fm.usp.br"]);
+    expect(res.body.users.map((u: { email: string }) => u.email)).toEqual(["juliana@fm.usp.br", "sueli@fm.usp.br"]);
     const search = await sad.get("/api/admin/users?q=vanessa").expect(200);
     expect(search.body.users).toHaveLength(1);
   });
