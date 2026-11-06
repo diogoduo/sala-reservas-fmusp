@@ -35,6 +35,8 @@ const roomFields = z.object({
   recommendedAbove: z.number().int().positive("A indicação de público deve ser maior que zero.").nullish().transform((v) => v ?? null),
   requiresBoardApproval: z.boolean().default(false),
   usageRules: z.string().trim().max(2000).nullish().transform((v) => v || null),
+  // Categoria de preço (Portaria 2794). null = a definir; ausente na criação = pelo tipo.
+  priceCategoryId: z.string().uuid("Categoria de preço inválida.").nullish(),
   // ids de resources + quantidade; substitui totalmente o vínculo atual da sala
   resources: z.array(resourceAssignmentSchema).max(100).default([]),
 });

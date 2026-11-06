@@ -31,6 +31,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
 import { DEFAULT_PERMISSIONS, sortPermissions } from "../src/auth/permissions";
+import { defaultPriceCategoryId } from "../src/prices/catalog";
 import { holidayName, weekdayOf } from "../src/lib/calendar";
 import { renderPhotoVersions } from "../src/photos/storage";
 import { PALETTES, roomIllustration, VIEWS } from "./demo/illustrations";
@@ -537,6 +538,7 @@ async function main() {
         name: room.name, building: room.building, floor: room.floor, capacity: room.capacity, roomType: room.roomType, status: room.status ?? "ACTIVE",
         seatTypes: room.seatTypes, dimensions: room.dimensions, extraSeats: room.extraSeats ?? null, wideDoor: room.wideDoor ?? false,
         specialNeeds: room.specialNeeds ?? false, equipmentNotes: room.equipmentNotes ?? null,
+        priceCategoryId: await defaultPriceCategoryId(prisma, room),
         resources: {
           create: equipment.map(([name, quantity, model]) => ({
             resourceId: resourceId.get(name)!,

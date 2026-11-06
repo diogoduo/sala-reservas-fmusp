@@ -40,9 +40,15 @@ export type AuditAction =
   | "user.create"
   | "user.update"
   | "sanction.create"
-  | "sanction.lift";
+  | "sanction.lift"
+  // Preços (Portaria 2794): tabelas com vigência e categorias
+  | "price.table_create"
+  | "price.table_update"
+  | "price.table_delete"
+  | "price.category_create"
+  | "price.category_update";
 
-export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user";
+export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user" | "price";
 
 /** Quem fez a ação. `null` = o próprio sistema. */
 export type AuditActor = { id: string; name: string } | null;

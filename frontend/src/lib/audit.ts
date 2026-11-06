@@ -3,6 +3,7 @@ import {
   CalendarPlusIcon,
   CheckCircleIcon,
   ClockCounterClockwiseIcon,
+  CurrencyCircleDollarIcon,
   DoorOpenIcon,
   FilePdfIcon,
   GavelIcon,
@@ -55,6 +56,7 @@ export const AUDIT_ENTITY_LABELS: Record<AuditEntityType, string> = {
   regulation: "Regulamento",
   notebook: "Notebooks",
   sanction: "Sanções",
+  price: "Preços",
 };
 
 interface ActionMeta {
@@ -94,6 +96,11 @@ const ACTIONS: Record<string, ActionMeta> = {
   "user.update": { label: "Acesso alterado", tone: "info", icon: IdentificationBadgeIcon },
   "sanction.create": { label: "Sanção aplicada", tone: "danger", icon: GavelIcon },
   "sanction.lift": { label: "Suspensão retirada", tone: "success", icon: LockOpenIcon },
+  "price.table_create": { label: "Tabela de preços criada (reajuste)", tone: "success", icon: CurrencyCircleDollarIcon },
+  "price.table_update": { label: "Preços alterados", tone: "info", icon: CurrencyCircleDollarIcon },
+  "price.table_delete": { label: "Tabela de preços excluída", tone: "danger", icon: TrashIcon },
+  "price.category_create": { label: "Categoria de preço criada", tone: "success", icon: CurrencyCircleDollarIcon },
+  "price.category_update": { label: "Categoria de preço alterada", tone: "info", icon: CurrencyCircleDollarIcon },
 };
 
 export function auditActionMeta(action: string): ActionMeta {
@@ -127,6 +134,15 @@ const FIELD_LABELS: Record<string, string> = {
   recommendedAbove: "Indicado acima de (pessoas)",
   requiresBoardApproval: "Exige autorização da Diretoria",
   usageRules: "Regras de uso",
+  priceCategory: "Categoria de preço",
+  validFrom: "Vale a partir de",
+  minimumHours: "Cobrança mínima (horas)",
+  prepHoursBefore: "Preparação antes (horas)",
+  prepHoursAfter: "Preparação depois (horas)",
+  coffeeSurchargePercent: "Adicional de coffee (%)",
+  institutionalDiscountPercent: "Desconto institucional (%)",
+  unit: "Cobrança",
+  didactic: "Espaço didático",
   caption: "Legenda",
   description: "Descrição",
   requestsQuantity: "Pede quantidade",
@@ -178,6 +194,10 @@ export function formatAuditValue(entityType: AuditEntityType, field: string, val
     case "startTime":
     case "endTime":
       return dateTime(String(value));
+    case "validFrom":
+      return String(value).split("-").reverse().join("/");
+    case "unit":
+      return value === "HOUR" ? "por hora" : value === "DAY" ? "por dia" : String(value);
     case "setupMinutes":
       return Number(value) === 0 ? "sem montagem" : formatMinutes(Number(value));
     default:
@@ -242,6 +262,9 @@ export function auditDetailLines(entry: AuditEntry): string[] {
     lines.push([`Papel: ${ROLE_LABELS[d.role as UserRole] ?? String(d.role)}`, perms.length ? perms.join(", ") : null].filter(Boolean).join(" · "));
   }
   if (entry.action === "regulation.update" && d.bodyChanged) lines.push("Texto do regulamento alterado");
+  if (entry.action === "price.table_create" && typeof d.validFrom === "string") {
+    lines.push(`Vale a partir de ${d.validFrom.split("-").reverse().join("/")}${typeof d.copiedFrom === "string" ? ` · copiada de ${d.copiedFrom}` : ""}`);
+  }
   if (entry.entityType === "room" && typeof d.caption === "string") lines.push(`Legenda: ${d.caption}`);
   if ((entry.action === "room.create" || entry.action === "room.delete") && typeof d.capacity === "number") {
     lines.push(`Capacidade: ${plural(d.capacity, "lugar", "lugares")}`);

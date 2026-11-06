@@ -923,6 +923,48 @@ formulário de evento e o orçamento vão usar.
   vivência/terraço da Portaria 2794. O pedido automático de autorização à
   Diretoria (e-mail e acompanhamento) entra com o módulo de Eventos.
 
+
+### Preços (Portaria 2794)
+
+Tabela de preços com **vigência**: o reajuste anual é uma tabela nova, a partir
+de uma data, e a anterior continua guardada (o orçamento usa a tabela que vale
+na data do evento). Migration `price_tables`, que já carrega a Portaria 2794
+(02/06/2026) e liga cada espaço à sua categoria.
+
+| Categoria | Valor |
+|---|---|
+| Teatro da FMUSP | R$ 625,00/hora |
+| Anfiteatros | R$ 375,00/hora |
+| Salas de aula e salas de reunião (inclui informática, Congregação e CTA) | R$ 125,00/hora |
+| Átrio (por átrio) | R$ 1.500,00/hora |
+| Área de vivência / terraço – 5º andar | R$ 1.200,00/hora |
+| Foyer do Teatro (o "Hall do Teatro") | R$ 500,00/dia |
+| Hall de transição – 4º andar | R$ 500,00/dia |
+| Copa – 5º andar | R$ 450,00/dia |
+| Copa do Teatro | R$ 300,00/dia |
+| Hall do NINA · Área de coffee do 5º andar | a definir |
+
+- **Regras da tabela** (também com vigência): cobrança mínima de 2 h e +1 h
+  antes e +1 h depois em cada dia, nos espaços didáticos (Art. 2º); coffee
+  break em sala de aula +20% (Art. 5º §2º); desconto institucional de 25%,
+  não cumulativo (Art. 4º III). Pernoite não é cobrado (Art. 3º §2º).
+  ⚠️ Isenções (Art. 4º I e II): regra a definir.
+- **Modelo:** `price_categories` (o que se cobra: unidade por hora ou por
+  dia, espaço didático ou não), `price_tables` (vigência e regras) e
+  `price_entries` (valor em centavos; nulo = a definir). Cada espaço aponta
+  para uma categoria (`rooms.price_category_id`); espaço novo recebe a
+  categoria pelo tipo (ou, nas áreas de apoio, pelo nome), no cadastro, no
+  import e na base de demonstração.
+- **Tela Preços** (`/admin/precos`): o SAD edita os valores e as regras e
+  cria a tabela do reajuste (copiada da atual); uma tabela futura pode ser
+  excluída, a que já vale não. O NUCEV só consulta. Toda mudança vai para o
+  Histórico, com o valor antes e depois.
+- **Na sala:** todos veem "Locação para eventos" com o valor vigente; no
+  formulário da sala, o SAD escolhe a categoria.
+- API: `GET /api/prices`, `PATCH /api/prices/tables/:id`,
+  `POST /api/prices/tables { copyFromId, name, validFrom }`,
+  `DELETE /api/prices/tables/:id` (só futura), `POST/PATCH /api/prices/categories`.
+
 ## Interface
 
 Redesign completo do front-end, responsivo do celular ao computador, com tema

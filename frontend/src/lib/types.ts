@@ -110,6 +110,10 @@ export interface Room {
   requiresBoardApproval: boolean;
   /** Regras e condições de uso, para quem consulta o espaço. */
   usageRules: string | null;
+  /** Categoria de preço (Portaria 2794); null = valor a definir. */
+  priceCategoryId: string | null;
+  /** Valor de locação para eventos na tabela vigente; null = sem categoria (a definir). */
+  price: RoomPrice | null;
   resources: RoomResourceLink[];
   /** Na ordem da galeria; a primeira é a capa. */
   photos: RoomPhoto[];
@@ -310,7 +314,53 @@ export interface RegulationFile {
 // Histórico geral (Fase 9)
 // ---------------------------------------------------------------------------
 
-export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user";
+export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user" | "price";
+
+// --- Preços (Fase 9, bloco 4 — Portaria 2794) --------------------------------
+
+export type PriceUnit = "HOUR" | "DAY";
+
+export interface RoomPrice {
+  categoryId: string;
+  categoryName: string;
+  unit: PriceUnit;
+  /** Espaço didático: valem a cobrança mínima e as horas de preparação. */
+  didactic: boolean;
+  /** Em centavos; null = a definir. */
+  amountCents: number | null;
+  tableName: string | null;
+  /** "AAAA-MM-DD" */
+  validFrom: string | null;
+}
+
+export interface PriceCategory {
+  id: string;
+  name: string;
+  unit: PriceUnit;
+  didactic: boolean;
+  position: number;
+  rooms: { id: string; name: string; building: string; floor: string; status: RoomStatus }[];
+}
+
+export interface PriceTable {
+  id: string;
+  name: string;
+  /** "AAAA-MM-DD" */
+  validFrom: string;
+  minimumHours: number;
+  prepHoursBefore: number;
+  prepHoursAfter: number;
+  coffeeSurchargePercent: number;
+  institutionalDiscountPercent: number;
+  notes: string | null;
+  entries: { categoryId: string; amountCents: number | null }[];
+}
+
+export interface PricesResponse {
+  categories: PriceCategory[];
+  tables: PriceTable[];
+  currentTableId: string | null;
+}
 
 export interface AuditEntry {
   id: string;

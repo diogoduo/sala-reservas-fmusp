@@ -1,4 +1,5 @@
 import {
+  CurrencyCircleDollarIcon,
   CalendarCheckIcon,
   CalendarDotsIcon,
   CalendarPlusIcon,
@@ -105,6 +106,7 @@ export function AppShell() {
         { to: "/admin/salas-livres", label: "Salas livres", shortLabel: "Livres", icon: MagnifyingGlassIcon },
         { to: "/admin/salas", label: "Salas", shortLabel: "Salas", icon: DoorOpenIcon },
         { to: "/admin/recursos", label: "Recursos", shortLabel: "Recursos", icon: WrenchIcon },
+        { to: "/admin/precos", label: "Preços", shortLabel: "Preços", icon: CurrencyCircleDollarIcon },
         { to: "/admin/regulamento", label: "Regulamento", shortLabel: "Regras", icon: ScrollIcon },
         { to: "/admin/pessoas", label: "Pessoas", shortLabel: "Pessoas", icon: UsersThreeIcon },
         { to: "/admin/historico", label: "Histórico", shortLabel: "Histórico", icon: ClockCounterClockwiseIcon },
@@ -115,6 +117,7 @@ export function AppShell() {
           { to: "/admin/solicitacoes", label: "Solicitações", shortLabel: "Pedidos", icon: TrayIcon, badge: pendingCount },
           { to: "/admin/salas-livres", label: "Salas livres", shortLabel: "Livres", icon: MagnifyingGlassIcon },
           { to: "/salas", label: "Consultar salas", shortLabel: "Salas", icon: DoorOpenIcon },
+          { to: "/admin/precos", label: "Preços", shortLabel: "Preços", icon: CurrencyCircleDollarIcon },
           { to: "/admin/historico", label: "Histórico", shortLabel: "Histórico", icon: ClockCounterClockwiseIcon },
           { to: "/regulamento", label: "Regulamento", shortLabel: "Regras", icon: ScrollIcon },
         ]

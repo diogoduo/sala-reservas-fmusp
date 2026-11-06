@@ -9,6 +9,7 @@
  * regras que o próprio documento lista.
  */
 import { Prisma, PrismaClient, RoomType } from "@prisma/client";
+import { defaultPriceCategoryId } from "../src/prices/catalog";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -64,6 +65,7 @@ export async function createMissingSupportAreas(db: Db): Promise<number> {
         recommendedAbove: area.recommendedAbove ?? null,
         requiresBoardApproval: area.requiresBoardApproval ?? false,
         usageRules: area.usageRules ?? null,
+        priceCategoryId: await defaultPriceCategoryId(db, { roomType: RoomType.SUPPORT_AREA, name: area.name }),
       },
     });
     created++;

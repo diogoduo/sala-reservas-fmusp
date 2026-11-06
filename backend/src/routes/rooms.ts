@@ -9,6 +9,7 @@ import { prisma } from "../lib/prisma";
 import { isStaff, requireAdmin, requireAuth } from "../middleware/auth";
 import { roomPhotosInclude } from "../photos/include";
 import { renderPhotoVersions } from "../photos/storage";
+import { defaultPriceCategoryId, priceTableOn, roomPrice, type PriceTableWithEntries } from "../prices/catalog";
 import { parseRequestedResources } from "../reservations/requested-resources";
 import { CAPACITY_REQUIRED_MESSAGE, createRoomSchema, needsCapacity, photoCaptionSchema, photoOrderSchema, updateRoomSchema } from "../schemas/room";
 
@@ -19,6 +20,7 @@ roomsRouter.param("photoId", uuidParam("PHOTO_NOT_FOUND", "Foto não encontrada.
 const roomInclude = {
   resources: { include: { resource: true }, orderBy: { resource: { name: "asc" } } },
   photos: roomPhotosInclude,
+  priceCategory: { select: { id: true, name: true, unit: true, didactic: true } },
 } satisfies Prisma.RoomInclude;
 
 type RoomWithResources = Prisma.RoomGetPayload<{ include: typeof roomInclude }>;
@@ -43,6 +45,7 @@ function roomSnapshot(room: RoomWithResources) {
     recommendedAbove: room.recommendedAbove,
     requiresBoardApproval: room.requiresBoardApproval,
     usageRules: room.usageRules,
+    priceCategory: room.priceCategory?.name ?? null,
     resources: room.resources
       .map((r) => `${r.resource.name} ×${r.quantity}${r.model ? ` (${r.model})` : ""}${r.assetTags ? ` [${r.assetTags}]` : ""}`)
       .sort((a, b) => a.localeCompare(b, "pt-BR")),
@@ -55,11 +58,14 @@ function roomSnapshot(room: RoomWithResources) {
  * cadeiras extras (professor, rodinha…) também ficam de fora: não contam como
  * lugar e não pode haver cadeira sobressalente (Portaria 2793, Art. 5º §2º).
  */
-function forViewer(room: RoomWithResources, role: UserRole | undefined) {
-  if (isStaff(role)) return room;
+function forViewer(room: RoomWithResources, role: UserRole | undefined, prices: PriceTableWithEntries | null) {
+  // Valor de locação para eventos na tabela vigente (Portaria 2794): todos veem.
+  const price = roomPrice(room, prices);
+  if (isStaff(role)) return { ...room, price };
   const { equipmentNotes: _notes, extraSeats: _extra, ...publicRoom } = room;
   return {
     ...publicRoom,
+    price,
     resources: room.resources.map(({ model: _model, assetTags: _tags, ...link }) => link),
   };
 }
@@ -90,7 +96,8 @@ roomsRouter.get(
       orderBy: [{ building: "asc" }, { floor: "asc" }, { name: "asc" }],
     });
 
-    res.json({ rooms: rooms.map((room) => forViewer(room, req.user?.role)) });
+    const prices = await priceTableOn(prisma);
+    res.json({ rooms: rooms.map((room) => forViewer(room, req.user?.role, prices)) });
   }),
 );
 
@@ -100,7 +107,7 @@ roomsRouter.get(
   asyncHandler(async (req, res) => {
     const room = await prisma.room.findUnique({ where: { id: req.params.id }, include: roomInclude });
     if (!room) throw new AppError(404, "ROOM_NOT_FOUND", "Sala não encontrada.");
-    res.json({ room: forViewer(room, req.user?.role) });
+    res.json({ room: forViewer(room, req.user?.role, await priceTableOn(prisma)) });
   }),
 );
 
@@ -186,6 +193,7 @@ roomsRouter.post(
   requireAdmin,
   asyncHandler(async (req, res) => {
     const input = createRoomSchema.parse(req.body);
+    if (input.priceCategoryId) await assertPriceCategory(input.priceCategoryId);
 
     const room = await prisma.$transaction(async (tx) => {
       let created;
@@ -210,6 +218,8 @@ roomsRouter.post(
             recommendedAbove: input.recommendedAbove,
             requiresBoardApproval: input.requiresBoardApproval,
             usageRules: input.usageRules,
+            // Sem escolha, a categoria vem do tipo do espaço (Teatro, anfiteatro, sala…).
+            priceCategoryId: input.priceCategoryId !== undefined ? input.priceCategoryId : await defaultPriceCategoryId(tx, input),
           },
         });
       } catch (error) {
@@ -237,7 +247,7 @@ roomsRouter.post(
       return room;
     });
 
-    res.status(201).json({ room });
+    res.status(201).json({ room: forViewer(room, req.user?.role, await priceTableOn(prisma)) });
   }),
 );
 
@@ -248,6 +258,7 @@ roomsRouter.patch(
     const input = updateRoomSchema.parse(req.body);
     const { resources, ...fields } = input;
     const roomId = req.params.id!;
+    if (fields.priceCategoryId) await assertPriceCategory(fields.priceCategoryId);
 
     const exists = await prisma.room.findUnique({ where: { id: roomId }, select: { status: true, capacity: true, roomType: true, coffeeAllowed: true } });
     if (!exists) throw new AppError(404, "ROOM_NOT_FOUND", "Sala não encontrada.");
@@ -291,9 +302,15 @@ roomsRouter.patch(
       return after;
     });
 
-    res.json({ room });
+    res.json({ room: forViewer(room, req.user?.role, await priceTableOn(prisma)) });
   }),
 );
+
+async function assertPriceCategory(id: string) {
+  if (!(await prisma.priceCategory.findUnique({ where: { id }, select: { id: true } }))) {
+    throw new AppError(400, "PRICE_CATEGORY_NOT_FOUND", "Categoria de preço não encontrada.");
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Fotos (só Admin). As versões são servidas em /api/fotos/<id>-{thumb,large}.webp

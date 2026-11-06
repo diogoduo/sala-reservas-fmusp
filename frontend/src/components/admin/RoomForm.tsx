@@ -3,7 +3,8 @@ import { useId, useState } from "react";
 import { cn } from "../../lib/cn";
 import { resourceIcon } from "../../lib/icons";
 import { ROOM_STATUS_LABELS, ROOM_TYPE_LABELS, SEAT_TYPE_LABELS } from "../../lib/types";
-import type { Resource, Room, RoomStatus, RoomType, SeatType } from "../../lib/types";
+import { priceText } from "../../lib/prices";
+import type { PriceCategory, PriceTable, Resource, Room, RoomStatus, RoomType, SeatType } from "../../lib/types";
 import { Input, Select, Switch, Textarea } from "../ui/Field";
 import { QuantityStepper } from "../ui/QuantityStepper";
 import { RoomPhotosManager } from "./RoomPhotosManager";
@@ -28,6 +29,8 @@ export interface RoomFormValues {
   recommendedAbove: number | null;
   requiresBoardApproval: boolean;
   usageRules: string;
+  /** undefined = pelo tipo de espaço (só ao criar); null = a definir. */
+  priceCategoryId?: string | null;
   resources: { resourceId: string; quantity: number; model: string; assetTags: string }[];
 }
 
@@ -58,6 +61,7 @@ function fromRoom(room: Room | null): RoomFormValues {
       recommendedAbove: null,
       requiresBoardApproval: false,
       usageRules: "",
+      priceCategoryId: undefined,
       resources: [],
     };
   }
@@ -79,6 +83,7 @@ function fromRoom(room: Room | null): RoomFormValues {
     recommendedAbove: room.recommendedAbove,
     requiresBoardApproval: room.requiresBoardApproval,
     usageRules: room.usageRules ?? "",
+    priceCategoryId: room.priceCategoryId,
     resources: room.resources.map((r) => ({
       resourceId: r.resourceId,
       quantity: r.quantity,
@@ -92,6 +97,9 @@ interface Props {
   /** null = criando uma sala nova */
   room: Room | null;
   resources: Resource[];
+  /** Categorias de preço e a tabela vigente (Portaria 2794). */
+  priceCategories: PriceCategory[];
+  currentPrices: PriceTable | null;
   /** Prédios já cadastrados, sugeridos ao digitar. */
   buildings: string[];
   formId: string;
@@ -165,7 +173,7 @@ function EventFields({
 }
 
 /** Formulário de sala (fica dentro do painel lateral; os botões ficam no rodapé do painel). */
-export function RoomForm({ room, resources, buildings, formId, onSubmit, onPhotosChange }: Props) {
+export function RoomForm({ room, resources, priceCategories, currentPrices, buildings, formId, onSubmit, onPhotosChange }: Props) {
   const [values, setValues] = useState<RoomFormValues>(() => fromRoom(room));
   const datalistId = useId();
   const supportArea = values.roomType === "SUPPORT_AREA";
@@ -316,6 +324,25 @@ export function RoomForm({ room, resources, buildings, formId, onSubmit, onPhoto
       </section>
 
       <EventFields values={values} setValues={setValues} numberOrNull={numberOrNull} />
+
+      <section>
+        <Select
+          label="Preço de locação (Portaria 2794)"
+          value={values.priceCategoryId === undefined ? "__auto" : (values.priceCategoryId ?? "")}
+          onChange={(e) =>
+            setValues({ ...values, priceCategoryId: e.target.value === "__auto" ? undefined : e.target.value || null })
+          }
+          hint="O valor de cada categoria fica na tela Preços."
+        >
+          {!room && <option value="__auto">Pelo tipo de espaço</option>}
+          <option value="">A definir</option>
+          {priceCategories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name} — {priceText(currentPrices?.entries.find((e) => e.categoryId === c.id)?.amountCents ?? null, c.unit)}
+            </option>
+          ))}
+        </Select>
+      </section>
 
       {room ? (
         <RoomPhotosManager room={room} onChange={onPhotosChange} />

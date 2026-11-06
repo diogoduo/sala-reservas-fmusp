@@ -22,7 +22,7 @@ import { plural } from "../../lib/format";
 import { sortRooms } from "../../lib/rooms";
 import { useToast } from "../../lib/toast";
 import { ROOM_STATUS_LABELS, ROOM_TYPE_LABELS } from "../../lib/types";
-import type { Resource, Room, RoomStatus } from "../../lib/types";
+import type { PricesResponse, Resource, Room, RoomStatus } from "../../lib/types";
 import { RoomCover } from "../rooms/RoomPhotos";
 import { RoomResourceChips } from "../solicitante/RoomSearch";
 import { Badge, type Tone } from "../ui/Badge";
@@ -49,6 +49,7 @@ export function RoomsAdmin() {
   const confirm = useConfirm();
   const [rooms, setRooms] = useState<Room[] | null>(null);
   const [resources, setResources] = useState<Resource[]>([]);
+  const [prices, setPrices] = useState<PricesResponse | null>(null);
   const [filter, setFilter] = useState<Filter>("ALL");
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<Room | "new" | null>(null);
@@ -57,12 +58,14 @@ export function RoomsAdmin() {
 
   async function load() {
     try {
-      const [{ rooms: roomList }, { resources: resourceList }] = await Promise.all([
+      const [{ rooms: roomList }, { resources: resourceList }, priceList] = await Promise.all([
         api<{ rooms: Room[] }>("/rooms"),
         api<{ resources: Resource[] }>("/resources"),
+        api<PricesResponse>("/prices"),
       ]);
       setRooms(roomList);
       setResources(resourceList);
+      setPrices(priceList);
     } catch (e) {
       toast.error("Não foi possível carregar as salas.", e instanceof Error ? e.message : undefined);
       setRooms([]);
@@ -262,6 +265,8 @@ export function RoomsAdmin() {
           <RoomForm
             room={editingRoom}
             resources={resources}
+            priceCategories={prices?.categories ?? []}
+            currentPrices={prices?.tables.find((t) => t.id === prices.currentTableId) ?? null}
             buildings={buildings}
             formId={FORM_ID}
             onSubmit={(values) => void submit(values)}

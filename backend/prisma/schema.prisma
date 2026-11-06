@@ -160,8 +160,11 @@ model Room {
   requiresBoardApproval Boolean @default(false) @map("requires_board_approval")
   /// Regras e condições de uso, em texto, para quem consulta o espaço.
   usageRules            String? @map("usage_rules")
+  /// Categoria de preço (Portaria 2794). Nula = valor a definir.
+  priceCategoryId       String? @map("price_category_id") @db.Uuid
   createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
 
+  priceCategory PriceCategory? @relation(fields: [priceCategoryId], references: [id], onDelete: SetNull)
   resources    RoomResource[]
   photos       RoomPhoto[]
   reservations Reservation[]
@@ -171,6 +174,70 @@ model Room {
   @@unique([building, floor, name])
   @@index([status])
   @@map("rooms")
+}
+
+// ----------------------------------------------------------------------------
+// Preços (Fase 9, bloco 4 — Portaria 2794)
+// ----------------------------------------------------------------------------
+
+enum PriceUnit {
+  HOUR // por hora
+  DAY // por dia
+
+  @@map("price_unit")
+}
+
+/// O que se cobra: o Teatro, os anfiteatros, as salas de aula e de reunião e cada
+/// área de apoio. O espaço aponta para a categoria; o valor fica na tabela vigente.
+model PriceCategory {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String    @unique
+  unit      PriceUnit
+  /// Espaço didático (Art. 2º): valem a cobrança mínima e as horas de preparação.
+  didactic  Boolean   @default(false)
+  position  Int       @default(0)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  rooms   Room[]
+  entries PriceEntry[]
+
+  @@map("price_categories")
+}
+
+/// Tabela de preços com vigência. O reajuste anual é uma tabela nova, a partir de
+/// uma data; a anterior continua guardada (os orçamentos usam a da data do evento).
+model PriceTable {
+  id                           String   @id @default(uuid()) @db.Uuid
+  name                         String
+  validFrom                    DateTime @unique @map("valid_from") @db.Date
+  /// Art. 2º: cobrança mínima dos espaços didáticos, em horas.
+  minimumHours                 Int      @default(2) @map("minimum_hours")
+  /// Art. 2º §1º: horas de preparação antes e depois, em cada dia, nos espaços didáticos.
+  prepHoursBefore              Int      @default(1) @map("prep_hours_before")
+  prepHoursAfter               Int      @default(1) @map("prep_hours_after")
+  /// Art. 5º §2º: adicional nas salas de aula com coffee break.
+  coffeeSurchargePercent       Int      @default(20) @map("coffee_surcharge_percent")
+  /// Art. 4º III: desconto para FMUSP/HC, USP, SES e Instituto Adolfo Lutz.
+  institutionalDiscountPercent Int      @default(25) @map("institutional_discount_percent")
+  notes                        String?
+  createdAt                    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  entries PriceEntry[]
+
+  @@map("price_tables")
+}
+
+model PriceEntry {
+  tableId     String @map("table_id") @db.Uuid
+  categoryId  String @map("category_id") @db.Uuid
+  /// Em centavos. Nulo = a definir.
+  amountCents Int?   @map("amount_cents")
+
+  table    PriceTable    @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  category PriceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([tableId, categoryId])
+  @@map("price_entries")
 }
 
 model Resource {

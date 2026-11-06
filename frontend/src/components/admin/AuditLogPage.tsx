@@ -9,7 +9,7 @@ import { Input, Select } from "../ui/Field";
 import { Card, PageHeader } from "../ui/Surface";
 import { AuditEntryItem } from "./AuditTrail";
 
-const ENTITY_FILTERS: AuditEntityType[] = ["reservation", "room", "resource", "user", "regulation", "notebook"];
+const ENTITY_FILTERS: AuditEntityType[] = ["reservation", "room", "resource", "price", "user", "regulation", "notebook"];
 
 const dayKey = (iso: string) => new Date(iso).toLocaleDateString("en-CA");
 

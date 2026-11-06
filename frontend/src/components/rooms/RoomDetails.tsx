@@ -1,6 +1,7 @@
-import { ArmchairIcon, CoffeeIcon, RulerIcon, UsersFourIcon, UsersIcon, type Icon } from "@phosphor-icons/react";
+import { ArmchairIcon, CoffeeIcon, CurrencyCircleDollarIcon, RulerIcon, UsersFourIcon, UsersIcon, type Icon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { plural } from "../../lib/format";
+import { roomPriceText } from "../../lib/prices";
 import { coffeeLimit } from "../../lib/rooms";
 import { ROOM_TYPE_LABELS } from "../../lib/types";
 import type { Room } from "../../lib/types";
@@ -49,6 +50,9 @@ export function RoomDetailsDrawer({ room, onClose, initialDate }: { room: Room; 
               Mais de {room.recommendedAbove} pessoas
             </Fact>
           ) : null}
+          <Fact icon={CurrencyCircleDollarIcon} label="Locação para eventos">
+            {roomPriceText(room.price)}
+          </Fact>
           {coffee !== null && (
             <Fact icon={CoffeeIcon} label="Coffee break">
               {coffee === "sem limite" ? "Pode ter" : `Até ${coffee} pessoas`}

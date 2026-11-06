@@ -22,6 +22,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { NotebookLocation, PrismaClient, RoomStatus, RoomType, SeatType } from "@prisma/client";
 import { renderPhotoVersions } from "../src/photos/storage";
+import { defaultPriceCategoryId } from "../src/prices/catalog";
 import { coffeeDefaults, createMissingSupportAreas } from "./support-areas";
 
 interface EquipmentItem {
@@ -228,7 +229,15 @@ export async function importFmusp(prisma: PrismaClient, options: ImportOptions =
         const existing = await tx.room.findUnique({ where: { building_floor_name: key }, select: { id: true } });
         const row = existing
           ? await tx.room.update({ where: { id: existing.id }, data: fields })
-          : await tx.room.create({ data: { ...key, ...fields, ...coffeeDefaults(room.name), status: room.status ?? RoomStatus.ACTIVE } });
+          : await tx.room.create({
+              data: {
+                ...key,
+                ...fields,
+                ...coffeeDefaults(room.name),
+                priceCategoryId: await defaultPriceCategoryId(tx, { roomType: room.type, name: room.name }),
+                status: room.status ?? RoomStatus.ACTIVE,
+              },
+            });
         if (existing) updated++;
         else created++;
 

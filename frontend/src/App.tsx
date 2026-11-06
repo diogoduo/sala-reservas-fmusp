@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router";
 import { AgendaAdmin } from "./components/admin/AgendaAdmin";
 import { AuditLogPage } from "./components/admin/AuditLogPage";
+import { PricesPage } from "./components/admin/PricesPage";
 import { UsersAdmin } from "./components/admin/UsersAdmin";
 import { FreeRooms } from "./components/admin/FreeRooms";
 import { RequestsAdmin } from "./components/admin/RequestsAdmin";
@@ -40,6 +41,7 @@ export default function App() {
             <Route path="/admin/salas-livres" element={<FreeRooms />} />
             <Route path="/admin/salas" element={<RoomsAdmin />} />
             <Route path="/admin/recursos" element={<ResourcesAdmin />} />
+            <Route path="/admin/precos" element={<PricesPage />} />
             <Route path="/admin/regulamento" element={<RegulationPage />} />
             <Route path="/admin/pessoas" element={<UsersAdmin />} />
             <Route path="/admin/historico" element={<AuditLogPage />} />
@@ -52,6 +54,7 @@ export default function App() {
             <Route path="/admin/agenda" element={<AgendaAdmin />} />
             <Route path="/admin/salas-livres" element={<FreeRooms />} />
             <Route path="/salas" element={<RoomSearch />} />
+            <Route path="/admin/precos" element={<PricesPage />} />
             <Route path="/admin/historico" element={<AuditLogPage />} />
             <Route path="/regulamento" element={<RegulationPage />} />
             <Route path="*" element={<Navigate to="/admin/agenda" replace />} />

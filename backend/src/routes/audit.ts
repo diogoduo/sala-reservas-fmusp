@@ -15,7 +15,7 @@ auditRouter.use(requireStaff);
 const dateKey = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data no formato AAAA-MM-DD.");
 
 const querySchema = z.object({
-  entityType: z.enum(["reservation", "room", "resource", "sanction", "regulation", "notebook", "user"]).optional(),
+  entityType: z.enum(["reservation", "room", "resource", "sanction", "regulation", "notebook", "user", "price"]).optional(),
   entityId: z.string().trim().min(1).max(200).optional(),
   actorId: z.string().uuid().optional(),
   q: z.string().trim().min(1).max(200).optional(),
