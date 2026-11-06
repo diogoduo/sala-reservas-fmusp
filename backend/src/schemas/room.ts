@@ -27,21 +27,38 @@ const roomFields = z.object({
     .transform((types) => [...new Set(types)]),
   wideDoor: z.boolean().default(false),
   specialNeeds: z.boolean().default(false),
+  // Fase 9, bloco 3: o que o módulo de Eventos precisa saber do espaço.
+  coffeeAllowed: z.boolean().default(false),
+  // Vazio = a capacidade do espaço.
+  coffeeCapacity: z.number().int().positive("O máximo de pessoas no coffee deve ser maior que zero.").nullish().transform((v) => v ?? null),
+  // "Indicado para eventos acima de N pessoas": orientação, não capacidade máxima.
+  recommendedAbove: z.number().int().positive("A indicação de público deve ser maior que zero.").nullish().transform((v) => v ?? null),
+  requiresBoardApproval: z.boolean().default(false),
+  usageRules: z.string().trim().max(2000).nullish().transform((v) => v || null),
   // ids de resources + quantidade; substitui totalmente o vínculo atual da sala
   resources: z.array(resourceAssignmentSchema).max(100).default([]),
 });
 
 export const CAPACITY_REQUIRED_MESSAGE = "Informe a capacidade para deixar a sala Ativa.";
 
+/**
+ * Sala Ativa precisa de capacidade; área de apoio não (o átrio não tem um
+ * limite cadastrado). Vale também para o PATCH, com o estado final da sala.
+ */
+export function needsCapacity(room: { status: RoomStatus; roomType: RoomType; capacity: number | null }): boolean {
+  return room.status === RoomStatus.ACTIVE && room.roomType !== RoomType.SUPPORT_AREA && room.capacity === null;
+}
+
 export const createRoomSchema = roomFields.superRefine((room, ctx) => {
-  if (room.status === RoomStatus.ACTIVE && room.capacity === null) {
+  if (needsCapacity(room)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["capacity"], message: CAPACITY_REQUIRED_MESSAGE });
   }
 });
 
 // Todos os campos opcionais (PATCH); quando `resources` é enviado, o conjunto
 // vinculado à sala é substituído por completo (não é um "adicionar a mais").
-// A regra "Ativa precisa de capacidade" é conferida na rota, com o estado final da sala.
+// As regras "Ativa precisa de capacidade" e "coffee só com coffee liberado" são
+// conferidas na rota, com o estado final da sala.
 export const updateRoomSchema = roomFields.partial();
 
 export type CreateRoomInput = z.infer<typeof createRoomSchema>;

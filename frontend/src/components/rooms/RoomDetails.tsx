@@ -1,11 +1,13 @@
-import { ArmchairIcon, RulerIcon, UsersIcon, type Icon } from "@phosphor-icons/react";
+import { ArmchairIcon, CoffeeIcon, RulerIcon, UsersFourIcon, UsersIcon, type Icon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { plural } from "../../lib/format";
+import { coffeeLimit } from "../../lib/rooms";
 import { ROOM_TYPE_LABELS } from "../../lib/types";
 import type { Room } from "../../lib/types";
 import { AvailabilityCalendar } from "../solicitante/AvailabilityCalendar";
 import { RoomResourceChips } from "../solicitante/RoomSearch";
 import { Dialog } from "../ui/Dialog";
+import { Alert } from "../ui/Feedback";
 import { RoomFeatures } from "./RoomFeatures";
 import { PhotoMosaic } from "./RoomPhotos";
 
@@ -20,8 +22,9 @@ function Fact({ icon: FactIcon, label, children }: { icon: Icon; label: string; 
   );
 }
 
-/** Painel da sala: fotos, capacidade, dimensões, recursos e a agenda. */
+/** Painel da sala: fotos, capacidade, dimensões, coffee break, regras, recursos e a agenda. */
 export function RoomDetailsDrawer({ room, onClose, initialDate }: { room: Room; onClose: () => void; initialDate?: Date }) {
+  const coffee = coffeeLimit(room);
   return (
     <Dialog
       open
@@ -35,8 +38,22 @@ export function RoomDetailsDrawer({ room, onClose, initialDate }: { room: Room; 
 
         <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <Fact icon={UsersIcon} label="Capacidade">
-            {room.capacity === null ? "A definir" : plural(room.capacity, "lugar", "lugares")}
+            {room.capacity !== null
+              ? plural(room.capacity, room.roomType === "SUPPORT_AREA" ? "pessoa" : "lugar", room.roomType === "SUPPORT_AREA" ? "pessoas" : "lugares")
+              : room.roomType === "SUPPORT_AREA"
+                ? "Sem limite cadastrado"
+                : "A definir"}
           </Fact>
+          {room.recommendedAbove ? (
+            <Fact icon={UsersFourIcon} label="Indicado para">
+              Mais de {room.recommendedAbove} pessoas
+            </Fact>
+          ) : null}
+          {coffee !== null && (
+            <Fact icon={CoffeeIcon} label="Coffee break">
+              {coffee === "sem limite" ? "Pode ter" : `Até ${coffee} pessoas`}
+            </Fact>
+          )}
           {room.extraSeats ? (
             <Fact icon={ArmchairIcon} label="Cadeiras extras">
               {room.extraSeats}
@@ -50,6 +67,19 @@ export function RoomDetailsDrawer({ room, onClose, initialDate }: { room: Room; 
         </dl>
 
         <RoomFeatures room={room} />
+
+        {room.requiresBoardApproval && (
+          <Alert tone="warning" title="Exige autorização da Diretoria Executiva">
+            O uso deste espaço depende de autorização da Diretoria Executiva, pedida pelo SAD na análise.
+          </Alert>
+        )}
+
+        {room.usageRules && (
+          <section>
+            <h3 className="text-sm font-semibold">Regras de uso</h3>
+            <p className="mt-1 text-sm whitespace-pre-line text-muted">{room.usageRules}</p>
+          </section>
+        )}
 
         {room.resources.some((r) => r.resource.requestable) && (
           <section>

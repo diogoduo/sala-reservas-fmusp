@@ -2,6 +2,7 @@ import { CaretLeftIcon, CaretRightIcon, ImagesIcon, UsersIcon } from "@phosphor-
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../lib/api";
 import { plural } from "../../lib/format";
+import { upToText } from "../../lib/rooms";
 import type { Room } from "../../lib/types";
 import { IconButton } from "../ui/Button";
 import { Alert } from "../ui/Feedback";
@@ -86,7 +87,7 @@ export function RoomsPreview({ attendees, date }: Props) {
                   {room.name}
                 </p>
                 <p className="mt-0.5 flex items-center gap-1 text-xs text-muted">
-                  <UsersIcon size={14} aria-hidden /> até {room.capacity} · <span className="truncate">{room.building}</span>
+                  <UsersIcon size={14} aria-hidden /> {upToText(room)} · <span className="truncate">{room.building}</span>
                 </p>
                 <button
                   type="button"

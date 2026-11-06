@@ -26,6 +26,7 @@ import { DEFAULT_PERMISSIONS, sortPermissions } from "../src/auth/permissions";
 import { holidayName, weekdayOf } from "../src/lib/calendar";
 import { renderPhotoVersions } from "../src/photos/storage";
 import { PALETTES, roomIllustration, VIEWS } from "./demo/illustrations";
+import { createMissingSupportAreas } from "./support-areas";
 
 const prisma = new PrismaClient();
 // "--reset" vira { reset: "true" }; "--start=2026-11-09" vira { start: "2026-11-09" }.
@@ -497,6 +498,8 @@ async function main() {
     process.stdout.write(".");
   }
   console.log(`\n${ROOMS.length} salas`);
+  // Áreas de apoio e de coffee break (as mesmas das salas reais), sem fotos.
+  console.log(`${await createMissingSupportAreas(prisma)} áreas de apoio`);
 
   for (const [i, nb] of NOTEBOOKS.entries()) {
     await prisma.notebook.create({ data: { assetTag: `PAT-${380120 + i * 7}`, model: nb.model, location: nb.location, notes: nb.notes ?? null } });

@@ -32,12 +32,13 @@ import { capitalizeFirst, formatShortDate, plural } from "../../lib/format";
 import { ACTIVITY_ICONS, resourceIcon } from "../../lib/icons";
 import { previewWeeklyDates } from "../../lib/recurrence";
 import { formatMinutes, isEditable, notifyReservationsChanged } from "../../lib/reservations";
-import { sortRooms } from "../../lib/rooms";
+import { sortRooms, upToText } from "../../lib/rooms";
 import { validateReservationTimes } from "../../lib/reservationValidation";
 import { useToast } from "../../lib/toast";
 import { ROOM_TYPE_LABELS } from "../../lib/types";
 import type { ActivityType, ApprovalChecklist, Reservation, Resource, ReviewScope, Room } from "../../lib/types";
 import {
+  boardApprovalWarning,
   capacityWarning,
   checklistWarnings,
   HOLIDAYS_WARNING,
@@ -530,6 +531,8 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
   if (asAdmin && activityType) {
     const capacity = capacityWarning(Number(attendeesOf(activityType, details)) || 0, choosesRoom ? chosenRoom : null);
     if (capacity) warnings.push(capacity);
+    const board = boardApprovalWarning(choosesRoom ? chosenRoom : null);
+    if (board) warnings.push(board);
   }
   if (relocating) warnings.push(RELOCATION_WARNING);
   if (needsChecklist) warnings.push(...checklistWarnings(checklist));
@@ -878,7 +881,7 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
                 {activeRooms.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name}
-                    {r.id === editing?.roomId ? " (atual)" : ""} — {ROOM_TYPE_LABELS[r.roomType]}, até {r.capacity ?? "?"} pessoas
+                    {r.id === editing?.roomId ? " (atual)" : ""} — {ROOM_TYPE_LABELS[r.roomType]}, {upToText(r)}
                   </option>
                 ))}
               </Select>

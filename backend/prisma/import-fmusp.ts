@@ -14,12 +14,15 @@
  * Idempotente: sala é identificada por prédio + andar + nome. O inventário de
  * cada sala importada é substituído pelo da planilha; o status (Ativa/Em
  * manutenção/Inativa) de uma sala que já existe é preservado. Foto já
- * importada (mesmo arquivo de origem) não é importada de novo.
+ * importada (mesmo arquivo de origem) não é importada de novo. As áreas de
+ * apoio (átrios, halls, copas — prisma/support-areas.ts) que faltarem são
+ * criadas; sala nova de coffee break (2366/2368, 2223, 1357) já vem marcada.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { NotebookLocation, PrismaClient, RoomStatus, RoomType, SeatType } from "@prisma/client";
 import { renderPhotoVersions } from "../src/photos/storage";
+import { coffeeDefaults, createMissingSupportAreas } from "./support-areas";
 
 interface EquipmentItem {
   resource: string;
@@ -220,7 +223,7 @@ async function main() {
         const existing = await tx.room.findUnique({ where: { building_floor_name: key }, select: { id: true } });
         const row = existing
           ? await tx.room.update({ where: { id: existing.id }, data: fields })
-          : await tx.room.create({ data: { ...key, ...fields, status: room.status ?? RoomStatus.ACTIVE } });
+          : await tx.room.create({ data: { ...key, ...fields, ...coffeeDefaults(room.name), status: room.status ?? RoomStatus.ACTIVE } });
         if (existing) updated++;
         else created++;
 
@@ -264,7 +267,9 @@ async function main() {
         notebooks++;
       }
 
-      return { created, updated, removed, retired, notebooks };
+      const supportAreas = await createMissingSupportAreas(tx);
+
+      return { created, updated, removed, retired, notebooks, supportAreas };
     },
     { timeout: 60_000 },
   );
@@ -273,7 +278,7 @@ async function main() {
   console.log(
     `Salas: ${summary.created} criadas, ${summary.updated} atualizadas; ${items} itens de inventário; ` +
       `salas fictícias: ${summary.removed} excluída(s), ${summary.retired} marcada(s) como Inativa; ` +
-      `${summary.notebooks} notebook(s) novo(s).`,
+      `${summary.notebooks} notebook(s) novo(s); ${summary.supportAreas} área(s) de apoio nova(s).`,
   );
 
   // Fora da transação: gerar as versões das fotos leva alguns segundos por foto.

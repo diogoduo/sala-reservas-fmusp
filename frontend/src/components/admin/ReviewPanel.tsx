@@ -17,8 +17,9 @@ import { formatDateTimeRange, formatShortDate, formatTimeRange, plural } from ".
 import { activityStart, formatMinutes } from "../../lib/reservations";
 import { useToast } from "../../lib/toast";
 import { RESERVATION_STATUS_LABELS, ROOM_TYPE_LABELS } from "../../lib/types";
+import { upToText } from "../../lib/rooms";
 import type { AdminReservation, ApprovalChecklist, RequestedResource, Resource, ReviewScope, RoomOption } from "../../lib/types";
-import { capacityWarning, checklistWarnings, reservationWarnings, type PortariaWarning } from "../../lib/portarias";
+import { boardApprovalWarning, capacityWarning, checklistWarnings, reservationWarnings, type PortariaWarning } from "../../lib/portarias";
 import { PortariaWarnings } from "./PortariaWarnings";
 import { NoShowButton } from "./ReservationActions";
 import { ReservationHistory } from "./AuditTrail";
@@ -323,6 +324,8 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
   const warnings: PortariaWarning[] = [];
   const capacity = selected ? capacityWarning(first.expectedAttendees, selected.room) : null;
   if (capacity) warnings.push(capacity);
+  const board = boardApprovalWarning(selected?.room);
+  if (board) warnings.push(board);
   if (needsChecklist) warnings.push(...checklistWarnings(checklist));
   const resourceName = (id: string) => resources.find((r) => r.id === id)?.name ?? "recurso removido";
 
@@ -529,7 +532,7 @@ export function ReviewDrawer({ group, resources, onClose, onDone, onChanged }: R
                           )}
                         </div>
                         <p className="text-xs text-muted">
-                          {option.room.building}, {option.room.floor} · {ROOM_TYPE_LABELS[option.room.roomType]} · até {option.room.capacity}
+                          {option.room.building}, {option.room.floor} · {ROOM_TYPE_LABELS[option.room.roomType]} · {upToText(option.room)}
                         </p>
                         <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium">
                           {option.fitsCapacity ? (

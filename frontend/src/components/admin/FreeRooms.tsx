@@ -17,6 +17,7 @@ import { cn } from "../../lib/cn";
 import { capitalizeFirst, formatTimeRange } from "../../lib/format";
 import { useToast } from "../../lib/toast";
 import { ROOM_TYPE_LABELS } from "../../lib/types";
+import { capacityText, upToText } from "../../lib/rooms";
 import type { RoomAvailability, RoomType } from "../../lib/types";
 import { RoomThumb } from "../rooms/RoomPhotos";
 import { RoomResourceChips } from "../solicitante/RoomSearch";
@@ -143,7 +144,7 @@ export function FreeRooms() {
   async function copyAnswer(r: RoomAvailability) {
     const when = startDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
     // Sem artigo: "a Sala 101", mas "o Laboratório"/"o Auditório".
-    const text = `${r.room.name} (${r.room.building}, ${r.room.floor}, até ${r.room.capacity} pessoas) está disponível no dia ${when}, das ${start} às ${end}.`;
+    const text = `${r.room.name} (${r.room.building}, ${r.room.floor}, ${upToText(r.room)}) está disponível no dia ${when}, das ${start} às ${end}.`;
     try {
       await navigator.clipboard.writeText(text);
       toast.success("Resposta copiada", text);
@@ -249,7 +250,14 @@ export function FreeRooms() {
                         <MapPinIcon size={16} aria-hidden /> {r.room.building} · {r.room.floor}
                       </p>
                       <p className="flex items-center gap-2">
-                        <UsersIcon size={16} aria-hidden /> até <strong className="text-foreground tabular-nums">{r.room.capacity}</strong> pessoas
+                        <UsersIcon size={16} aria-hidden />{" "}
+                        {r.room.capacity !== null ? (
+                          <span>
+                            até <strong className="text-foreground tabular-nums">{r.room.capacity}</strong> pessoas
+                          </span>
+                        ) : (
+                          capacityText(r.room)
+                        )}
                       </p>
                     </div>
                     {r.room.resources.some((link) => link.resource.requestable) && (
@@ -302,7 +310,7 @@ export function FreeRooms() {
                           <p className="font-semibold">
                             {r.room.name}{" "}
                             <span className="text-sm font-normal text-muted">
-                              · {r.room.building}, {r.room.floor} · até {r.room.capacity}
+                              · {r.room.building}, {r.room.floor} · {upToText(r.room)}
                             </span>
                           </p>
                           <ul className="mt-2 space-y-1.5">
@@ -343,7 +351,7 @@ export function FreeRooms() {
           variant="drawer"
           onClose={() => setAgenda(null)}
           title={agenda.name}
-          description={`${ROOM_TYPE_LABELS[agenda.roomType]} · ${agenda.building}, ${agenda.floor} · até ${agenda.capacity} pessoas`}
+          description={`${ROOM_TYPE_LABELS[agenda.roomType]} · ${agenda.building}, ${agenda.floor} · ${upToText(agenda)}`}
         >
           <AvailabilityCalendar roomId={agenda.id} initialDate={valid ? startDate : undefined} />
         </Dialog>

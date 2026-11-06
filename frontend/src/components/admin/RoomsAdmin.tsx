@@ -213,7 +213,7 @@ export function RoomsAdmin() {
                         <MapPinIcon size={16} aria-hidden /> {room.building} · {room.floor}
                       </p>
                       <p className="flex items-center gap-2">
-                        <UsersIcon size={16} aria-hidden /> {room.capacity === null ? "Capacidade a definir" : plural(room.capacity, "lugar", "lugares")}
+                        <UsersIcon size={16} aria-hidden /> {room.capacity !== null ? plural(room.capacity, room.roomType === "SUPPORT_AREA" ? "pessoa" : "lugar", room.roomType === "SUPPORT_AREA" ? "pessoas" : "lugares") : room.roomType === "SUPPORT_AREA" ? "Sem limite cadastrado" : "Capacidade a definir"}
                         {room.extraSeats ? ` + ${plural(room.extraSeats, "extra", "extras")}` : ""}
                       </p>
                       {room.dimensions && (

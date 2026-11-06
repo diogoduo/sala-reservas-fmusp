@@ -1,4 +1,3 @@
-import type { RoomType } from "@prisma/client";
 import { env } from "../config/env";
 import { cancellationDeadline, formatDayMonth, holidayName, weekdayOf } from "../lib/calendar";
 import { AppError } from "../lib/errors";
@@ -121,10 +120,9 @@ export function isWithinRequesterDeadline(start: Date, now: Date = new Date()): 
 
 // Portaria 2794, Art. 5º: coffee break e alimentação são vedados nas salas de
 // aula, exceto nas salas de uso interativo 2366/2368 (Sala do Futuro), 2223
-// (Design Thinking) e 1357. O formulário ainda não pergunta sobre coffee break
-// (fica para depois, junto com as taxas); a regra só marca as salas candidatas.
-const COFFEE_BREAK_ROOMS = /\b(2366|2368|2223|1357)\b/;
-
-export function coffeeBreakAllowed(room: { name: string; roomType: RoomType }): boolean {
-  return room.roomType !== "CLASSROOM" || COFFEE_BREAK_ROOMS.test(room.name);
+// (Design Thinking) e 1357; e o documento SAD/NUCEV (§6) lista as áreas de apoio
+// de coffee. Desde a Fase 9 é um campo do espaço (rooms.coffee_allowed), que o
+// SAD configura na tela da sala. O formulário ainda não pergunta sobre coffee.
+export function coffeeBreakAllowed(room: { coffeeAllowed: boolean }): boolean {
+  return room.coffeeAllowed;
 }

@@ -18,6 +18,9 @@ import { approveReservationSchema, rejectReservationSchema, reviewScopeSchema, t
 
 // Fase 6 — fila de aprovação: o Admin vê as solicitações, escolhe a sala mais
 // adequada e aprova (alocando a sala) ou rejeita (com justificativa).
+
+/** Para ordenar por capacidade: área de apoio sem limite cadastrado (átrio) vai para o fim. */
+const capacityRank = (room: { capacity: number | null }) => room.capacity ?? Number.MAX_SAFE_INTEGER;
 export const adminRouter = Router();
 // O NUCEV acompanha (só consulta); qualquer ação continua sendo do SAD.
 adminRouter.use(staffReadOnly);
@@ -136,8 +139,14 @@ adminRouter.get(
         ].sort((a, b) => a.start.getTime() - b.start.getTime());
         return { room, free: busy.length === 0, busy };
       })
-      // Livres primeiro; dentro de cada grupo, da menor para a maior capacidade.
-      .sort((a, b) => Number(b.free) - Number(a.free) || (a.room.capacity ?? 0) - (b.room.capacity ?? 0));
+      // Livres primeiro; depois as salas e por último as áreas de apoio; dentro de
+      // cada grupo, da menor para a maior capacidade (sem limite cadastrado = no fim).
+      .sort(
+        (a, b) =>
+          Number(b.free) - Number(a.free) ||
+          Number(a.room.roomType === "SUPPORT_AREA") - Number(b.room.roomType === "SUPPORT_AREA") ||
+          capacityRank(a.room) - capacityRank(b.room),
+      );
 
     res.json({ rooms: result });
   }),

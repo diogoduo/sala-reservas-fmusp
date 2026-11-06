@@ -1,9 +1,9 @@
-import { ArrowRightIcon, FunnelSimpleXIcon, HandHeartIcon, MagnifyingGlassIcon, MapPinIcon, RulerIcon, UsersIcon } from "@phosphor-icons/react";
+import { ArrowRightIcon, CoffeeIcon, FunnelSimpleXIcon, HandHeartIcon, MagnifyingGlassIcon, MapPinIcon, RulerIcon, UsersIcon } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api";
 import { plural } from "../../lib/format";
 import { resourceIcon, ROOM_TYPE_ICONS } from "../../lib/icons";
-import { sortRooms } from "../../lib/rooms";
+import { capacityText, sortRooms } from "../../lib/rooms";
 import { ROOM_TYPE_LABELS } from "../../lib/types";
 import type { Room, RoomType } from "../../lib/types";
 import { RoomDetailsDrawer } from "../rooms/RoomDetails";
@@ -15,6 +15,9 @@ import { Input, Select } from "../ui/Field";
 import { Card, PageHeader } from "../ui/Surface";
 
 const ROOM_TYPES = Object.keys(ROOM_TYPE_LABELS) as RoomType[];
+
+const TOGGLE_CLASS =
+  "inline-flex w-fit cursor-pointer items-center gap-2 rounded-full border border-border-strong px-3.5 py-2 text-sm font-medium text-muted transition-colors hover:text-foreground has-[:checked]:border-info-foreground/40 has-[:checked]:bg-info-soft has-[:checked]:text-info-foreground has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring";
 
 /** Recursos que o solicitante pode pedir; a infraestrutura (nobreak, splitter…) fica de fora. */
 export function RoomResourceChips({ room, max = 4 }: { room: Room; max?: number }) {
@@ -57,6 +60,7 @@ export function RoomSearch() {
   const [minCapacity, setMinCapacity] = useState("");
   const [building, setBuilding] = useState("");
   const [specialOnly, setSpecialOnly] = useState(false);
+  const [coffeeOnly, setCoffeeOnly] = useState(false);
   const [openRoom, setOpenRoom] = useState<Room | null>(null);
 
   useEffect(() => {
@@ -77,10 +81,11 @@ export function RoomSearch() {
       (!roomType || room.roomType === roomType) &&
       (!minCapacity || (room.capacity ?? 0) >= Number(minCapacity)) &&
       (!building || room.building === building) &&
-      (!specialOnly || room.specialNeeds)
+      (!specialOnly || room.specialNeeds) &&
+      (!coffeeOnly || room.coffeeAllowed)
     );
   });
-  const hasFilters = Boolean(query || roomType || minCapacity || building || specialOnly);
+  const hasFilters = Boolean(query || roomType || minCapacity || building || specialOnly || coffeeOnly);
 
   function clearFilters() {
     setQuery("");
@@ -88,6 +93,7 @@ export function RoomSearch() {
     setMinCapacity("");
     setBuilding("");
     setSpecialOnly(false);
+    setCoffeeOnly(false);
   }
 
   return (
@@ -116,18 +122,29 @@ export function RoomSearch() {
             </option>
           ))}
         </Select>
-        {(rooms ?? []).some((room) => room.specialNeeds) && (
-          <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-full border border-border-strong px-3.5 py-2 text-sm font-medium text-muted transition-colors hover:text-foreground has-[:checked]:border-info-foreground/40 has-[:checked]:bg-info-soft has-[:checked]:text-info-foreground has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring sm:col-span-2 lg:col-span-4">
-            <input type="checkbox" className="sr-only" checked={specialOnly} onChange={(e) => setSpecialOnly(e.target.checked)} />
-            <HandHeartIcon size={18} aria-hidden />
-            Só salas com atendimento especial
-          </label>
+        {(rooms ?? []).some((room) => room.specialNeeds || room.coffeeAllowed) && (
+          <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-4">
+            {(rooms ?? []).some((room) => room.specialNeeds) && (
+              <label className={TOGGLE_CLASS}>
+                <input type="checkbox" className="sr-only" checked={specialOnly} onChange={(e) => setSpecialOnly(e.target.checked)} />
+                <HandHeartIcon size={18} aria-hidden />
+                Só salas com atendimento especial
+              </label>
+            )}
+            {(rooms ?? []).some((room) => room.coffeeAllowed) && (
+              <label className={TOGGLE_CLASS}>
+                <input type="checkbox" className="sr-only" checked={coffeeOnly} onChange={(e) => setCoffeeOnly(e.target.checked)} />
+                <CoffeeIcon size={18} aria-hidden />
+                Só espaços com coffee break
+              </label>
+            )}
+          </div>
         )}
       </Card>
 
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted" aria-live="polite">
-          {rooms === null ? "Carregando salas…" : plural(filtered.length, "sala encontrada", "salas encontradas")}
+          {rooms === null ? "Carregando salas…" : plural(filtered.length, "espaço encontrado", "espaços encontrados")}
         </p>
         {hasFilters && (
           <Button variant="ghost" size="sm" icon={FunnelSimpleXIcon} onClick={clearFilters}>
@@ -168,10 +185,17 @@ export function RoomSearch() {
                       </p>
                       <p className="flex items-center gap-2">
                         <UsersIcon size={16} aria-hidden />
-                        <span>
-                          até <strong className="text-foreground tabular-nums">{room.capacity}</strong> pessoas
-                          {room.extraSeats ? <span className="text-muted"> (+{room.extraSeats} cadeiras extras)</span> : null}
-                        </span>
+                        {room.capacity !== null ? (
+                          <span>
+                            até <strong className="text-foreground tabular-nums">{room.capacity}</strong> pessoas
+                            {room.extraSeats ? <span className="text-muted"> (+{room.extraSeats} cadeiras extras)</span> : null}
+                          </span>
+                        ) : (
+                          <span>
+                            {capacityText(room)}
+                            {room.recommendedAbove ? ` · indicado para mais de ${room.recommendedAbove}` : ""}
+                          </span>
+                        )}
                       </p>
                       {room.dimensions && (
                         <p className="flex items-center gap-2">

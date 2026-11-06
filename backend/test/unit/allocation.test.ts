@@ -6,12 +6,18 @@ import { atTime } from "../dates";
 const PROJECTOR = "projetor";
 const MICROPHONE = "microfone";
 
-function room(id: string, capacity: number, resources: Record<string, number> = {}): RoomWithResources {
+function room(
+  id: string,
+  capacity: number | null,
+  resources: Record<string, number> = {},
+  extra: { roomType?: string; coffeeAllowed?: boolean } = {},
+): RoomWithResources {
   return {
     id,
     name: id,
     capacity,
-    roomType: "CLASSROOM",
+    roomType: extra.roomType ?? "CLASSROOM",
+    coffeeAllowed: extra.coffeeAllowed ?? false,
     resources: Object.entries(resources).map(([resourceId, quantity]) => ({ roomId: id, resourceId, quantity })),
   } as unknown as RoomWithResources;
 }
@@ -83,11 +89,24 @@ describe("ranking de salas (rankRoomOptions)", () => {
     expect(options[0]!.conflictingDates).toEqual([]);
   });
 
-  it("coffee break vai para as salas que permitem (Portaria 2794, Art. 5º)", () => {
-    const options = rank([room("Sala 101", 40), room("Sala 2366", 50)], { requested: [], coffeeBreak: true });
+  it("coffee break vai para os espaços com coffee liberado no cadastro (Portaria 2794, Art. 5º)", () => {
+    const options = rank([room("Sala 101", 40), room("Sala 2366", 50, {}, { coffeeAllowed: true })], { requested: [], coffeeBreak: true });
     expect(options.map((o) => [o.room.id, o.coffeeBreakAllowed])).toEqual([
       ["Sala 2366", true],
       ["Sala 101", false],
+    ]);
+  });
+
+  it("área de apoio vem depois das salas; sem limite cadastrado (átrio), comporta qualquer público", () => {
+    const atrio = room("Átrio", null, {}, { roomType: "SUPPORT_AREA", coffeeAllowed: true });
+    const hall = room("Hall", 60, {}, { roomType: "SUPPORT_AREA", coffeeAllowed: true });
+    expect(rank([atrio, hall, room("Sala 101", 40)], { requested: [] }).map((o) => o.room.id)).toEqual(["Sala 101", "Hall", "Átrio"]);
+
+    // 400 pessoas: só o átrio comporta, então ele vem antes da sala que não comporta.
+    const big = rank([room("Teatro", 255), atrio], { requested: [], attendees: 400 });
+    expect(big.map((o) => [o.room.id, o.fitsCapacity])).toEqual([
+      ["Átrio", true],
+      ["Teatro", false],
     ]);
   });
 });

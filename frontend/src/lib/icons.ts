@@ -1,5 +1,6 @@
 import {
   ArmchairIcon,
+  DoorOpenIcon,
   ArrowsSplitIcon,
   BackpackIcon,
   BatteryChargingIcon,
@@ -57,6 +58,7 @@ export const ROOM_TYPE_ICONS: Record<RoomType, Icon> = {
   COMPUTER_LAB: DesktopTowerIcon,
   BOARD_ROOM: GavelIcon,
   THEATER: ArmchairIcon,
+  SUPPORT_AREA: DoorOpenIcon,
 };
 
 // Recursos são cadastrados pelo Admin (nome livre), então o ícone vem de

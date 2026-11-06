@@ -20,7 +20,8 @@
     "db:import-fmusp": "tsx prisma/import-fmusp.ts",
     "db:reset": "prisma migrate reset",
     "db:studio": "prisma studio",
-    "db:seed-demo": "tsx prisma/seed-demo.ts"
+    "db:seed-demo": "tsx prisma/seed-demo.ts",
+    "db:espacos": "tsx prisma/support-areas.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

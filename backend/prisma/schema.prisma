@@ -50,6 +50,9 @@ enum RoomType {
   COMPUTER_LAB // Sala de Informática
   BOARD_ROOM // Congregação/CTA
   THEATER // Teatro
+  /// Átrio, hall, terraço, copa (Portaria 2794, Art. 3º): coffee break, exposição,
+  /// credenciamento. Pode ficar sem capacidade mesmo Ativa (ex.: átrio).
+  SUPPORT_AREA // Área de apoio
 
   @@map("room_type")
 }
@@ -129,7 +132,8 @@ model Room {
   building       String // prédio/bloco
   floor          String // andar/pavimento (texto: "Térreo", "2º andar"...)
   /// Cadeiras da plateia. Pode ficar sem valor ("a definir") só em sala que
-  /// não está Ativa (ex.: em reforma) — CHECK rooms_active_capacity_check.
+  /// não está Ativa (ex.: em reforma) ou em área de apoio sem limite cadastrado
+  /// (ex.: átrio) — CHECK rooms_active_capacity_check.
   capacity       Int?
   roomType       RoomType   @map("room_type")
   status         RoomStatus @default(ACTIVE)
@@ -144,6 +148,18 @@ model Room {
   wideDoor       Boolean    @default(false) @map("wide_door")
   /// Sala preparada para atendimento especial.
   specialNeeds   Boolean    @default(false) @map("special_needs")
+  /// Pode receber coffee break (Portaria 2794, Art. 5º: nas salas de aula, só
+  /// as de uso interativo; doc. SAD/NUCEV §6: áreas de apoio). O SAD configura.
+  coffeeAllowed         Boolean @default(false) @map("coffee_allowed")
+  /// Máximo de pessoas no coffee break. Vazio = a capacidade do espaço.
+  coffeeCapacity        Int?    @map("coffee_capacity")
+  /// "Indicado para eventos acima de N pessoas" (ex.: átrios, acima de 250).
+  /// É orientação de uso, não capacidade máxima.
+  recommendedAbove      Int?    @map("recommended_above")
+  /// O uso depende de autorização da Diretoria Executiva (átrios, Portaria 2747/2025).
+  requiresBoardApproval Boolean @default(false) @map("requires_board_approval")
+  /// Regras e condições de uso, em texto, para quem consulta o espaço.
+  usageRules            String? @map("usage_rules")
   createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
 
   resources    RoomResource[]

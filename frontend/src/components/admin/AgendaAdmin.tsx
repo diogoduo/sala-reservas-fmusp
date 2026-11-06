@@ -345,7 +345,7 @@ function RoomsTimeline({ day, onOpen, onBook }: { day: AgendaDay; onOpen: (r: Ad
                             {room.name}
                           </p>
                           <p className="truncate text-[11px] text-muted">
-                            {ROOM_TYPE_LABELS[room.roomType]} · {room.capacity ?? "?"} lugares
+                            {ROOM_TYPE_LABELS[room.roomType]} · {room.capacity !== null ? `${room.capacity} lugares` : room.roomType === "SUPPORT_AREA" ? "sem limite" : "?"}
                           </p>
                         </div>
                         {onBook && (

@@ -22,6 +22,12 @@ export interface RoomFormValues {
   seatTypes: SeatType[];
   wideDoor: boolean;
   specialNeeds: boolean;
+  coffeeAllowed: boolean;
+  /** null = a capacidade do espaço. */
+  coffeeCapacity: number | null;
+  recommendedAbove: number | null;
+  requiresBoardApproval: boolean;
+  usageRules: string;
   resources: { resourceId: string; quantity: number; model: string; assetTags: string }[];
 }
 
@@ -47,6 +53,11 @@ function fromRoom(room: Room | null): RoomFormValues {
       seatTypes: [],
       wideDoor: false,
       specialNeeds: false,
+      coffeeAllowed: false,
+      coffeeCapacity: null,
+      recommendedAbove: null,
+      requiresBoardApproval: false,
+      usageRules: "",
       resources: [],
     };
   }
@@ -63,6 +74,11 @@ function fromRoom(room: Room | null): RoomFormValues {
     seatTypes: room.seatTypes,
     wideDoor: room.wideDoor,
     specialNeeds: room.specialNeeds,
+    coffeeAllowed: room.coffeeAllowed,
+    coffeeCapacity: room.coffeeCapacity,
+    recommendedAbove: room.recommendedAbove,
+    requiresBoardApproval: room.requiresBoardApproval,
+    usageRules: room.usageRules ?? "",
     resources: room.resources.map((r) => ({
       resourceId: r.resourceId,
       quantity: r.quantity,
@@ -84,10 +100,78 @@ interface Props {
   onPhotosChange: () => void;
 }
 
+/** Coffee break, indicação de público, autorização e regras: o que o módulo de Eventos usa. */
+function EventFields({
+  values,
+  setValues,
+  numberOrNull,
+}: {
+  values: RoomFormValues;
+  setValues: (values: RoomFormValues) => void;
+  numberOrNull: (value: string) => number | null;
+}) {
+  return (
+    <section>
+      <h3 className="text-base font-semibold">Eventos e coffee break</h3>
+      <p className="text-sm text-muted">Aparecem para quem consulta o espaço e orientam a análise dos eventos.</p>
+      <div className="mt-4 space-y-4 rounded-xl border border-border p-4">
+        <Switch
+          checked={values.coffeeAllowed}
+          onChange={(coffeeAllowed) => setValues({ ...values, coffeeAllowed, coffeeCapacity: coffeeAllowed ? values.coffeeCapacity : null })}
+          label="Pode ter coffee break"
+          description="Nas salas de aula, só as de uso interativo (Portaria 2794, Art. 5º)."
+        />
+        {values.coffeeAllowed && (
+          <Input
+            label="Máximo de pessoas no coffee"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            placeholder="A capacidade do espaço"
+            hint="Em branco = a capacidade do espaço."
+            value={values.coffeeCapacity ?? ""}
+            onChange={(e) => setValues({ ...values, coffeeCapacity: numberOrNull(e.target.value) })}
+            containerClassName="sm:max-w-xs"
+          />
+        )}
+        <Input
+          label="Indicado para eventos acima de"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          placeholder="Opcional"
+          hint="Nº de pessoas. É uma indicação de uso, não a capacidade máxima (ex.: átrios, acima de 250)."
+          value={values.recommendedAbove ?? ""}
+          onChange={(e) => setValues({ ...values, recommendedAbove: numberOrNull(e.target.value) })}
+          containerClassName="sm:max-w-xs"
+        />
+        <Switch
+          checked={values.requiresBoardApproval}
+          onChange={(requiresBoardApproval) => setValues({ ...values, requiresBoardApproval })}
+          label="Exige autorização da Diretoria Executiva"
+          description="Ex.: os átrios (Portaria 2747/2025). O SAD vê o aviso ao analisar o pedido."
+        />
+      </div>
+      <Textarea
+        label="Regras de uso"
+        placeholder="Ex.: coffee break só com autorização do Núcleo de Eventos."
+        hint="Restrições e condições do espaço. Aparece para quem consulta."
+        value={values.usageRules}
+        onChange={(e) => setValues({ ...values, usageRules: e.target.value })}
+        containerClassName="mt-4"
+      />
+    </section>
+  );
+}
+
 /** Formulário de sala (fica dentro do painel lateral; os botões ficam no rodapé do painel). */
 export function RoomForm({ room, resources, buildings, formId, onSubmit, onPhotosChange }: Props) {
   const [values, setValues] = useState<RoomFormValues>(() => fromRoom(room));
   const datalistId = useId();
+  const supportArea = values.roomType === "SUPPORT_AREA";
+  // Sala Ativa precisa de capacidade; área de apoio não (o átrio não tem um limite cadastrado).
+  const capacityRequired = values.status === "ACTIVE" && !supportArea;
+  const numberOrNull = (value: string) => (value === "" ? null : Number(value));
 
   function toggleResource(resourceId: string) {
     setValues((v) => ({
@@ -119,7 +203,7 @@ export function RoomForm({ room, resources, buildings, formId, onSubmit, onPhoto
     >
       <section className="grid gap-4 sm:grid-cols-2">
         <Input
-          label="Nome/Número da sala"
+          label={supportArea ? "Nome do espaço" : "Nome/Número da sala"}
           required
           value={values.name}
           onChange={(e) => setValues({ ...values, name: e.target.value })}
@@ -147,14 +231,20 @@ export function RoomForm({ room, resources, buildings, formId, onSubmit, onPhoto
         </Select>
         <Input
           label="Capacidade"
-          required={values.status === "ACTIVE"}
+          required={capacityRequired}
           type="number"
           inputMode="numeric"
           min={1}
-          placeholder={values.status === "ACTIVE" ? undefined : "A definir"}
-          hint={values.status === "ACTIVE" ? "Cadeiras da plateia." : "Cadeiras da plateia. Pode ficar em branco enquanto a sala não estiver Ativa."}
+          placeholder={supportArea ? "Sem limite" : capacityRequired ? undefined : "A definir"}
+          hint={
+            supportArea
+              ? "Máximo de pessoas. Em branco = sem limite cadastrado (ex.: átrio)."
+              : capacityRequired
+                ? "Cadeiras da plateia."
+                : "Cadeiras da plateia. Pode ficar em branco enquanto a sala não estiver Ativa."
+          }
           value={values.capacity ?? ""}
-          onChange={(e) => setValues({ ...values, capacity: e.target.value === "" ? null : Number(e.target.value) })}
+          onChange={(e) => setValues({ ...values, capacity: numberOrNull(e.target.value) })}
         />
         <Input
           label="Cadeiras extras"
@@ -224,6 +314,8 @@ export function RoomForm({ room, resources, buildings, formId, onSubmit, onPhoto
           />
         </div>
       </section>
+
+      <EventFields values={values} setValues={setValues} numberOrNull={numberOrNull} />
 
       {room ? (
         <RoomPhotosManager room={room} onChange={onPhotosChange} />

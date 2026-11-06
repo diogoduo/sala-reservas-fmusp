@@ -6,7 +6,8 @@ export type RoomType =
   | "MULTIPURPOSE"
   | "COMPUTER_LAB"
   | "BOARD_ROOM"
-  | "THEATER";
+  | "THEATER"
+  | "SUPPORT_AREA";
 export type ActivityType = "UNDERGRADUATE" | "GRADUATE" | "CULTURE_EXTENSION" | "PUBLIC_EXAM" | "DEFENSE" | "ADMINISTRATIVE";
 export type RoomStatus = "ACTIVE" | "MAINTENANCE" | "INACTIVE";
 export type SeatType = "SCHOOL" | "UNIVERSITY_FIXED" | "UNIVERSITY_MOBILE";
@@ -21,6 +22,7 @@ export const ROOM_TYPE_LABELS: Record<RoomType, string> = {
   THEATER: "Teatro",
   LABORATORY: "Laboratório",
   MULTIPURPOSE: "Espaço Multiuso",
+  SUPPORT_AREA: "Área de apoio",
 };
 
 export const ROOM_STATUS_LABELS: Record<RoomStatus, string> = {
@@ -77,7 +79,10 @@ export interface Room {
   name: string;
   building: string;
   floor: string;
-  /** Cadeiras da plateia. null = a definir: só em sala que não está Ativa (ex.: em reforma). */
+  /**
+   * Cadeiras da plateia. null = a definir (sala fora do status Ativa) ou, numa
+   * área de apoio, sem limite cadastrado (ex.: átrio).
+   */
   capacity: number | null;
   roomType: RoomType;
   status: RoomStatus;
@@ -95,6 +100,16 @@ export interface Room {
   dimensions: string | null;
   /** Outros equipamentos, em texto livre: só vem para o SAD. */
   equipmentNotes?: string | null;
+  /** Pode receber coffee break (Portaria 2794, Art. 5º; áreas de apoio). */
+  coffeeAllowed: boolean;
+  /** Máximo de pessoas no coffee; null = a capacidade do espaço. */
+  coffeeCapacity: number | null;
+  /** "Indicado para eventos acima de N pessoas": orientação, não limite. */
+  recommendedAbove: number | null;
+  /** O uso depende de autorização da Diretoria Executiva (átrios). */
+  requiresBoardApproval: boolean;
+  /** Regras e condições de uso, para quem consulta o espaço. */
+  usageRules: string | null;
   resources: RoomResourceLink[];
   /** Na ordem da galeria; a primeira é a capa. */
   photos: RoomPhoto[];

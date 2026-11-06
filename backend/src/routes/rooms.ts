@@ -10,7 +10,7 @@ import { isStaff, requireAdmin, requireAuth } from "../middleware/auth";
 import { roomPhotosInclude } from "../photos/include";
 import { renderPhotoVersions } from "../photos/storage";
 import { parseRequestedResources } from "../reservations/requested-resources";
-import { CAPACITY_REQUIRED_MESSAGE, createRoomSchema, photoCaptionSchema, photoOrderSchema, updateRoomSchema } from "../schemas/room";
+import { CAPACITY_REQUIRED_MESSAGE, createRoomSchema, needsCapacity, photoCaptionSchema, photoOrderSchema, updateRoomSchema } from "../schemas/room";
 
 export const roomsRouter = Router();
 roomsRouter.param("id", uuidParam("ROOM_NOT_FOUND", "Sala não encontrada."));
@@ -38,6 +38,11 @@ function roomSnapshot(room: RoomWithResources) {
     seatTypes: room.seatTypes,
     wideDoor: room.wideDoor,
     specialNeeds: room.specialNeeds,
+    coffeeAllowed: room.coffeeAllowed,
+    coffeeCapacity: room.coffeeCapacity,
+    recommendedAbove: room.recommendedAbove,
+    requiresBoardApproval: room.requiresBoardApproval,
+    usageRules: room.usageRules,
     resources: room.resources
       .map((r) => `${r.resource.name} ×${r.quantity}${r.model ? ` (${r.model})` : ""}${r.assetTags ? ` [${r.assetTags}]` : ""}`)
       .sort((a, b) => a.localeCompare(b, "pt-BR")),
@@ -199,6 +204,12 @@ roomsRouter.post(
             seatTypes: input.seatTypes,
             wideDoor: input.wideDoor,
             specialNeeds: input.specialNeeds,
+            coffeeAllowed: input.coffeeAllowed,
+            // Máximo do coffee só faz sentido onde o coffee é liberado.
+            coffeeCapacity: input.coffeeAllowed ? input.coffeeCapacity : null,
+            recommendedAbove: input.recommendedAbove,
+            requiresBoardApproval: input.requiresBoardApproval,
+            usageRules: input.usageRules,
           },
         });
       } catch (error) {
@@ -238,13 +249,18 @@ roomsRouter.patch(
     const { resources, ...fields } = input;
     const roomId = req.params.id!;
 
-    const exists = await prisma.room.findUnique({ where: { id: roomId }, select: { status: true, capacity: true } });
+    const exists = await prisma.room.findUnique({ where: { id: roomId }, select: { status: true, capacity: true, roomType: true, coffeeAllowed: true } });
     if (!exists) throw new AppError(404, "ROOM_NOT_FOUND", "Sala não encontrada.");
-    const finalStatus = fields.status ?? exists.status;
-    const finalCapacity = fields.capacity !== undefined ? fields.capacity : exists.capacity;
-    if (finalStatus === RoomStatus.ACTIVE && finalCapacity === null) {
+    const final = {
+      status: fields.status ?? exists.status,
+      roomType: fields.roomType ?? exists.roomType,
+      capacity: fields.capacity !== undefined ? fields.capacity : exists.capacity,
+    };
+    if (needsCapacity(final)) {
       throw new AppError(400, "CAPACITY_REQUIRED", CAPACITY_REQUIRED_MESSAGE);
     }
+    // Desligar o coffee apaga o máximo do coffee.
+    if ((fields.coffeeAllowed ?? exists.coffeeAllowed) === false) fields.coffeeCapacity = null;
 
     const room = await prisma.$transaction(async (tx) => {
       const before = await tx.room.findUniqueOrThrow({ where: { id: roomId }, include: roomInclude });

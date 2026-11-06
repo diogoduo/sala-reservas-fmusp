@@ -31,3 +31,28 @@ export function sortRooms<T extends Pick<Room, "building" | "floor" | "name">>(r
       collator.compare(a.name, b.name),
   );
 }
+
+/**
+ * A capacidade em texto: "40 pessoas", "sem limite cadastrado" (área de apoio
+ * como o átrio, onde "acima de 250" é indicação e não limite) ou "a definir".
+ */
+export function capacityText(room: Pick<Room, "capacity" | "roomType">): string {
+  if (room.capacity !== null) return `${room.capacity} ${room.capacity === 1 ? "pessoa" : "pessoas"}`;
+  return room.roomType === "SUPPORT_AREA" ? "sem limite cadastrado" : "a definir";
+}
+
+/** "até 40 pessoas" para listas; o mesmo de capacityText quando não há número. */
+export const upToText = (room: Pick<Room, "capacity" | "roomType">) => (room.capacity !== null ? `até ${capacityText(room)}` : capacityText(room));
+
+/** Máximo de pessoas no coffee break: o próprio, ou a capacidade do espaço. null = sem coffee. */
+export function coffeeLimit(room: Pick<Room, "coffeeAllowed" | "coffeeCapacity" | "capacity">): number | "sem limite" | null {
+  if (!room.coffeeAllowed) return null;
+  return room.coffeeCapacity ?? room.capacity ?? "sem limite";
+}
+
+/** "Coffee break até 60 pessoas" ou "Coffee break" (sem limite cadastrado). */
+export function coffeeText(room: Pick<Room, "coffeeAllowed" | "coffeeCapacity" | "capacity">): string | null {
+  const limit = coffeeLimit(room);
+  if (limit === null) return null;
+  return limit === "sem limite" ? "Coffee break" : `Coffee break até ${limit} pessoas`;
+}

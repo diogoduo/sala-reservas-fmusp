@@ -26,15 +26,17 @@ export interface RoomOption {
 
 /**
  * Avalia cada sala para uma solicitação e ordena da mais para a menos adequada:
- *  1. comporta os participantes;
- *  2. está livre em todas as datas;
- *  3. tem os recursos pedidos, na quantidade pedida (faltar recurso não
+ *  1. comporta os participantes (área de apoio sem limite cadastrado, como o
+ *     átrio, comporta qualquer número);
+ *  2. é uma sala, e não uma área de apoio (átrio, hall, copa);
+ *  3. está livre em todas as datas;
+ *  4. tem os recursos pedidos, na quantidade pedida (faltar recurso não
  *     bloqueia — o Admin pode providenciar um equipamento móvel —, mas pesa na ordem);
- *  4. tem menos datas em conflito;
- *  5. tem a menor capacidade que ainda comporta (não gastar um auditório com
+ *  5. tem menos datas em conflito;
+ *  6. tem a menor capacidade que ainda comporta (não gastar um auditório com
  *     uma reunião de 5 pessoas).
  *
- * No passo 3 só contam recursos que alguma sala tem cadastrado. Os demais
+ * No passo 4 só contam recursos que alguma sala tem cadastrado. Os demais
  * (Chromebook, Webconferência, Equipamento pessoal…) são itens avulsos que a
  * TI providencia e não dependem da sala escolhida.
  */
@@ -52,8 +54,9 @@ export function rankRoomOptions(
     const available = new Map(room.resources.map((r) => [r.resourceId, r.quantity]));
     return {
       room,
-      // Só salas Ativas chegam aqui, e sala Ativa sempre tem capacidade (CHECK no banco).
-      fitsCapacity: (room.capacity ?? 0) >= request.expectedAttendees,
+      // Só espaços Ativos chegam aqui. Sala Ativa sempre tem capacidade (CHECK no
+      // banco); área de apoio pode não ter (átrio: sem limite cadastrado).
+      fitsCapacity: room.capacity === null || room.capacity >= request.expectedAttendees,
       coffeeBreakAllowed: !request.coffeeBreak || coffeeBreakAllowed(room),
       missingResources: needed.flatMap((r) => {
         const requested = r.quantity ?? 1;
@@ -67,10 +70,11 @@ export function rankRoomOptions(
   return options.sort(
     (a, b) =>
       Number(!a.fitsCapacity) - Number(!b.fitsCapacity) ||
+      Number(a.room.roomType === "SUPPORT_AREA") - Number(b.room.roomType === "SUPPORT_AREA") ||
       Number(!a.coffeeBreakAllowed) - Number(!b.coffeeBreakAllowed) ||
       Number(a.conflictingDates.length > 0) - Number(b.conflictingDates.length > 0) ||
       a.missingResources.length - b.missingResources.length ||
       a.conflictingDates.length - b.conflictingDates.length ||
-      (a.room.capacity ?? 0) - (b.room.capacity ?? 0),
+      (a.room.capacity ?? Number.MAX_SAFE_INTEGER) - (b.room.capacity ?? Number.MAX_SAFE_INTEGER),
   );
 }

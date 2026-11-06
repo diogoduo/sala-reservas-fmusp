@@ -34,6 +34,19 @@ export function capacityWarning(attendees: number, room: { name: string; capacit
   };
 }
 
+/**
+ * Átrios e outros espaços marcados no cadastro: o uso depende de autorização da
+ * Diretoria Executiva (Portaria 2747/2025). Por enquanto o SAD pede por fora; o
+ * pedido automático e o acompanhamento entram com o módulo de Eventos.
+ */
+export function boardApprovalWarning(room: { name: string; requiresBoardApproval: boolean } | null | undefined): PortariaWarning | null {
+  if (!room?.requiresBoardApproval) return null;
+  return {
+    rule: "Autorização da Diretoria Executiva",
+    message: `${room.name} só pode ser usado com autorização da Diretoria Executiva. Confirme a autorização antes de aprovar.`,
+  };
+}
+
 /** Art. 20 §3º, Art. 14 §3º e Art. 21 §2º: o que não foi conferido antes de confirmar um evento. */
 export function checklistWarnings(checklist: Partial<ApprovalChecklist> | null): PortariaWarning[] {
   const warnings: PortariaWarning[] = [];

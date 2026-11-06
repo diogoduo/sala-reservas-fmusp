@@ -629,7 +629,7 @@ Onde cada regra está:
 | **Montagem** (Art. 19) | Campo "Montagem" (até 4 h): o período reservado começa antes da atividade (`setup_minutes`); entra no conflito e no aviso à TI. |
 | **CCEx** (Art. 20–21) | Cultura e Extensão pede programação, público-alvo, entidade organizadora (Art. 4º; externas precisam de autorização da Divisão Acadêmica), contato do responsável e a situação na CCEx. Ao aprovar (ou reservar), o SAD marca o que conferiu — autorização da CCEx, aprovação da Divisão Acadêmica, taxa paga/isenção (`approval_checklist`); o que faltar vira aviso. |
 | Taxas e isenções (2793 Arts. 13–16; 2794) | Para depois (fora do formulário por enquanto). |
-| Coffee break (2794 Art. 5º) | Para depois (fora do formulário por enquanto). |
+| Coffee break (2794 Art. 5º) | Cada espaço diz se pode ter coffee break e para quantas pessoas (Fase 9, bloco 3). O formulário ainda não pergunta: entra com o formulário de evento. |
 | **Bebidas alcoólicas** (Art. 23) | Compromisso obrigatório no formulário do solicitante (`no_alcohol_commitment`). Na reserva do SAD, sem o compromisso aparece o aviso do Art. 23. |
 | Equipe de áudio e vídeo (Art. 18) | Aviso no formulário para sábados, domingos e feriados (mínimo de 2 técnicos, pagos à FFM). |
 
@@ -872,6 +872,43 @@ Três papéis e, por pessoa, permissões que o SAD concede.
   permissão correspondente. A tela de login mostra primeiro o SAD, o NUCEV e
   quem tem permissões fora do padrão; a lista de Pessoas mostra só o que foge
   do padrão ("Pedir Graduação", "Sem Concurso").
+
+### Espaços: áreas de apoio e coffee break
+
+O cadastro de salas passa a ser o cadastro de **espaços**, a fonte que o
+formulário de evento e o orçamento vão usar.
+
+- **Tipo novo "Área de apoio"** (`SUPPORT_AREA`; migrations
+  `support_area_type` e `room_event_fields`). Área de apoio pode ficar Ativa
+  sem capacidade (o átrio não tem limite cadastrado); sala, não (CHECK
+  `rooms_active_capacity_check`). Na sugestão de sala do SAD e em Salas
+  livres, as áreas de apoio vêm depois das salas.
+- **Campos novos** em cada espaço, na tela da sala (seção "Eventos e coffee
+  break") e no Histórico:
+
+  | Campo | Para quê |
+  |---|---|
+  | Pode ter coffee break (`coffee_allowed`) | Substitui a regra que estava fixa no código (Portaria 2794, Art. 5º) |
+  | Máximo de pessoas no coffee (`coffee_capacity`) | Vazio = a capacidade do espaço |
+  | Indicado para eventos acima de (`recommended_above`) | Ex.: átrios, acima de 250. É orientação, não capacidade máxima |
+  | Exige autorização da Diretoria Executiva (`requires_board_approval`) | Ex.: átrios. O SAD vê o aviso ao analisar e ao reservar |
+  | Regras de uso (`usage_rules`) | Texto que aparece para quem consulta o espaço |
+
+- **Consultar salas:** filtro "Só espaços com coffee break"; o painel do espaço
+  mostra o coffee, a indicação de público, o aviso da Diretoria e as regras.
+- **Carga das áreas de apoio** (`backend/prisma/support-areas.ts`, do
+  documento SAD/NUCEV §6 e da Portaria 2794, Art. 3º): Átrio esquerdo (SVO) e
+  Átrio do relógio de ponto (acima de 250, com autorização da Diretoria), Hall
+  de transição do 4º andar (60), Área de coffee do 5º andar (250), Hall do
+  Teatro (255), Hall do NINA (100), Copa do 5º andar e Copa do Teatro. Só cria
+  o que falta e não mexe no que o SAD editou. Entra no `db:import-fmusp` e no
+  `db:seed-demo`; num banco que já tem as salas, `npm run db:espacos`.
+- A migration marca como "pode ter coffee" as salas 2366, 2368, 2223 e 1357
+  (Portaria 2794, Art. 5º §1º), com a regra dos 20% nas regras de uso.
+- ⚠️ **A confirmar:** o andar dos átrios (cadastrados como Térreo); se a "Área
+  de coffee do 5º andar" é a área de vivência/terraço da Portaria 2794; se o
+  Hall do Teatro é o Foyer da portaria. O pedido automático de autorização à
+  Diretoria (e-mail e acompanhamento) entra com o módulo de Eventos.
 
 ## Interface
 
