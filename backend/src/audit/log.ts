@@ -64,6 +64,9 @@ export type AuditAction =
   | "event.payment_validate"
   | "event.payment_refuse"
   | "event.confirm"
+  // Fase 16: organização do evento confirmado e encerramento
+  | "event.organization"
+  | "event.close"
   // Textos editáveis pela equipe (orientações de pagamento)
   | "settings.update"
   // Fase 15: link do painel da TV

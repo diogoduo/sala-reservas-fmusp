@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api } from "../../lib/api";
 import { cn } from "../../lib/cn";
-import { EVENT_STATUS_TONES, eventPeriod, eventStatusText, type EventRequest, type EventStatus } from "../../lib/events";
+import { confirmedPhase, EVENT_STATUS_TONES, eventPeriod, eventStatusText, type EventRequest, type EventStatus } from "../../lib/events";
 import { formatMoney } from "../../lib/prices";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
@@ -90,26 +90,23 @@ export function MyEvents() {
   );
 }
 
-const today = () => new Date().toLocaleDateString("en-CA");
-const lastDay = (e: EventRequest) => e.days.map((d) => d.date).sort().at(-1) ?? "";
-const firstDay = (e: EventRequest) => e.days.map((d) => d.date).sort()[0] ?? "";
 const CLOSED: EventStatus[] = ["CANCELLED", "REJECTED", "EXPIRED"];
 
 /** Etapas do quadro (inspirado no Monday): cada coluna junta situações parecidas. */
-const STAGES: { key: string; label: string; statuses: EventStatus[] }[] = [
-  { key: "received", label: "Recebidos", statuses: ["SUBMITTED"] },
-  { key: "review", label: "Em análise", statuses: ["IN_REVIEW", "CHANGES_REQUESTED"] },
-  { key: "prereserved", label: "Pré-reservados", statuses: ["PRE_RESERVED"] },
-  { key: "quote", label: "Orçamento enviado", statuses: ["QUOTE_SENT"] },
-  { key: "payment", label: "Pagamento", statuses: ["QUOTE_APPROVED", "PAYMENT_SUBMITTED", "PAYMENT_VALIDATED"] },
-  { key: "confirmed", label: "Confirmados", statuses: ["CONFIRMED"] },
-  { key: "closed", label: "Encerrados", statuses: CLOSED },
+const STAGES: { key: string; label: string; match: (e: EventRequest) => boolean }[] = [
+  { key: "received", label: "Recebidos", match: (e) => e.status === "SUBMITTED" },
+  { key: "review", label: "Em análise", match: (e) => e.status === "IN_REVIEW" || e.status === "CHANGES_REQUESTED" },
+  { key: "prereserved", label: "Pré-reservados", match: (e) => e.status === "PRE_RESERVED" },
+  { key: "quote", label: "Orçamento enviado", match: (e) => e.status === "QUOTE_SENT" },
+  { key: "payment", label: "Pagamento", match: (e) => ["QUOTE_APPROVED", "PAYMENT_SUBMITTED", "PAYMENT_VALIDATED"].includes(e.status) },
+  // Fase 16: confirmados até o encerramento (em andamento e aguardando encerramento ficam aqui).
+  { key: "confirmed", label: "Confirmados", match: (e) => e.status === "CONFIRMED" && !e.closedAt },
+  { key: "closed", label: "Encerrados", match: (e) => CLOSED.includes(e.status) || (e.status === "CONFIRMED" && Boolean(e.closedAt)) },
 ];
 
 /** Os indicadores do painel (documento SAD/NUCEV, 4.1). */
 function indicators(events: EventRequest[]) {
   const count = (fn: (e: EventRequest) => boolean) => events.filter(fn).length;
-  const t = today();
   return [
     { label: "Recebidos", value: count((e) => e.status === "SUBMITTED") },
     { label: "Em análise", value: count((e) => e.status === "IN_REVIEW" || e.status === "CHANGES_REQUESTED") },
@@ -117,9 +114,10 @@ function indicators(events: EventRequest[]) {
     { label: "Orçamentos enviados", value: count((e) => e.status === "QUOTE_SENT") },
     { label: "Aguardando pagamento", value: count((e) => e.status === "QUOTE_APPROVED") },
     { label: "Pagamento em validação", value: count((e) => e.status === "PAYMENT_SUBMITTED" || e.status === "PAYMENT_VALIDATED") },
-    { label: "Confirmados", value: count((e) => e.status === "CONFIRMED" && firstDay(e) > t) },
-    { label: "Em andamento", value: count((e) => e.status === "CONFIRMED" && firstDay(e) <= t && lastDay(e) >= t) },
-    { label: "Finalizados", value: count((e) => e.status === "CONFIRMED" && lastDay(e) < t) },
+    { label: "Confirmados", value: count((e) => confirmedPhase(e) === "UPCOMING") },
+    { label: "Em andamento", value: count((e) => confirmedPhase(e) === "ONGOING") },
+    { label: "Aguardando encerramento", value: count((e) => confirmedPhase(e) === "AWAITING_CLOSE") },
+    { label: "Finalizados", value: count((e) => confirmedPhase(e) === "FINISHED") },
     { label: "Cancelados ou recusados", value: count((e) => CLOSED.includes(e.status)) },
   ];
 }
@@ -208,7 +206,7 @@ export function EventsAdmin() {
             <div className="-mx-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
               <div className="flex gap-3">
                 {STAGES.map((stage) => {
-                  const items = visible.filter((e) => stage.statuses.includes(e.status));
+                  const items = visible.filter(stage.match);
                   return (
                     <section key={stage.key} aria-label={stage.label} className="w-64 shrink-0 rounded-2xl bg-surface-muted p-2">
                       <h2 className="flex items-center justify-between px-1.5 pt-1 pb-2 text-sm font-semibold">

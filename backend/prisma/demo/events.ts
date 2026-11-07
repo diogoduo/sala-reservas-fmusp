@@ -289,7 +289,58 @@ export async function seedDemoEvents(prisma: PrismaClient, h: DemoEventHelpers):
         data: { eventId: event.id, authorId: a.id, authorName: a.name, authorRole: a.role, body: text, createdAt: new Date(createdAt.getTime() + (i + 1) * 3_600_000) },
       });
     }
+
+    // Fase 16: o evento confirmado já com a organização começada.
+    if (spec.stage === "CONFIRMED") await seedOrganization(prisma, h, event.id, days[0]!);
     created++;
   }
   return created;
+}
+
+/**
+ * Fase 16 — a organização do evento confirmado da base (Cerimônia do Jaleco):
+ * programação, responsáveis, um palestrante, participantes, logística e
+ * pendências (uma já concluída). Nomes fictícios.
+ */
+async function seedOrganization(prisma: PrismaClient, h: DemoEventHelpers, eventId: string, day: string) {
+  await prisma.eventPlan.create({
+    data: {
+      eventId,
+      buffetNeeded: true,
+      buffetDetails: "Coquetel para 200 pessoas no Foyer, das 20:30 às 21:00 (fornecedor a confirmar).",
+      parkingNeeded: true,
+      parkingSpots: 4,
+      parkingDetails: "Diretoria e paraninfo, pela entrada da Dr. Arnaldo.",
+      structure: "Mesa de honra no palco, púlpito, 200 jalecos separados por turma.",
+      equipment: "2 microfones sem fio, 1 de lapela, projeção no telão.",
+      notes: "Fotógrafo contratado pela Comissão de Formatura.",
+      updatedByName: h.nucev.name,
+    },
+  });
+  const items: [string, string, string, string | null][] = [
+    ["18:00", "18:45", "Recepção das famílias", null],
+    ["19:00", "20:15", "Cerimônia de entrega dos jalecos", "Prof. Dr. Paraninfo (demo)"],
+    ["20:15", "20:30", "Juramento e encerramento", "Diretoria (demo)"],
+  ];
+  await prisma.eventScheduleItem.createMany({
+    data: items.map(([start, end, title, speaker]) => ({ eventId, startsAt: h.at(day, start), endsAt: h.at(day, end), title, location: "Teatro", speaker })),
+  });
+  await prisma.eventPerson.createMany({
+    data: [
+      { eventId, kind: "ORGANIZER", name: h.nucev.name, affiliation: "NUCEV · coordenação", contact: "vanessa.demo@fm.usp.br" },
+      { eventId, kind: "ORGANIZER", name: "Secretaria de Graduação (demo)", affiliation: "Lista dos alunos e jalecos", contact: "graduacao.demo@fm.usp.br" },
+      { eventId, kind: "SPEAKER", name: "Prof. Dr. Paraninfo (demo)", affiliation: "Convidado externo", contact: "paraninfo.demo@fm.usp.br", notes: "Chega às 18:30; vaga no estacionamento." },
+      ...["Ana Beatriz Lima", "Bruno Carvalho", "Carla Mendes", "Diego Fernandes", "Eduarda Ribeiro", "Felipe Araújo", "Gabriela Nunes", "Henrique Castro", "Isabela Moura", "João Pedro Alves", "Larissa Teixeira", "Mateus Oliveira"].map(
+        (name) => ({ eventId, kind: "PARTICIPANT" as const, name: `${name} (demo)`, affiliation: "1º ano · Medicina" }),
+      ),
+    ],
+  });
+  const due = (offset: number) => new Date(`${h.futureOpenDays(offset)[0] ?? day}T00:00:00Z`);
+  await prisma.operationalTask.createMany({
+    data: [
+      { eventId, title: "Confirmar o fornecedor do coquetel", assigneeId: h.nucev.id, assigneeName: h.nucev.name, dueDate: due(5), createdById: h.nucev.id, createdByName: h.nucev.name },
+      { eventId, title: "Separar os jalecos por turma", assigneeId: h.sad.id, assigneeName: h.sad.name, dueDate: due(9), createdById: h.nucev.id, createdByName: h.nucev.name },
+      { eventId, title: "Reservar as vagas do estacionamento", status: "DONE", doneAt: new Date(), doneByName: h.nucev.name, assigneeId: h.nucev.id, assigneeName: h.nucev.name, createdById: h.nucev.id, createdByName: h.nucev.name },
+    ],
+  });
 }

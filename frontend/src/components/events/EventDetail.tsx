@@ -1,11 +1,12 @@
-import { ArrowLeftIcon, CoffeeIcon, ProhibitIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon, ClipboardTextIcon, CoffeeIcon, ListChecksIcon, ProhibitIcon } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { CULTURE_KIND_LABELS, ORGANIZER_ENTITY_LABELS } from "../../lib/activities";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { useConfirm } from "../../lib/confirm";
 import {
+  confirmedPhase,
   dayLabel,
   EVENT_STATUS_HINTS,
   EVENT_STATUS_TONES,
@@ -14,6 +15,7 @@ import {
   spaceText,
   type EventManagement,
   type EventRequest,
+  type ConfirmedPhase,
   type EventStatus,
 } from "../../lib/events";
 import { isStaff } from "../../lib/permissions";
@@ -22,10 +24,19 @@ import { QuoteBreakdown } from "../quotes/QuoteBreakdown";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { Alert, CardListSkeleton } from "../ui/Feedback";
+import { SegmentedControl } from "../ui/SegmentedControl";
 import { Card, PageHeader } from "../ui/Surface";
 import { AuthorizationPanel, Conversation, NoticesPanel, PaymentPanel, QuotePanel, ReservedRooms, StaffActions } from "./EventManagement";
+import { EventOrganization } from "./EventOrganization";
 
 const REQUESTER_CANCELLABLE: EventStatus[] = ["SUBMITTED", "IN_REVIEW", "PRE_RESERVED", "QUOTE_SENT", "CHANGES_REQUESTED", "QUOTE_APPROVED"];
+/** Para a equipe, o próximo passo de um evento confirmado (Fase 16). */
+const PHASE_HINTS: Record<ConfirmedPhase, string> = {
+  UPCOMING: "Reserva confirmada. A organização (programação, participantes, buffet, pendências) fica na aba Organização.",
+  ONGOING: "O evento está acontecendo. A programação e as pendências estão na aba Organização.",
+  AWAITING_CLOSE: "O evento terminou: falta encerrar, na aba Organização, com o público presente e o balanço.",
+  FINISHED: "Evento finalizado. Todas as informações e o histórico continuam disponíveis.",
+};
 const hoursText = (minutes: number) => `${(minutes / 60).toLocaleString("pt-BR")} h`;
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -51,6 +62,7 @@ export function EventDetail() {
   const confirm = useConfirm();
   const [data, setData] = useState<EventResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
   const staff = isStaff(user?.role);
 
   const load = useCallback(() => {
@@ -88,6 +100,8 @@ export function EventDetail() {
   const { event, management, possiblyExempt } = data;
   const mine = event.userId === user?.id;
   const quotes = management.quotes;
+  const phase = confirmedPhase(event);
+  const tab = staff && event.status === "CONFIRMED" && params.get("aba") === "organizacao" ? "organizacao" : "pedido";
 
   return (
     <div className="space-y-6">
@@ -111,12 +125,28 @@ export function EventDetail() {
         }
       />
 
-      <Alert tone={event.status === "REJECTED" ? "danger" : event.status === "CANCELLED" || event.status === "EXPIRED" ? "warning" : "info"}>
-        {EVENT_STATUS_HINTS[event.status]}
+      <Alert tone={event.status === "REJECTED" ? "danger" : event.status === "CANCELLED" || event.status === "EXPIRED" || phase === "AWAITING_CLOSE" ? "warning" : "info"}>
+        {phase && staff ? PHASE_HINTS[phase] : EVENT_STATUS_HINTS[event.status]}
         {event.rejectionReason && ` Motivo: ${event.rejectionReason}`}
         {event.cancellationReason && ` Motivo: ${event.cancellationReason}`}
       </Alert>
 
+      {/* Fase 16: a organização do evento confirmado, só para a equipe. */}
+      {staff && event.status === "CONFIRMED" && (
+        <SegmentedControl
+          label="Seção do evento"
+          value={tab}
+          onChange={(value) => setParams(value === "organizacao" ? { aba: "organizacao" } : {}, { replace: true })}
+          options={[
+            { value: "pedido", label: "Pedido e gestão", icon: ClipboardTextIcon },
+            { value: "organizacao", label: "Organização", icon: ListChecksIcon },
+          ]}
+        />
+      )}
+
+      {tab === "organizacao" ? (
+        <EventOrganization event={event} management={management} onEventChanged={load} />
+      ) : (
       <div className="grid gap-6 lg:grid-cols-[1fr_24rem]">
         <div className="min-w-0 space-y-6">
           <Card className="p-4 sm:p-6">
@@ -223,6 +253,7 @@ export function EventDetail() {
           <NoticesPanel management={management} />
         </div>
       </div>
+      )}
     </div>
   );
 }

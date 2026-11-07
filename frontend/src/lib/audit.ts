@@ -19,6 +19,8 @@ import {
   ProhibitIcon,
   ScrollIcon,
   TelevisionIcon,
+  FlagCheckeredIcon,
+  ListChecksIcon,
   TrashIcon,
   UserMinusIcon,
   UserPlusIcon,
@@ -126,6 +128,8 @@ const ACTIONS: Record<string, ActionMeta> = {
   "event.payment_validate": { label: "Pagamento validado (NUCEV)", tone: "success", icon: CheckCircleIcon },
   "event.payment_refuse": { label: "Comprovante recusado", tone: "warning", icon: XCircleIcon },
   "event.confirm": { label: "Evento confirmado (SAD)", tone: "success", icon: CheckCircleIcon },
+  "event.organization": { label: "Organização do evento", tone: "info", icon: ListChecksIcon },
+  "event.close": { label: "Evento encerrado (Finalizado)", tone: "success", icon: FlagCheckeredIcon },
 };
 
 export function auditActionMeta(action: string): ActionMeta {
@@ -251,6 +255,8 @@ const num = (value: unknown) => (typeof value === "number" ? value : 0);
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** Linhas de contexto de uma ação: datas afetadas, motivo, sala… */
+const capitalize = (v: string) => v.charAt(0).toUpperCase() + v.slice(1);
+
 export function auditDetailLines(entry: AuditEntry): string[] {
   const d = entry.details ?? {};
   const lines: string[] = [];
@@ -300,6 +306,16 @@ export function auditDetailLines(entry: AuditEntry): string[] {
   }
   if (entry.action === "event.authorization_response" && typeof d.decision === "string") {
     lines.push(`${d.decision === "AUTHORIZED" ? "Autorizado" : "Negado"} pela Diretoria Executiva${typeof d.note === "string" ? `: ${d.note}` : ""}`);
+  }
+  if (entry.action === "event.organization" && typeof d.section === "string") {
+    const what = [d.title, d.name].find((v) => typeof v === "string");
+    const extra = typeof d.added === "number" ? ` · ${plural(d.added, "incluído", "incluídos")}${num(d.skipped) > 0 ? `, ${d.skipped} repetidos` : ""}` : "";
+    lines.push(`${capitalize(d.section)}: ${d.change}${what ? ` — ${what}` : ""}${extra}`);
+  }
+  if (entry.action === "event.close") {
+    if (typeof d.actualAttendees === "number") lines.push(`Público presente: ${d.actualAttendees}`);
+    if (num(d.openTasks) > 0) lines.push(`Encerrado com ${plural(num(d.openTasks), "pendência aberta", "pendências abertas")}`);
+    if (typeof d.notes === "string") lines.push(`Balanço: ${d.notes}`);
   }
   if (entry.action === "price.table_create" && typeof d.validFrom === "string") {
     lines.push(`Vale a partir de ${d.validFrom.split("-").reverse().join("/")}${typeof d.copiedFrom === "string" ? ` · copiada de ${d.copiedFrom}` : ""}`);

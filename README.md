@@ -1179,6 +1179,50 @@ desativado, e as duas ações ficam no Histórico.
 - API: `GET/POST/DELETE /api/settings/tv` (o SAD gera, troca ou desativa; o
   NUCEV vê) e `GET /api/tv/:token` (o painel, sem login).
 
+## Fase 16 — Organização do evento confirmado
+
+Depois que o SAD confirma a reserva, a página do evento ganha a aba
+**Organização**, que só a equipe vê. Nela, o NUCEV e o SAD organizam o evento
+(documento SAD/NUCEV, 5.1 e etapas 9 e 10):
+
+- **Programação e cronograma**, por dia: o horário, o local (com sugestão das
+  salas do evento) e o palestrante ou responsável.
+- **Palestrantes externos**: instituição, contato e observações (passagem,
+  hospedagem, chegada).
+- **Participantes**:
+  - a lista pode ser colada de uma planilha ou de um e-mail, um por linha
+    (`nome; contato; instituição`); nomes que já estão na lista ficam de fora;
+  - busca pelo nome, contato ou instituição;
+  - **Baixar (CSV)** gera o arquivo para abrir no Excel.
+- **Pendências**: cada uma com responsável (alguém do SAD ou do NUCEV) e prazo.
+  As atrasadas aparecem em vermelho. Dá para concluir e reabrir, e fica
+  registrado quem concluiu. A tabela é a mesma que o checklist da Fase 17 vai
+  usar (`operational_tasks`).
+- **Responsáveis pela organização**: nome, função e contato.
+- **Buffet, estacionamento e estrutura**: buffet (sim ou não, com os
+  detalhes), estacionamento (vagas e detalhes), estrutura necessária,
+  equipamentos e observações.
+- **Encerramento** (etapa 10):
+  - o evento confirmado aparece como "Confirmado", depois "Em andamento"
+    durante os dias e "Aguardando encerramento" depois do último dia;
+  - a equipe **encerra** com o público presente e o balanço, e ele fica
+    **Finalizado**, com a organização só para consulta e todo o histórico
+    disponível;
+  - se houver pendências abertas, o sistema avisa, mas deixa encerrar.
+
+No painel de Eventos, os finalizados vão para a coluna "Encerrados" e há o
+indicador "Aguardando encerramento". Cada mudança vai para o Histórico
+("Organização do evento", "Evento encerrado"). A base de demonstração traz a
+Cerimônia do Jaleco já com a organização começada.
+
+- Tabelas: `event_plans`, `event_schedule_items`, `event_people`,
+  `operational_tasks`, além de `events.closed_*` e `actual_attendees`
+  (migration `event_organization`).
+- API (NUCEV e SAD): `GET /api/events/:id/organization`,
+  `PUT …/organization/plan`, `POST/PATCH/DELETE …/organization/schedule`,
+  `POST/PATCH/DELETE …/organization/people` (e `…/people/import`),
+  `POST/PATCH/DELETE …/organization/tasks`, `POST /api/events/:id/close`.
+
 ## Interface
 
 Redesign completo do front-end, responsivo do celular ao computador, com tema

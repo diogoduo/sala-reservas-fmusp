@@ -127,6 +127,11 @@ export interface EventRequest {
   paymentValidatedByName: string | null;
   confirmedAt: string | null;
   confirmedByName: string | null;
+  /** Fase 16: encerramento depois do último dia ("Finalizado"), com o balanço. */
+  closedAt: string | null;
+  closedByName: string | null;
+  closingNotes: string | null;
+  actualAttendees: number | null;
   /** O orçamento mais recente emitido (só a versão e o total). */
   quotes?: { version: number; totalCents: number; status: QuoteStatus }[];
   cancelledAt: string | null;
@@ -168,14 +173,30 @@ export function spaceText(s: Pick<EventSpace, "count" | "minCapacity" | "priceCa
   return `${s.count > 1 ? `${s.count} × ` : ""}${name}${s.minCapacity ? ` (para ${s.minCapacity} pessoas)` : ""}`;
 }
 
-/** "Recebido" etc., e o "em andamento"/"finalizado" de um evento confirmado, pelas datas. */
-export function eventStatusText(e: Pick<EventRequest, "status" | "days">): string {
-  if (e.status !== "CONFIRMED") return EVENT_STATUS_LABELS[e.status];
+/** A fase de um evento confirmado: antes, durante, depois do último dia (falta encerrar) ou encerrado. */
+export type ConfirmedPhase = "UPCOMING" | "ONGOING" | "AWAITING_CLOSE" | "FINISHED";
+
+export function confirmedPhase(e: Pick<EventRequest, "status" | "days" | "closedAt">): ConfirmedPhase | null {
+  if (e.status !== "CONFIRMED") return null;
+  if (e.closedAt) return "FINISHED";
   const today = new Date().toLocaleDateString("en-CA");
   const keys = e.days.map((d) => d.date).sort();
-  if (keys.length && today > keys.at(-1)!) return "Finalizado";
-  if (keys.length && today >= keys[0]!) return "Em andamento";
-  return EVENT_STATUS_LABELS.CONFIRMED;
+  if (keys.length && today > keys.at(-1)!) return "AWAITING_CLOSE";
+  if (keys.length && today >= keys[0]!) return "ONGOING";
+  return "UPCOMING";
+}
+
+const PHASE_LABELS: Record<ConfirmedPhase, string> = {
+  UPCOMING: "Confirmado",
+  ONGOING: "Em andamento",
+  AWAITING_CLOSE: "Aguardando encerramento",
+  FINISHED: "Finalizado",
+};
+
+/** "Recebido" etc.; num evento confirmado, a fase (em andamento, aguardando encerramento, finalizado). */
+export function eventStatusText(e: Pick<EventRequest, "status" | "days" | "closedAt">): string {
+  const phase = confirmedPhase(e);
+  return phase ? PHASE_LABELS[phase] : EVENT_STATUS_LABELS[e.status];
 }
 
 // --- Fase 12: gestão do evento ------------------------------------------------
@@ -315,3 +336,66 @@ export function businessDaysFromToday(n: number): string {
 }
 
 export const dateTimeText = (iso: string) => new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+
+// --- Fase 16: organização do evento confirmado ----------------------------------
+
+export type EventPersonKind = "ORGANIZER" | "SPEAKER" | "PARTICIPANT";
+
+export interface EventPlanRow {
+  eventId: string;
+  buffetNeeded: boolean;
+  buffetDetails: string | null;
+  parkingNeeded: boolean;
+  parkingSpots: number | null;
+  parkingDetails: string | null;
+  structure: string | null;
+  equipment: string | null;
+  notes: string | null;
+  updatedAt: string;
+  updatedByName: string | null;
+}
+
+export interface ScheduleItemRow {
+  id: string;
+  date: string;
+  start: string;
+  end: string;
+  title: string;
+  location: string | null;
+  speaker: string | null;
+  notes: string | null;
+}
+
+export interface EventPersonRow {
+  id: string;
+  kind: EventPersonKind;
+  name: string;
+  affiliation: string | null;
+  contact: string | null;
+  notes: string | null;
+}
+
+export interface TaskRow {
+  id: string;
+  eventId: string | null;
+  title: string;
+  details: string | null;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  dueDate: string | null;
+  status: "OPEN" | "DONE";
+  doneAt: string | null;
+  doneByName: string | null;
+  createdByName: string;
+  createdAt: string;
+}
+
+export interface EventOrganizationData {
+  editable: boolean;
+  closable: boolean;
+  plan: EventPlanRow | null;
+  schedule: ScheduleItemRow[];
+  people: EventPersonRow[];
+  tasks: TaskRow[];
+  team: { id: string; name: string; role: string }[];
+}
