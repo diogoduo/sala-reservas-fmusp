@@ -205,3 +205,50 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Mapa 3D: os marcadores das salas e dos acessos (sobre o canvas). */
+.map-label {
+  transform: translateY(-50%);
+  white-space: nowrap;
+  border-radius: 9999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--foreground);
+  padding: 2px 8px 2px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+  cursor: pointer;
+  user-select: none;
+}
+.map-label::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-radius: 9999px;
+  background: #14b8a6;
+  vertical-align: 1px;
+}
+.map-label.map-state-free::before { background: #16a34a; }
+.map-label.map-state-busy::before { background: #dc2626; }
+.map-label.map-state-blocked::before { background: #94a3b8; }
+.map-label:hover { border-color: var(--primary); }
+.map-label-selected {
+  background: #7c3aed;
+  border-color: #7c3aed;
+  color: #fff;
+  font-size: 13px;
+  padding: 3px 10px 3px 8px;
+}
+.map-label-entrance {
+  cursor: default;
+  font-size: 10px;
+  font-weight: 600;
+  background: #e11d48;
+  border-color: #e11d48;
+  color: #fff;
+}
+.map-label-entrance::before { display: none; }

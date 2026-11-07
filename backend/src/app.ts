@@ -27,6 +27,7 @@ import { eventWorkflowRouter } from "./routes/event-workflow";
 import { authorizationsRouter } from "./routes/authorizations";
 import { eventOrganizationRouter } from "./routes/event-organization";
 import { eventPaymentRouter, settingsRouter } from "./routes/event-payment";
+import { campusMapRouter } from "./routes/campus-map";
 import { conversationsRouter } from "./routes/conversations";
 import { disciplinesRouter } from "./routes/disciplines";
 import { materialsRouter } from "./routes/materials";
@@ -78,6 +79,7 @@ export function createApp() {
   app.use("/api/materials", materialsRouter);
   app.use("/api/conversations", conversationsRouter);
   app.use("/api/disciplines", disciplinesRouter);
+  app.use("/api/campus-map", campusMapRouter);
   app.use("/api/authorizations", authorizationsRouter);
   app.use("/api/resources", resourcesRouter);
   app.use("/api/reservations", reservationsRouter);

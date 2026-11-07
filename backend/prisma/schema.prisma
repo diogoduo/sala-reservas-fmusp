@@ -169,6 +169,9 @@ model Room {
   usageRules            String? @map("usage_rules")
   /// Categoria de preço (Portaria 2794). Nula = valor a definir.
   priceCategoryId       String? @map("price_category_id") @db.Uuid
+  /// Mapa 3D: a posição da sala no andar do prédio (metros); vazia = posição automática.
+  mapX                Float?          @map("map_x")
+  mapY                Float?          @map("map_y")
   createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
 
   priceCategory PriceCategory? @relation(fields: [priceCategoryId], references: [id], onDelete: SetNull)
@@ -1150,4 +1153,47 @@ model DisciplineTeacher {
   @@id([disciplineId, userId])
   @@index([userId])
   @@map("discipline_teachers")
+}
+
+// ---------------------------------------------------------------------------
+// Mapa 3D da faculdade: os prédios (posição no campus, o contorno de cada andar
+// e os pontos de referência) e a posição de cada sala no andar dela.
+// ---------------------------------------------------------------------------
+
+/// Um prédio no mapa 3D. O nome é o mesmo do campo `building` das salas.
+model MapBuilding {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  /// Posição no campus, em metros.
+  x         Float    @default(0)
+  y         Float    @default(0)
+  color     String?
+  /// Contorno de cada andar: { "1º andar": [{ x, y, w, h, label }] }, em metros.
+  floors    Json
+  /// Escadas, elevadores, acessos: [{ floor ("*" = todos), kind, label, x, y }], em metros.
+  landmarks Json
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  plans MapFloorPlan[]
+
+  @@map("map_buildings")
+}
+
+/// A planta de um andar (imagem tratada: só as paredes, em branco sobre
+/// transparente), usada como piso no mapa 3D. Vem das plantas locais pelo
+/// npm run db:mapa; não fica no git.
+model MapFloorPlan {
+  id         String      @id @default(uuid()) @db.Uuid
+  buildingId String      @map("building_id") @db.Uuid
+  floor      String
+  image      Bytes
+  mimeType   String      @map("mime_type")
+  /// Onde a imagem fica no prédio: { x, y, w, h } em metros.
+  bounds     Json
+  updatedAt  DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  building MapBuilding @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+
+  @@unique([buildingId, floor])
+  @@map("map_floor_plans")
 }

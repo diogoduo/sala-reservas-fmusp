@@ -90,7 +90,9 @@ export type AuditAction =
   // Fase 19: disciplinas dos docentes
   | "discipline.import"
   | "discipline.unlink"
-  | "discipline.delete";
+  | "discipline.delete"
+  // Mapa 3D: posição da sala no andar
+  | "map.room_position";
 
 export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user" | "price" | "event" | "setting" | "task" | "handover" | "material";
 
