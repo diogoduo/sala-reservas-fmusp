@@ -44,9 +44,13 @@ function usePendingCount(enabled: boolean): number {
 
   useEffect(() => {
     if (!enabled) return;
+    // Reservas pendentes e os pedidos de evento que esperam o SAD (salas ou confirmação).
     const load = () =>
-      api<{ reservations: AdminReservation[] }>("/admin/reservations?status=PENDING")
-        .then((res) => setCount(groupBySeries(res.reservations).length))
+      Promise.all([
+        api<{ reservations: AdminReservation[] }>("/admin/reservations?status=PENDING"),
+        api<{ events: unknown[] }>("/events/sad-pending").catch(() => ({ events: [] })),
+      ])
+        .then(([res, events]) => setCount(groupBySeries(res.reservations).length + events.events.length))
         .catch(() => undefined);
     void load();
     return onReservationsChanged(load);

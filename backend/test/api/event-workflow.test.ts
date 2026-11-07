@@ -242,12 +242,17 @@ describe("Gestão do evento (Fase 12)", () => {
     await aluno.post(`/api/events/${id}/quotes/${quote.id}/decision`).send({ decision: "APPROVE" }).expect(200);
 
     const sad = await loginAs(app, "admin@fm.usp.br");
+    // Nas pendências do SAD (tela de Solicitações): primeiro pré-reservar, depois confirmar.
+    const sadAction = async () => (await sad.get("/api/events/sad-pending").expect(200)).body.events.find((e: { id: string }) => e.id === id)?.sadAction;
+    expect(await sadAction()).toBe("PRE_RESERVE");
     expect((await sad.post(`/api/events/${id}/confirm`).send({}).expect(409)).body.error.code).toBe("NO_RESERVATIONS");
     const [space] = (await sad.get(`/api/events/${id}/candidates`).expect(200)).body.spaces;
     await sad.post(`/api/events/${id}/pre-reserve`).send({ validUntil: inDays(5), allocations: [{ spaceId: space.spaceId, roomIds: [salaB.id] }] }).expect(200);
     // A etapa não volta para "Pré-reservado".
     expect((await prisma.event.findUniqueOrThrow({ where: { id } })).status).toBe("PAYMENT_VALIDATED");
+    expect(await sadAction()).toBe("CONFIRM");
     await sad.post(`/api/events/${id}/confirm`).send({}).expect(200);
+    expect(await sadAction()).toBeUndefined();
     expect(await prisma.reservation.count({ where: { eventId: id, status: "APPROVED", preReservedUntil: null } })).toBe(1);
   });
 

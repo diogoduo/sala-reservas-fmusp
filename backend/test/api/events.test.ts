@@ -139,6 +139,10 @@ describe("Solicitar evento (Fase 11)", () => {
     // Departamento da FMUSP, sem inscrição e sem patrocínio: pode ser isento (Art. 4º I).
     expect(detail.body.possiblyExempt).toBe(true);
     expect((await nucev.get("/api/events?status=SUBMITTED").expect(200)).body.events).toHaveLength(1);
+    // O pedido novo entra nas pendências do SAD, para pré-reservar.
+    const pending = (await nucev.get("/api/events/sad-pending").expect(200)).body.events;
+    expect(pending.map((e: { id: string; sadAction: string }) => [e.id, e.sadAction])).toEqual([[mine[0].id, "PRE_RESERVE"]]);
+    await outro.get("/api/events/sad-pending").expect(403);
   });
 
   it("cancelar antes da pré-reserva; depois de cancelado, não dá de novo", async () => {

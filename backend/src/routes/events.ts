@@ -212,6 +212,32 @@ eventsRouter.get(
   }),
 );
 
+/** Situações em que o evento ainda pode receber salas do SAD. */
+const ROOMS_OPEN: EventStatus[] = ["SUBMITTED", "IN_REVIEW", "CHANGES_REQUESTED", "QUOTE_SENT", "QUOTE_APPROVED", "PAYMENT_SUBMITTED", "PAYMENT_VALIDATED"];
+
+/**
+ * Os pedidos de evento que esperam o SAD, para as pendências da tela de
+ * Solicitações: sem salas ainda (pré-reservar) ou com o pagamento validado
+ * (confirmar a reserva).
+ */
+eventsRouter.get(
+  "/sad-pending",
+  requireStaff,
+  asyncHandler(async (_req, res) => {
+    await expireOverduePreReservations();
+    const events = await prisma.event.findMany({
+      where: { status: { in: ROOMS_OPEN } },
+      include: { ...eventInclude, _count: { select: { reservations: { where: { status: { in: ["PENDING", "APPROVED"] } } } } } },
+      orderBy: { createdAt: "asc" },
+    });
+    const pending = events.flatMap(({ _count, ...event }) => {
+      const sadAction = _count.reservations === 0 ? "PRE_RESERVE" : event.status === "PAYMENT_VALIDATED" ? "CONFIRM" : null;
+      return sadAction ? [{ ...serializeEvent(event), sadAction }] : [];
+    });
+    res.json({ events: pending });
+  }),
+);
+
 const listQuerySchema = z.object({
   status: z.nativeEnum(EventStatus).optional(),
   q: z.string().trim().min(1).max(200).optional(),

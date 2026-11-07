@@ -137,6 +137,11 @@ export interface EventRequest {
   spaces: EventSpace[];
 }
 
+/** Pedido de evento nas pendências do SAD: falta pré-reservar as salas ou confirmar a reserva. */
+export interface SadPendingEvent extends EventRequest {
+  sadAction: "PRE_RESERVE" | "CONFIRM";
+}
+
 export interface SpaceAvailability {
   candidates: number;
   days: { date: string; needed: number; free: number; suggestions: string[] }[];

@@ -116,7 +116,7 @@ function ReasonDialog({
 }
 
 /** O SAD escolhe as salas de cada pedido e a validade da pré-reserva. */
-function PreReserveDialog({ event, onClose, onDone }: { event: EventRequest; onClose: () => void; onDone: () => void }) {
+export function PreReserveDialog({ event, onClose, onDone }: { event: EventRequest; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
   const [spaces, setSpaces] = useState<CandidateSpace[] | null>(null);
   const [chosen, setChosen] = useState<Record<string, string[]>>({});

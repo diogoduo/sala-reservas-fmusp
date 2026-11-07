@@ -5,6 +5,8 @@ import {
   CalendarStarIcon,
   CheckCircleIcon,
   ClockCounterClockwiseIcon,
+  CoffeeIcon,
+  DoorOpenIcon,
   HammerIcon,
   HashIcon,
   HourglassMediumIcon,
@@ -29,6 +31,7 @@ import { ACTIVITY_TYPE_LABELS, ACTIVITY_TYPES, PRIORITY_LABELS, priorityOf } fro
 import { api } from "../../lib/api";
 import { useCanManage } from "../../lib/auth";
 import { formatDateTimeRange, formatShortDate, formatTimeRange, plural } from "../../lib/format";
+import { dayLabel, EVENT_STATUS_LABELS, EVENT_STATUS_TONES, eventPeriod, spaceText, type SadPendingEvent } from "../../lib/events";
 import { ACTIVITY_ICONS } from "../../lib/icons";
 import { reservationWarnings } from "../../lib/portarias";
 import { formatMinutes, isModifiedPending, notifyReservationsChanged, onReservationsChanged } from "../../lib/reservations";
@@ -42,6 +45,7 @@ import { CardListSkeleton, EmptyState } from "../ui/Feedback";
 import { Input, Select } from "../ui/Field";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Card, IconTile, PageHeader } from "../ui/Surface";
+import { PreReserveDialog } from "../events/EventManagement";
 import { AdminReservationActions, isAdminActionable } from "./ReservationActions";
 import { ReviewDrawer } from "./ReviewPanel";
 
@@ -118,6 +122,119 @@ function sortGroups(groups: AdminReservation[][], sort: Sort): AdminReservation[
   return [...groups].sort(compare);
 }
 
+// --- Pedidos de evento nas pendências do SAD ---------------------------------
+
+const eventFirstDay = (e: SadPendingEvent) => e.days.map((d) => d.date).sort()[0] ?? "";
+
+function sortEvents(events: SadPendingEvent[], sort: Sort): SadPendingEvent[] {
+  const created = (e: SadPendingEvent) => new Date(e.createdAt).getTime();
+  const soonest = (a: SadPendingEvent, b: SadPendingEvent) => eventFirstDay(a).localeCompare(eventFirstDay(b));
+  const compare = {
+    SOONEST: soonest,
+    // Todos os eventos são Cultura e Extensão: a mesma prioridade, então vale a data.
+    PRIORITY: soonest,
+    OLDEST_REQUEST: (a: SadPendingEvent, b: SadPendingEvent) => created(a) - created(b),
+    NEWEST_REQUEST: (a: SadPendingEvent, b: SadPendingEvent) => created(b) - created(a),
+  }[sort];
+  return [...events].sort(compare);
+}
+
+/** Um pedido de evento esperando o SAD: escolher e pré-reservar as salas, ou confirmar a reserva. */
+function EventPendingCard({
+  event,
+  canManage,
+  onPreReserve,
+  onChanged,
+}: {
+  event: SadPendingEvent;
+  canManage: boolean;
+  onPreReserve: () => void;
+  onChanged: () => void;
+}) {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const days = [...event.days].sort((a, b) => a.date.localeCompare(b.date));
+  const first = days[0];
+
+  async function confirm() {
+    setBusy(true);
+    try {
+      await api(`/events/${event.id}/confirm`, { method: "POST", body: "{}" });
+      toast.success("Reserva confirmada", "Quem pediu foi avisado por e-mail.");
+      onChanged();
+    } catch (e) {
+      toast.error("Não foi possível confirmar.", e instanceof Error ? e.message : undefined);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="p-4 transition-shadow duration-200 hover:shadow-md sm:p-5">
+      <div className="flex items-start gap-4">
+        <IconTile icon={CalendarStarIcon} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+            <h2 className="min-w-0 text-base font-semibold sm:text-lg">{event.title}</h2>
+            <div className="flex flex-wrap gap-1.5">
+              <Badge tone={EVENT_STATUS_TONES[event.status]}>{EVENT_STATUS_LABELS[event.status]}</Badge>
+              <Badge tone="primary" icon={CalendarStarIcon}>
+                Evento
+              </Badge>
+            </div>
+          </div>
+          <p className="mt-1 flex min-w-0 items-center gap-2 text-sm text-muted">
+            <Avatar name={event.user.name} size="sm" className="size-6 text-[10px]" />
+            <span className="truncate">
+              {event.user.name} · {event.user.email}
+            </span>
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Chip icon={HashIcon}>Protocolo {event.protocol}</Chip>
+        {first && (
+          <Chip icon={CalendarBlankIcon}>
+            {days.length === 1 ? `${dayLabel(first.date)} · ${first.start}–${first.end}` : `${days.length} dias · ${eventPeriod(days)}`}
+          </Chip>
+        )}
+        <Chip icon={UsersIcon}>{plural(event.expectedAttendees, "pessoa", "pessoas")}</Chip>
+        <Chip icon={MapPinIcon}>{plural(event.spaces.length, "pedido de espaço", "pedidos de espaço")}</Chip>
+        {event.coffeeBreak && <Chip icon={CoffeeIcon}>Coffee break{event.coffeeAttendees ? ` · ${event.coffeeAttendees} pessoas` : ""}</Chip>}
+        <Chip icon={CalendarStarIcon}>{ACTIVITY_TYPE_LABELS.CULTURE_EXTENSION}</Chip>
+      </div>
+
+      <p className="mt-3 line-clamp-2 text-sm text-muted">
+        <span className="font-medium text-foreground">Espaços pedidos:</span> {event.spaces.map(spaceText).join(" · ")}
+      </p>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+        <p className="text-xs text-muted">
+          {event.sadAction === "PRE_RESERVE" ? "Falta o SAD escolher as salas" : "Pagamento validado: falta confirmar a reserva"} · enviado em{" "}
+          {new Date(event.createdAt).toLocaleDateString("pt-BR")}
+        </p>
+        <div className="flex flex-wrap items-center gap-1">
+          <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/eventos/${event.id}`)}>
+            Abrir o evento
+          </Button>
+          {canManage && event.sadAction === "PRE_RESERVE" && (
+            <Button size="sm" icon={DoorOpenIcon} onClick={onPreReserve}>
+              Pré-reservar
+            </Button>
+          )}
+          {canManage && event.sadAction === "CONFIRM" && (
+            <Button size="sm" icon={CheckCircleIcon} loading={busy} onClick={() => void confirm()}>
+              Confirmar a reserva
+            </Button>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 type ActiveSuspension = Sanction & { user: { id: string; name: string; email: string } };
 
 /** Solicitantes com novas reservas suspensas (Portaria 2793, Arts. 9º §2º, 11, 17 e 22). */
@@ -185,12 +302,19 @@ export function RequestsAdmin() {
   const [sort, setSort] = useState<Sort>("SOONEST");
   const [period, setPeriod] = useState<Period>("ALL");
   const [activity, setActivity] = useState<ActivityType | "">("");
+  const [events, setEvents] = useState<SadPendingEvent[]>([]);
+  const [preReserving, setPreReserving] = useState<SadPendingEvent | null>(null);
 
   // Carrega tudo de uma vez: os filtros e as contagens ficam instantâneos.
   async function load() {
     try {
-      const { reservations: list } = await api<{ reservations: AdminReservation[] }>("/admin/reservations");
+      const [{ reservations: list }, pending] = await Promise.all([
+        api<{ reservations: AdminReservation[] }>("/admin/reservations"),
+        // Pedidos de evento esperando o SAD (pré-reserva ou confirmação), nas Pendentes.
+        api<{ events: SadPendingEvent[] }>("/events/sad-pending").catch(() => ({ events: [] as SadPendingEvent[] })),
+      ]);
       setReservations(list);
+      setEvents(pending.events);
     } catch (e) {
       toast.error("Não foi possível carregar as solicitações.", e instanceof Error ? e.message : undefined);
       setReservations([]);
@@ -229,6 +353,21 @@ export function RequestsAdmin() {
     }),
     sort,
   );
+  const visibleEvents =
+    status !== "PENDING"
+      ? []
+      : sortEvents(
+          events.filter((e) => {
+            if (needle && !`${e.protocol} ${e.title} ${e.user.name} ${e.user.email}`.toLowerCase().includes(needle)) return false;
+            if (activity && activity !== "CULTURE_EXTENSION") return false;
+            if (horizon !== null) {
+              const day = new Date(`${eventFirstDay(e)}T12:00:00`).getTime();
+              if (day < now - 86_400_000 || day > horizon) return false;
+            }
+            return true;
+          }),
+          sort,
+        );
   const filtered = Boolean(needle || activity || period !== "ALL");
   const openGroup = openKey ? statusGroups.find((g) => groupKey(g) === openKey) : undefined;
   const filter = STATUS_FILTERS.find((f) => f.value === status)!;
@@ -261,7 +400,12 @@ export function RequestsAdmin() {
             setStatus(value);
             setOpenKey(null);
           }}
-          options={STATUS_FILTERS.map((f) => ({ value: f.value, label: f.label, icon: f.icon, count: groupsByStatus(f.value).length }))}
+          options={STATUS_FILTERS.map((f) => ({
+            value: f.value,
+            label: f.label,
+            icon: f.icon,
+            count: groupsByStatus(f.value).length + (f.value === "PENDING" ? events.length : 0),
+          }))}
         />
         <div className="relative lg:w-72">
           <Input
@@ -300,7 +444,7 @@ export function RequestsAdmin() {
       </div>
       {filtered && (
         <p className="text-sm text-muted" aria-live="polite">
-          {plural(groups.length, "solicitação", "solicitações")} com esses filtros ·{" "}
+          {plural(groups.length + visibleEvents.length, "solicitação", "solicitações")} com esses filtros ·{" "}
           <button
             type="button"
             className="font-medium text-primary hover:underline"
@@ -317,13 +461,42 @@ export function RequestsAdmin() {
 
       {reservations === null ? (
         <CardListSkeleton />
-      ) : groups.length === 0 ? (
+      ) : groups.length === 0 && visibleEvents.length === 0 ? (
         <EmptyState
           icon={filtered ? MagnifyingGlassIcon : TrayIcon}
           title={filtered ? "Nada encontrado" : `Sem solicitações ${filter.label.toLowerCase()}`}
           description={filtered ? `Nenhuma solicitação ${filter.label.toLowerCase().replace(/s$/, "")} com esses filtros.` : filter.empty}
         />
       ) : (
+        <div className="space-y-6">
+          {visibleEvents.length > 0 && (
+            <section className="space-y-3" aria-labelledby="pending-events">
+              <div>
+                <h2 id="pending-events" className="text-sm font-semibold">
+                  Pedidos de evento
+                </h2>
+                <p className="text-sm text-muted">Escolha as salas e pré-reserve. O orçamento e o pagamento seguem na página do evento.</p>
+              </div>
+              <ul className="space-y-4">
+                {visibleEvents.map((e, index) => (
+                  <li key={e.id} className="animate-fade-in-up" style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}>
+                    <EventPendingCard
+                      event={e}
+                      canManage={canManage}
+                      onPreReserve={() => setPreReserving(e)}
+                      onChanged={() => {
+                        notifyReservationsChanged();
+                        void load();
+                      }}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {groups.length > 0 && (
+            <section className="space-y-3" aria-label="Reservas">
+              {visibleEvents.length > 0 && <h2 className="text-sm font-semibold">Reservas</h2>}
         <ul className="space-y-4">
           {groups.map((group, index) => {
             const first = group[0]!;
@@ -452,6 +625,21 @@ export function RequestsAdmin() {
             );
           })}
         </ul>
+            </section>
+          )}
+        </div>
+      )}
+
+      {preReserving && (
+        <PreReserveDialog
+          event={preReserving}
+          onClose={() => setPreReserving(null)}
+          onDone={() => {
+            setPreReserving(null);
+            notifyReservationsChanged();
+            void load();
+          }}
+        />
       )}
 
       {openGroup && (
