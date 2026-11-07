@@ -1140,6 +1140,44 @@ Além das abas por situação (Pendentes, Alteradas, Aprovadas…) e da busca:
 - As salas de um evento aparecem num cartão só, com o selo **Evento** (ou
   "Evento · pré-reserva") e o botão **Abrir o evento**: mudam pela tela do
   evento.
+- **Pedidos de evento nas Pendentes:** os eventos que esperam o SAD aparecem
+  no topo da aba Pendentes. Sem salas ainda, com **Pré-reservar** (abre a
+  escolha das salas ali mesmo); com o pagamento validado, com **Confirmar a
+  reserva** (`GET /api/events/sad-pending`). O contador do menu os soma.
+
+## Fase 15 — Agenda geral SAD + NUCEV e painel da TV
+
+**Agenda geral** (`/admin/agenda`): além do **Dia** (reservas do dia e linha
+do tempo das salas), as visões **Semana** e **Mês** mostram reservas e eventos
+juntos. O evento aparece uma vez por dia, com as salas dele.
+
+- Cor por situação: aprovada ou evento confirmado, pendente ou evento em
+  andamento, alterada, cancelada, rejeitada. O evento tem um ícone próprio.
+- Filtros por situação, por **espaço** e por **pessoa** (solicitante, quem
+  analisou ou o responsável no NUCEV), e só reservas ou só eventos. Um resumo
+  mostra quantas reservas, eventos e pendências há no período.
+- Clicar numa reserva abre o painel dela sem sair da visão. Clicar num evento
+  abre a página do evento, e clicar no número do dia abre a visão do dia.
+- No celular, os dias viram uma lista.
+- API: `GET /api/admin/agenda/range?from=&to=` (até 42 dias). As salas do
+  evento vêm dentro do evento, não como reservas soltas.
+
+**Painel da TV** (para a TV em frente ao SAD): o SAD clica em **Agenda →
+Painel da TV**, gera um **link secreto** e abre o link no navegador da TV,
+sem login. O link pode ser trocado (o anterior para de funcionar na hora) ou
+desativado, e as duas ações ficam no Histórico.
+
+- Tela escura e letras grandes: relógio, **Acontecendo agora** (com a barra
+  de progresso), **Próximas** e **salas livres agora**. Quando a lista não
+  cabe, as páginas giram sozinhas.
+- Atualiza a cada minuto. Sem conexão, mantém os últimos dados e avisa. Pede
+  ao navegador para não apagar a tela e tem o botão **Tela cheia**.
+- **Não mostra nome nem e-mail de ninguém:** só atividade, horário, espaço e
+  situação (confirmada, aguardando aprovação ou pré-reserva).
+- Na demonstração, o código de acesso do site vale também na TV: digita-se uma
+  vez e ele vale por 30 dias.
+- API: `GET/POST/DELETE /api/settings/tv` (o SAD gera, troca ou desativa; o
+  NUCEV vê) e `GET /api/tv/:token` (o painel, sem login).
 
 ## Interface
 

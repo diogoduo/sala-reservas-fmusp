@@ -17,6 +17,7 @@ import { RegulationPage } from "./components/regulation/Regulation";
 import { MyReservations } from "./components/solicitante/MyReservations";
 import { AdminEditReservationPage, AdminNewReservationPage, EditReservationPage, ReservationPage } from "./components/solicitante/ReservationForm";
 import { RoomSearch } from "./components/solicitante/RoomSearch";
+import { TvPanel } from "./components/tv/TvPanel";
 import { LogoMark } from "./components/ui/Logo";
 import { canRequestActivity } from "./lib/permissions";
 import { useAuth } from "./lib/auth";
@@ -30,6 +31,15 @@ export default function App() {
     return (
       <Routes>
         <Route path="/autorizacao/:token" element={<AuthorizationPage />} />
+      </Routes>
+    );
+  }
+
+  // Painel da TV em frente ao SAD (Fase 15): abre pelo link secreto, sem login.
+  if (location.pathname.startsWith("/tv/")) {
+    return (
+      <Routes>
+        <Route path="/tv/:token" element={<TvPanel />} />
       </Routes>
     );
   }

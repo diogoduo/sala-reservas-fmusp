@@ -65,9 +65,12 @@ export type AuditAction =
   | "event.payment_refuse"
   | "event.confirm"
   // Textos editáveis pela equipe (orientações de pagamento)
-  | "settings.update";
+  | "settings.update"
+  // Fase 15: link do painel da TV
+  | "tv.link_create"
+  | "tv.link_disable";
 
-export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user" | "price" | "event";
+export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user" | "price" | "event" | "setting";
 
 /** Quem fez a ação. `null` = o próprio sistema. */
 export type AuditActor = { id: string; name: string } | null;

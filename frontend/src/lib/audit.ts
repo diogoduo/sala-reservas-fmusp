@@ -18,6 +18,7 @@ import {
   PencilSimpleLineIcon,
   ProhibitIcon,
   ScrollIcon,
+  TelevisionIcon,
   TrashIcon,
   UserMinusIcon,
   UserPlusIcon,
@@ -61,6 +62,7 @@ export const AUDIT_ENTITY_LABELS: Record<AuditEntityType, string> = {
   sanction: "Sanções",
   price: "Preços",
   event: "Eventos",
+  setting: "Configurações",
 };
 
 interface ActionMeta {
@@ -106,6 +108,8 @@ const ACTIONS: Record<string, ActionMeta> = {
   "price.category_create": { label: "Categoria de preço criada", tone: "success", icon: CurrencyCircleDollarIcon },
   "price.category_update": { label: "Categoria de preço alterada", tone: "info", icon: CurrencyCircleDollarIcon },
   "settings.update": { label: "Orientações de pagamento alteradas", tone: "info", icon: CurrencyCircleDollarIcon },
+  "tv.link_create": { label: "Link do painel da TV gerado", tone: "info", icon: TelevisionIcon },
+  "tv.link_disable": { label: "Link do painel da TV desativado", tone: "neutral", icon: TelevisionIcon },
   "event.request": { label: "Evento pedido", tone: "info", icon: CalendarStarIcon },
   "event.cancel": { label: "Evento cancelado pelo solicitante", tone: "neutral", icon: ProhibitIcon },
   "event.review": { label: "Análise iniciada (NUCEV)", tone: "info", icon: CalendarStarIcon },

@@ -18,6 +18,7 @@ import {
   PlusIcon,
   ProhibitIcon,
   SquaresFourIcon,
+  TelevisionIcon,
   UserMinusIcon,
   UsersIcon,
   WarningIcon,
@@ -47,6 +48,7 @@ import { Input } from "../ui/Field";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Card, PageHeader } from "../ui/Surface";
 import { AgendaRange } from "./AgendaRange";
+import { TvLinkDialog } from "./TvLinkDialog";
 import { AdminReservationActions, NoShowButton } from "./ReservationActions";
 import { RequestDetails, ReviewDrawer } from "./ReviewPanel";
 
@@ -446,6 +448,7 @@ export function AgendaAdmin() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [status, setStatus] = useState<StatusFilter>("ALL");
   const [reviewing, setReviewing] = useState<AdminReservation | null>(null);
+  const [tvOpen, setTvOpen] = useState(false);
   const month = date.slice(0, 7);
 
   const setDate = (key: string) => setParams(withView({ data: key }), { replace: true });
@@ -492,12 +495,18 @@ export function AgendaAdmin() {
         description="Reservas e eventos do SAD e do NUCEV por dia, semana ou mês, com as salas ocupadas e livres."
         actions={
           canManage ? (
-            <Button icon={CalendarPlusIcon} onClick={() => navigate(newReservationUrl())}>
-              Nova reserva
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" icon={TelevisionIcon} onClick={() => setTvOpen(true)}>
+                Painel da TV
+              </Button>
+              <Button icon={CalendarPlusIcon} onClick={() => navigate(newReservationUrl())}>
+                Nova reserva
+              </Button>
+            </div>
           ) : undefined
         }
       />
+      {tvOpen && <TvLinkDialog onClose={() => setTvOpen(false)} />}
 
       <SegmentedControl label="Visão" value={view} onChange={setView} options={VIEW_OPTIONS} />
 
