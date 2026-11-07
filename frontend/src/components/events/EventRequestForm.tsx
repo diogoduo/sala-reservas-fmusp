@@ -12,6 +12,7 @@ import { QuoteBreakdown } from "../quotes/QuoteBreakdown";
 import { Button, IconButton } from "../ui/Button";
 import { Alert } from "../ui/Feedback";
 import { Input, Select, Switch, Textarea } from "../ui/Field";
+import { TimeInput } from "../ui/TimeInput";
 import { Card, PageHeader } from "../ui/Surface";
 
 // Fase 11 — "Solicitar evento", em etapas: o evento → os dias → os espaços →
@@ -433,8 +434,8 @@ export function EventRequestForm() {
               <li key={i} className="space-y-2 rounded-xl border border-border p-3">
                 <div className="flex flex-wrap items-end gap-2">
                   <Input label="Data" type="date" value={d.date} onChange={(e) => setDay(i, { date: e.target.value })} containerClassName="w-40" />
-                  <Input label="Início" type="time" step={900} value={d.start} onChange={(e) => setDay(i, { start: e.target.value })} containerClassName="w-28" />
-                  <Input label="Término" type="time" step={900} value={d.end} onChange={(e) => setDay(i, { end: e.target.value })} containerClassName="w-28" />
+                  <TimeInput label="Início" value={d.start} onChange={(v) => setDay(i, { start: v })} containerClassName="w-28" />
+                  <TimeInput label="Término" value={d.end} onChange={(v) => setDay(i, { end: v })} after={d.start} containerClassName="w-28" />
                   <Select label="Montagem" value={d.setupMinutes} onChange={(e) => setDay(i, { setupMinutes: e.target.value })} containerClassName="w-32">
                     {[0, 30, 60, 90, 120, 180, 240].map((m) => (
                       <option key={m} value={m}>

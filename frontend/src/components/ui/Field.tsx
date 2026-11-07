@@ -3,7 +3,7 @@ import { useId, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttribu
 import { cn } from "../../lib/cn";
 
 // text-base no celular (16px evita o zoom automático do iOS ao focar), text-sm a partir de sm.
-const controlClass = cn(
+export const controlClass = cn(
   "w-full rounded-lg border border-border-strong bg-surface px-3 text-base text-foreground shadow-xs sm:text-sm",
   "transition-[border-color,box-shadow] duration-150 placeholder:text-muted/70",
   "focus:border-primary focus:ring-4 focus:ring-primary/15 focus:outline-none",
@@ -11,19 +11,19 @@ const controlClass = cn(
   "aria-[invalid=true]:border-danger aria-[invalid=true]:focus:ring-danger/15",
 );
 
-interface FieldProps {
+export interface FieldProps {
   label?: ReactNode;
   hint?: ReactNode;
   error?: string;
   containerClassName?: string;
 }
 
-function describedBy(id: string, hint: ReactNode, error: string | undefined) {
+export function describedBy(id: string, hint: ReactNode, error: string | undefined) {
   if (error) return `${id}-erro`;
   return hint ? `${id}-dica` : undefined;
 }
 
-function FieldShell({
+export function FieldShell({
   id,
   label,
   required,

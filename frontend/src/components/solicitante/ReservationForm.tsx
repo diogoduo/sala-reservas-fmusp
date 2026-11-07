@@ -54,6 +54,7 @@ import { RoomsPreview } from "../rooms/RoomsPreview";
 import { Button } from "../ui/Button";
 import { Alert, CardListSkeleton, EmptyState } from "../ui/Feedback";
 import { Input, Select, Switch, Textarea } from "../ui/Field";
+import { TimeInput } from "../ui/TimeInput";
 import { QuantityStepper } from "../ui/QuantityStepper";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Card, IconTile, PageHeader } from "../ui/Surface";
@@ -829,8 +830,8 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
           >
             <div className="grid gap-4 sm:grid-cols-3">
               <Input label="Data" type="date" required value={date} min={asAdmin ? todayPlus(0) : todayPlus(3)} onChange={(e) => setDate(e.target.value)} />
-              <Input label="Início" type="time" required step={300} value={startTimeStr} onChange={(e) => setStartTimeStr(e.target.value)} />
-              <Input label="Término" type="time" required step={300} value={endTimeStr} onChange={(e) => setEndTimeStr(e.target.value)} />
+              <TimeInput label="Início" required value={startTimeStr} onChange={setStartTimeStr} />
+              <TimeInput label="Término" required value={endTimeStr} onChange={setEndTimeStr} after={startTimeStr} />
             </div>
 
             <div className="mt-4 grid gap-4 sm:grid-cols-3">
