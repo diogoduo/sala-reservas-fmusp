@@ -97,10 +97,11 @@ eventWorkflowRouter.post(
   asyncHandler(async (req, res) => {
     const event = await loadEvent(req.params.id!);
     assertStatus(event, ["SUBMITTED", "CHANGES_REQUESTED"], "A análise já começou.");
-    await prisma.$transaction(async (tx) => {
+    const assigneeName = event.assigneeName ?? req.user!.name;
+    const noticeId = await prisma.$transaction(async (tx) => {
       await tx.event.update({
         where: { id: event.id },
-        data: { status: "IN_REVIEW", assigneeId: event.assigneeId ?? req.user!.id, assigneeName: event.assigneeName ?? req.user!.name },
+        data: { status: "IN_REVIEW", assigneeId: event.assigneeId ?? req.user!.id, assigneeName },
       });
       await recordAudit(tx, {
         actor: req.user!,
@@ -110,7 +111,23 @@ eventWorkflowRouter.post(
         label: label(event),
         changes: { status: { from: event.status, to: "IN_REVIEW" } },
       });
+      const notice = await queueNotice(tx, {
+        eventId: event.id,
+        to: [event.user.email],
+        subject: `Pedido em análise: ${event.title}`,
+        heading: "Pedido em análise",
+        paragraphs: [
+          event.status === "CHANGES_REQUESTED"
+            ? `O NUCEV retomou a análise do evento ${event.protocol} para atender ao seu pedido de alteração.`
+            : `O NUCEV começou a analisar o pedido ${event.protocol}.`,
+          "O próximo passo é a pré-reserva dos espaços e o orçamento.",
+        ],
+        details: [["Responsável", assigneeName]],
+        path: requesterPath(event.id),
+      });
+      return notice.id;
     });
+    deliverNotices([noticeId]);
     res.json({ ok: true });
   }),
 );
@@ -283,7 +300,7 @@ eventWorkflowRouter.post(
     const { reason } = reasonSchema.parse(req.body);
     const event = await loadEvent(req.params.id!);
     assertStatus(event, ["PRE_RESERVED", "QUOTE_SENT", "CHANGES_REQUESTED", "QUOTE_APPROVED"], "Não há pré-reserva para liberar.");
-    await prisma.$transaction(async (tx) => {
+    const noticeId = await prisma.$transaction(async (tx) => {
       const released = await releaseReservations(tx, event.id, req.user!.id, `Pré-reserva liberada pelo SAD: ${reason}`);
       await tx.event.update({ where: { id: event.id }, data: { status: "IN_REVIEW", preReservedUntil: null } });
       await recordAudit(tx, {
@@ -295,7 +312,20 @@ eventWorkflowRouter.post(
         changes: { status: { from: event.status, to: "IN_REVIEW" } },
         details: { reason, reservations: released.count },
       });
+      const notice = await queueNotice(tx, {
+        eventId: event.id,
+        to: [event.user.email],
+        subject: `Pré-reserva liberada: ${event.title}`,
+        heading: "Pré-reserva liberada",
+        paragraphs: [
+          `O SAD liberou os espaços pré-reservados do evento ${event.protocol}, e o pedido voltou para análise.`,
+          `Motivo: ${reason}`,
+        ],
+        path: requesterPath(event.id),
+      });
+      return notice.id;
     });
+    deliverNotices([noticeId]);
     res.json({ ok: true });
   }),
 );

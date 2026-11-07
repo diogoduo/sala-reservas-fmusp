@@ -75,6 +75,9 @@ describe("Gestão do evento (Fase 12)", () => {
     await nucev.post(`/api/events/${eventId}/review`).expect(200);
     const event = await prisma.event.findUniqueOrThrow({ where: { id: eventId } });
     expect(event).toMatchObject({ status: "IN_REVIEW", assigneeName: "vanessa" });
+    // Quem pediu fica sabendo que a análise começou.
+    const notice = await prisma.eventNotice.findFirstOrThrow({ where: { eventId, subject: { startsWith: "Pedido em análise" } } });
+    expect(notice.to).toEqual(["aluno@usp.br"]);
     await nucev.post(`/api/events/${eventId}/pre-reserve`).send({ validUntil: inDays(10), allocations: [] }).expect(403);
   });
 

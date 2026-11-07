@@ -27,6 +27,9 @@ import { assertMinAdvance } from "../reservations/rules";
 // quem tem essa permissão.
 export const eventsRouter = Router();
 
+/** "2026-11-20" → "20/11/2026". */
+const brDate = (key: string) => key.split("-").reverse().join("/");
+
 const eventInclude = {
   user: { select: { id: true, name: true, email: true } },
   quotes: { orderBy: { version: "desc" }, take: 1, select: { version: true, totalCents: true, status: true } },
@@ -105,7 +108,7 @@ eventsRouter.post(
     const institutional = INSTITUTIONAL_ENTITIES.includes(input.entity);
     const estimate = await estimateFor(input, institutional);
 
-    const event = await prisma.$transaction(async (tx) => {
+    const { event, noticeIds } = await prisma.$transaction(async (tx) => {
       const created = await tx.event.create({
         data: {
           protocol: await nextEventProtocol(tx),
@@ -164,8 +167,36 @@ eventsRouter.post(
           estimateCents: estimate?.quote.totalCents ?? null,
         },
       });
-      return created;
+      // Quem pediu recebe a confirmação; o NUCEV e o SAD, o aviso do pedido novo.
+      const summary: [string, string][] = [
+        ["Protocolo", created.protocol],
+        ["Datas", input.days.map((d) => d.date).sort().map(brDate).join(", ")],
+        ["Participantes", String(created.expectedAttendees)],
+      ];
+      const received = await queueNotice(tx, {
+        eventId: created.id,
+        to: [created.user.email],
+        subject: `Pedido de evento recebido: ${created.title}`,
+        heading: "Recebemos o seu pedido de evento",
+        paragraphs: [
+          `O pedido ${created.protocol} chegou ao NUCEV, que vai analisá-lo.`,
+          "Você recebe um e-mail a cada etapa: análise, pré-reserva dos espaços, orçamento, pagamento e confirmação.",
+        ],
+        details: summary,
+        path: `/eventos/${created.id}`,
+      });
+      const staff = await queueNotice(tx, {
+        eventId: created.id,
+        to: await staffEmails(tx, { withSad: true }),
+        subject: `Novo pedido de evento: ${created.title}`,
+        heading: "Novo pedido de evento",
+        paragraphs: [`${created.user.name} pediu o evento ${created.protocol}.`],
+        details: [...summary, ["Entidade", created.entity]],
+        path: `/admin/eventos/${created.id}`,
+      });
+      return { event: created, noticeIds: [received.id, staff.id] };
     });
+    deliverNotices(noticeIds);
 
     res.status(201).json({ event: serializeEvent(event) });
   }),
@@ -263,8 +294,8 @@ eventsRouter.post(
     if (!REQUESTER_CANCELLABLE.includes(event.status)) {
       throw new AppError(409, "EVENT_NOT_CANCELLABLE", "Este evento não pode mais ser cancelado por aqui. Fale com o NUCEV.");
     }
-    const { updated, noticeId } = await prisma.$transaction(async (tx) => {
-      await tx.reservation.updateMany({
+    const { updated, noticeIds } = await prisma.$transaction(async (tx) => {
+      const released = await tx.reservation.updateMany({
         where: { eventId: event.id, status: { in: ["PENDING", "APPROVED"] } },
         data: { status: "CANCELLED", cancelledAt: new Date(), cancelledById: req.user!.id, cancellationReason: "Evento cancelado pelo solicitante." },
       });
@@ -290,9 +321,21 @@ eventsRouter.post(
         paragraphs: [`${event.user.name} cancelou o evento ${event.protocol}.`, ...(reason ? [`Motivo: ${reason}`] : [])],
         path: `/admin/eventos/${event.id}`,
       });
-      return { updated: after, noticeId: notice.id };
+      // Quem cancelou recebe a confirmação, como nas reservas.
+      const confirmation = await queueNotice(tx, {
+        eventId: event.id,
+        to: [event.user.email],
+        subject: `Cancelamento registrado: ${event.title}`,
+        heading: "Evento cancelado",
+        paragraphs: [
+          `O cancelamento do evento ${event.protocol} foi registrado.`,
+          ...(released.count > 0 ? ["Os espaços pré-reservados foram liberados para outras solicitações."] : []),
+        ],
+        path: `/eventos/${event.id}`,
+      });
+      return { updated: after, noticeIds: [notice.id, confirmation.id] };
     });
-    deliverNotices([noticeId]);
+    deliverNotices(noticeIds);
     res.json({ event: serializeEvent(updated) });
   }),
 );

@@ -115,6 +115,14 @@ describe("Solicitar evento (Fase 11)", () => {
 
     const [entry] = await prisma.auditLog.findMany({ where: { action: "event.request" } });
     expect(entry).toMatchObject({ entityType: "event", entityId: body.event.protocol });
+
+    // E-mails: a confirmação para quem pediu e o aviso para o NUCEV e o SAD.
+    const notices = await prisma.eventNotice.findMany({ where: { eventId: body.event.id } });
+    const received = notices.find((n) => n.subject === "Pedido de evento recebido: Jornada de Teste");
+    const staff = notices.find((n) => n.subject === "Novo pedido de evento: Jornada de Teste");
+    expect(received?.to).toEqual(["aluno@usp.br"]);
+    expect(received?.body).toContain(body.event.protocol);
+    expect(staff?.to.sort()).toEqual(["admin@fm.usp.br", "vanessa@fm.usp.br"]);
   });
 
   it("o solicitante vê os seus; outra pessoa não; o NUCEV e o SAD veem todos", async () => {
@@ -138,6 +146,8 @@ describe("Solicitar evento (Fase 11)", () => {
     const [event] = (await agent.get("/api/events/mine")).body.events;
     const res = await agent.post(`/api/events/${event.id}/cancel`).send({ reason: "Mudou a data" }).expect(200);
     expect(res.body.event.status).toBe("CANCELLED");
+    const confirmation = await prisma.eventNotice.findFirstOrThrow({ where: { eventId: event.id, subject: { startsWith: "Cancelamento registrado" } } });
+    expect(confirmation.to).toEqual(["aluno@usp.br"]);
     await agent.post(`/api/events/${event.id}/cancel`).send({}).expect(409);
   });
 
