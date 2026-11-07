@@ -44,6 +44,24 @@ disciplinesRouter.get(
   }),
 );
 
+/**
+ * O formulário de reserva busca pelo código para preencher o resto: o nome, o
+ * departamento e os docentes (só o nome, sem e-mail). null = fora do cadastro.
+ */
+disciplinesRouter.get(
+  "/lookup/:code",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const code = String(req.params.code ?? "").toUpperCase().replace(/\s/g, "");
+    if (!/^[A-Z]{3}\d{4}$/.test(code)) throw new AppError(400, "VALIDATION_ERROR", "Código inválido: 3 letras e 4 números, ex.: MCM0101.");
+    const d = await prisma.discipline.findUnique({
+      where: { code },
+      include: { teachers: { include: { user: { select: { name: true } } }, orderBy: { createdAt: "asc" } } },
+    });
+    res.json({ discipline: d ? { code: d.code, name: d.name, department: d.department, level: d.level, teachers: d.teachers.map((t) => t.user.name) } : null });
+  }),
+);
+
 disciplinesRouter.get(
   "/",
   requireStaff,

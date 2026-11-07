@@ -35,6 +35,15 @@ describe("Disciplinas dos docentes (Fase 19)", () => {
     ]);
   });
 
+  it("qualquer pessoa logada busca a disciplina pelo código (nome, departamento e docentes)", async () => {
+    const secretaria = await loginAs(app, "secretaria@fm.usp.br");
+    const docente = await prisma.user.findUniqueOrThrow({ where: { email: "docente@fm.usp.br" } });
+    const { body } = await secretaria.get("/api/disciplines/lookup/mcm0101").expect(200);
+    expect(body.discipline).toEqual({ code: "MCM0101", name: "Clínica Médica", department: "Clínica Médica", level: "UNDERGRADUATE", teachers: [docente.name] });
+    expect((await secretaria.get("/api/disciplines/lookup/ABC9999").expect(200)).body.discipline).toBeNull();
+    await secretaria.get("/api/disciplines/lookup/XX").expect(400);
+  });
+
   it("o docente pede só para as disciplinas dele", async () => {
     const docente = await loginAs(app, "docente@fm.usp.br");
     expect((await docente.get("/api/disciplines/mine").expect(200)).body.disciplines.map((d: { code: string }) => d.code)).toEqual(["MCM0101", "PGD5000"]);

@@ -1,4 +1,5 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { CheckCircleIcon } from "@phosphor-icons/react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import {
@@ -110,6 +111,65 @@ function useMyDisciplines(enabled: boolean) {
   return list;
 }
 
+interface CatalogDiscipline {
+  code: string;
+  name: string;
+  department: string | null;
+  level: "UNDERGRADUATE" | "GRADUATE";
+  /** Nomes dos docentes ligados. */
+  teachers: string[];
+}
+
+const DISCIPLINE_CODE = /^[A-Z]{3}\d{4}$/;
+const LEVEL_LABEL = { UNDERGRADUATE: "Graduação", GRADUATE: "Pós-Graduação" } as const;
+
+/**
+ * Com o código completo, busca a disciplina no cadastro do SAD e preenche o
+ * nome, o departamento e o responsável (os docentes ligados). Só mexe em campo
+ * vazio ou que ela mesma preencheu: o que a pessoa digitou fica.
+ */
+function useDisciplineAutofill(enabled: boolean, values: DetailValues, onChange: Props["onChange"]) {
+  const code = typeof values.disciplineCode === "string" ? values.disciplineCode.trim().toUpperCase() : "";
+  const [result, setResult] = useState<{ code: string; discipline: CatalogDiscipline | null } | null>(null);
+  const filled = useRef<Record<string, string>>({});
+  const latest = useRef({ values, onChange });
+  latest.current = { values, onChange };
+
+  useEffect(() => {
+    if (!enabled || !DISCIPLINE_CODE.test(code)) {
+      setResult(null);
+      return;
+    }
+    let cancelled = false;
+    api<{ discipline: CatalogDiscipline | null }>(`/disciplines/lookup/${code}`)
+      .then(({ discipline }) => {
+        if (cancelled) return;
+        setResult({ code, discipline });
+        // Fora do cadastro: limpa só o que veio de outra disciplina buscada antes.
+        const next = {
+          disciplineName: discipline?.name ?? "",
+          department: discipline?.department ?? "",
+          disciplineOwner: discipline?.teachers.join(", ") ?? "",
+        };
+        const { values: current, onChange: set } = latest.current;
+        for (const [field, value] of Object.entries(next)) {
+          const now = typeof current[field] === "string" ? (current[field] as string) : "";
+          const auto = filled.current[field];
+          if (now !== "" && now !== auto) continue;
+          if (now !== value) set(field, value);
+          if (value) filled.current[field] = value;
+          else delete filled.current[field];
+        }
+      })
+      .catch(() => !cancelled && setResult(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, code]);
+
+  return result && result.code === code ? result.discipline ?? false : null;
+}
+
 /** Campos que mudam conforme o tipo de atividade (seção "Sobre a atividade"). */
 export function ActivityFields({ type, values, onChange }: Props) {
   const { user } = useAuth();
@@ -120,17 +180,22 @@ export function ActivityFields({ type, values, onChange }: Props) {
     onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onChange(name, e.target.value),
   });
 
-  // Graduação e Pós-Graduação compartilham os campos da disciplina.
-  // ⚠️ O código só tem o formato checado; a validação contra uma tabela de
-  // disciplinas no banco é um passo futuro.
-  const chooseDiscipline = (code: string) => {
-    const d = linked.find((x) => x.code === code);
-    onChange("disciplineCode", code);
-    if (d) {
-      onChange("disciplineName", d.name);
-      if (d.department) onChange("department", d.department);
-    }
-  };
+  // Graduação e Pós-Graduação compartilham os campos da disciplina. O código
+  // completo busca a disciplina no cadastro do SAD e preenche o resto.
+  // found: a disciplina; false: fora do cadastro; null: código incompleto.
+  const found = useDisciplineAutofill(type === "UNDERGRADUATE" || type === "GRADUATE", values, onChange);
+  const codeHint =
+    found === null ? (
+      "3 letras e 4 números"
+    ) : found === false ? (
+      "Não está no cadastro do SAD: preencha a disciplina, o responsável e o departamento."
+    ) : (
+      <span className="inline-flex items-center gap-1 text-success-foreground">
+        <CheckCircleIcon size={14} weight="fill" aria-hidden />
+        {found.name}: dados preenchidos pelo cadastro do SAD
+        {found.level !== type ? ` (cadastrada como ${LEVEL_LABEL[found.level]})` : ""}.
+      </span>
+    );
 
   const disciplineFields = linked.length > 0 ? (
     <>
@@ -138,7 +203,7 @@ export function ActivityFields({ type, values, onChange }: Props) {
         label="Disciplina"
         required
         value={typeof values.disciplineCode === "string" ? values.disciplineCode : ""}
-        onChange={(e) => chooseDiscipline(e.target.value)}
+        onChange={(e) => onChange("disciplineCode", e.target.value)}
         hint="As disciplinas ligadas a você pelo SAD. Para outra, fale com o SAD."
         containerClassName="sm:col-span-2"
       >
@@ -163,7 +228,7 @@ export function ActivityFields({ type, values, onChange }: Props) {
         placeholder="MCM0101"
         maxLength={7}
         autoCapitalize="characters"
-        hint="3 letras e 4 números"
+        hint={codeHint}
         className="uppercase placeholder:normal-case"
       />
       <Input label="Disciplina" required {...text("disciplineName")} />
