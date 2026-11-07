@@ -1,6 +1,7 @@
 import {
   CalendarStarIcon,
   ListChecksIcon,
+  MapTrifoldIcon,
   CurrencyCircleDollarIcon,
   CalendarCheckIcon,
   CalendarDotsIcon,
@@ -112,6 +113,7 @@ export function AppShell() {
         { to: "/admin/eventos", label: "Eventos", shortLabel: "Eventos", icon: CalendarStarIcon },
         { to: "/admin/plantao", label: "Plantão", shortLabel: "Plantão", icon: ListChecksIcon },
         { to: "/admin/salas-livres", label: "Salas livres", shortLabel: "Livres", icon: MagnifyingGlassIcon },
+        { to: "/mapa", label: "Mapa das salas", shortLabel: "Mapa", icon: MapTrifoldIcon },
         { to: "/admin/salas", label: "Salas", shortLabel: "Salas", icon: DoorOpenIcon },
         { to: "/admin/recursos", label: "Recursos", shortLabel: "Recursos", icon: WrenchIcon },
         { to: "/admin/precos", label: "Preços", shortLabel: "Preços", icon: CurrencyCircleDollarIcon },
@@ -126,6 +128,7 @@ export function AppShell() {
           { to: "/admin/agenda", label: "Agenda", shortLabel: "Agenda", icon: CalendarDotsIcon },
           { to: "/admin/solicitacoes", label: "Solicitações", shortLabel: "Pedidos", icon: TrayIcon, badge: pendingCount },
           { to: "/admin/salas-livres", label: "Salas livres", shortLabel: "Livres", icon: MagnifyingGlassIcon },
+          { to: "/mapa", label: "Mapa das salas", shortLabel: "Mapa", icon: MapTrifoldIcon },
           { to: "/salas", label: "Consultar salas", shortLabel: "Salas", icon: DoorOpenIcon },
           { to: "/admin/precos", label: "Preços", shortLabel: "Preços", icon: CurrencyCircleDollarIcon },
           { to: "/admin/historico", label: "Histórico", shortLabel: "Histórico", icon: ClockCounterClockwiseIcon },
@@ -138,6 +141,7 @@ export function AppShell() {
           ? [{ to: "/eventos", label: "Eventos", shortLabel: "Eventos", icon: CalendarStarIcon }]
           : []),
         { to: "/salas", label: "Consultar salas", shortLabel: "Salas", icon: DoorOpenIcon },
+        { to: "/mapa", label: "Mapa das salas", shortLabel: "Mapa", icon: MapTrifoldIcon },
         { to: "/regulamento", label: "Regulamento", shortLabel: "Regras", icon: ScrollIcon },
       ];
   const mobileItems = items.length <= MOBILE_SLOTS ? items : items.slice(0, MOBILE_SLOTS - 1);

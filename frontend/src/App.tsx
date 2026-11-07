@@ -17,6 +17,7 @@ import { RegulationPage } from "./components/regulation/Regulation";
 import { MyReservations } from "./components/solicitante/MyReservations";
 import { AdminEditReservationPage, AdminNewReservationPage, EditReservationPage, ReservationPage } from "./components/solicitante/ReservationForm";
 import { PlantaoPage } from "./components/plantao/PlantaoPage";
+import { RoomMap } from "./components/rooms/RoomMap";
 import { RoomSearch } from "./components/solicitante/RoomSearch";
 import { TvPanel } from "./components/tv/TvPanel";
 import { LogoMark } from "./components/ui/Logo";
@@ -68,6 +69,7 @@ export default function App() {
             <Route path="/admin/reservar" element={<AdminNewReservationPage />} />
             <Route path="/admin/reservas/:id/editar" element={<AdminEditReservationPage />} />
             <Route path="/admin/salas-livres" element={<FreeRooms />} />
+            <Route path="/mapa" element={<RoomMap />} />
             <Route path="/admin/salas" element={<RoomsAdmin />} />
             <Route path="/admin/recursos" element={<ResourcesAdmin />} />
             <Route path="/admin/precos" element={<PricesPage />} />
@@ -85,6 +87,7 @@ export default function App() {
             <Route path="/admin/eventos/:id" element={<EventDetail />} />
             <Route path="/admin/plantao" element={<PlantaoPage />} />
             <Route path="/admin/salas-livres" element={<FreeRooms />} />
+            <Route path="/mapa" element={<RoomMap />} />
             <Route path="/salas" element={<RoomSearch />} />
             <Route path="/admin/precos" element={<PricesPage />} />
             <Route path="/admin/historico" element={<AuditLogPage />} />
@@ -104,6 +107,7 @@ export default function App() {
               </>
             )}
             <Route path="/salas" element={<RoomSearch />} />
+            <Route path="/mapa" element={<RoomMap />} />
             <Route path="/regulamento" element={<RegulationPage />} />
             <Route path="*" element={<Navigate to="/minhas-reservas" replace />} />
           </>

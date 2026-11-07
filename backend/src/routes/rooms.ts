@@ -6,6 +6,7 @@ import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
 import { uuidParam } from "../lib/params";
 import { prisma } from "../lib/prisma";
+import { zonedClock, zonedDayRange, zonedTime } from "../lib/timezone";
 import { isStaff, requireAdmin, requireAuth } from "../middleware/auth";
 import { roomPhotosInclude } from "../photos/include";
 import { renderPhotoVersions } from "../photos/storage";
@@ -98,6 +99,53 @@ roomsRouter.get(
 
     const prices = await priceTableOn(prisma);
     res.json({ rooms: rooms.map((room) => forViewer(room, req.user?.role, prices)) });
+  }),
+);
+
+// Fase 19 — mapa das salas (documento SAD/NUCEV, 2.1): a situação de cada sala
+// ativa num dia e horário (livre, ocupada ou bloqueada) e os horários ocupados
+// daquele dia. Não diz quem está usando: o mapa é para todos.
+const mapQuerySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data no formato AAAA-MM-DD."),
+  start: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Horário no formato HH:MM."),
+  end: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$|^24:00$/, "Horário no formato HH:MM."),
+});
+
+roomsRouter.get(
+  "/map/status",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const q = mapQuerySchema.parse(req.query);
+    if (q.end <= q.start) throw new AppError(400, "VALIDATION_ERROR", "O fim vem depois do início.");
+    const from = zonedTime(q.date, q.start);
+    const to = q.end === "24:00" ? zonedDayRange(q.date).end : zonedTime(q.date, q.end);
+    const day = zonedDayRange(q.date);
+    const [rooms, reservations, blocks] = await Promise.all([
+      prisma.room.findMany({ where: { status: "ACTIVE" }, select: { id: true } }),
+      prisma.reservation.findMany({
+        where: { roomId: { not: null }, status: { in: ["APPROVED", "PENDING"] }, startTime: { lt: day.end }, endTime: { gt: day.start } },
+        select: { roomId: true, startTime: true, endTime: true },
+        orderBy: { startTime: "asc" },
+      }),
+      prisma.roomBlock.findMany({ where: { startTime: { lt: day.end }, endTime: { gt: day.start } }, select: { roomId: true, startTime: true, endTime: true, reason: true } }),
+    ]);
+    const overlaps = (a: { startTime: Date; endTime: Date }) => a.startTime < to && a.endTime > from;
+    res.json({
+      date: q.date,
+      start: q.start,
+      end: q.end,
+      rooms: rooms.map(({ id }) => {
+        const mine = reservations.filter((r) => r.roomId === id);
+        const blocked = blocks.filter((b) => b.roomId === id);
+        const state = blocked.some(overlaps) ? "BLOCKED" : mine.some(overlaps) ? "BUSY" : "FREE";
+        return {
+          id,
+          state,
+          busy: mine.map((r) => ({ start: zonedClock(r.startTime), end: zonedClock(r.endTime) })),
+          blocks: blocked.map((b) => ({ start: zonedClock(b.startTime), end: zonedClock(b.endTime), reason: b.reason })),
+        };
+      }),
+    });
   }),
 );
 

@@ -1312,6 +1312,52 @@ Dá para cadastrar outros materiais além dos pranchões (cavaletes, mesas…).
 - A base de demonstração traz 40 pranchões, com 10 emprestados para a
   Cerimônia do Jaleco e uma devolução no histórico.
 
+## Fase 19 — Conversa nas reservas, disciplinas dos docentes e mapa das salas
+
+**Conversa de cada reserva** (documento SAD/NUCEV, 2.2): entre quem pediu e o
+SAD, pelo protocolo. Uma série inteira tem uma conversa só.
+
+- Histórico permanente, com o autor, o papel, a data e a hora de cada mensagem.
+- Quem pediu abre pelo botão **Conversa com o SAD**, em Minhas reservas. O SAD
+  conversa no painel de análise (Solicitações e Agenda).
+- Cada mensagem avisa o outro lado por e-mail. O NUCEV acompanha sem escrever.
+- As reservas de evento continuam conversando pela página do evento.
+- API: `GET/POST /api/conversations/:protocol` (tabela `reservation_messages`).
+
+**Disciplinas dos docentes** (2.3, "docentes@fm: disciplinas vinculadas ao
+respectivo docente"):
+
+- Em **Pessoas → Disciplinas e docentes**, o SAD **cola a planilha**, uma
+  linha por disciplina: `código; disciplina; e-mail do docente; departamento;
+  G ou P`. Também dá para desligar um docente ou apagar uma disciplina.
+- Ligar a disciplina **libera a permissão** do nível (Graduação ou Pós).
+- **O docente com disciplinas ligadas pede só para elas**: no formulário, ele
+  escolhe a disciplina numa lista, e o nome e o departamento vêm juntos. O
+  servidor confere também.
+- Quem não tem disciplina ligada, como a secretaria, continua pedindo para
+  qualquer disciplina.
+- Os e-mails sem cadastro aparecem no resultado da importação e entram
+  depois do primeiro login.
+- API: `GET /api/disciplines` (equipe), `GET /api/disciplines/mine`,
+  `POST /api/disciplines/import` e `DELETE …/:id/teachers/:userId` (SAD).
+  Tabelas `disciplines` e `discipline_teachers`.
+
+**Mapa das salas** (2.1), em `/mapa`, para todos:
+
+- Os espaços por **prédio e andar**, do subsolo para cima, com o número, o
+  tipo e a capacidade.
+- A situação **no dia e no horário escolhidos**: livre, ocupada ou bloqueada,
+  com a contagem de cada uma.
+- Filtros por prédio, por número mínimo de pessoas e "só as livres".
+- Passar o mouse na sala mostra os horários ocupados do dia (sem dizer quem).
+  Clicar abre os **detalhes da sala**: fotos, recursos e calendário.
+- As plantas dos prédios entram quando todas estiverem digitalizadas.
+- API: `GET /api/rooms/map/status?date=&start=&end=`.
+
+A base de demonstração traz uma conversa no Simpósio de Medicina Esportiva e o
+catálogo de disciplinas montado a partir das reservas, com cada docente
+ligado às suas.
+
 ## Interface
 
 Redesign completo do front-end, responsivo do celular ao computador, com tema
