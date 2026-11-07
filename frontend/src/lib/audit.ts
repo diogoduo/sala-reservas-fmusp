@@ -66,6 +66,7 @@ export const AUDIT_ENTITY_LABELS: Record<AuditEntityType, string> = {
   event: "Eventos",
   setting: "Configurações",
   task: "Checklist do plantão",
+  handover: "Passagem de plantão",
 };
 
 interface ActionMeta {
@@ -118,6 +119,8 @@ const ACTIONS: Record<string, ActionMeta> = {
   "task.done": { label: "Tarefa concluída", tone: "success", icon: CheckCircleIcon },
   "task.reopen": { label: "Tarefa reaberta", tone: "warning", icon: ListChecksIcon },
   "task.delete": { label: "Tarefa apagada", tone: "neutral", icon: TrashIcon },
+  "handover.create": { label: "Passagem de plantão registrada", tone: "info", icon: ListChecksIcon },
+  "handover.acknowledge": { label: "Plantão recebido", tone: "success", icon: CheckCircleIcon },
   "event.request": { label: "Evento pedido", tone: "info", icon: CalendarStarIcon },
   "event.cancel": { label: "Evento cancelado pelo solicitante", tone: "neutral", icon: ProhibitIcon },
   "event.review": { label: "Análise iniciada (NUCEV)", tone: "info", icon: CalendarStarIcon },

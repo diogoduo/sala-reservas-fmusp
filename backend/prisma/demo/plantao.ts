@@ -1,4 +1,5 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
+import { dayOverview } from "../../src/routes/plantao";
 
 // Fase 17 — o plantão da base de demonstração: o checklist do dia da equipe
 // (a Vanessa cria e atualiza; a Maria acompanha e conclui). Tarefas fictícias.
@@ -32,5 +33,23 @@ export async function seedDemoPlantao(prisma: PrismaClient, h: DemoPlantaoHelper
     },
   ];
   await prisma.operationalTask.createMany({ data: tasks });
+
+  // Uma passagem de plantão de hoje (manhã → tarde), da Vanessa para a Maria, ainda não recebida.
+  const today = h.dayKey(0);
+  await prisma.shiftHandover.create({
+    data: {
+      date: date(0),
+      shiftLabel: "Manhã → Tarde",
+      summary: "Manhã tranquila: crachás separados, buffet da Cerimônia em negociação.",
+      pending: ["- Repor as pilhas dos microfones sem fio (atrasada)", "- Ligar para o buffet e confirmar o cardápio"].join("\n"),
+      priorities: "- Conferir as chaves do Teatro e do Foyer",
+      nextResponsibleId: h.maria.id,
+      nextResponsibleName: h.maria.name,
+      notes: "A portaria pediu a lista de veículos até amanhã.",
+      snapshot: (await dayOverview(today)) as unknown as Prisma.InputJsonValue,
+      createdById: h.vanessa.id,
+      createdByName: h.vanessa.name,
+    },
+  });
   return tasks.length;
 }

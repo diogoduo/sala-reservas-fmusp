@@ -466,7 +466,8 @@ type RoomKey = { building: string; floor: string; name: string };
 async function reset(keepRooms: RoomKey[] = []) {
   const keep = DEV_USERS.map((u) => u.email);
   await prisma.$transaction([
-    // Tarefas do plantão (as avulsas; as dos eventos vão junto com eles).
+    // Plantão: passagens e tarefas (as avulsas; as dos eventos vão junto com eles).
+    prisma.shiftHandover.deleteMany(),
     prisma.operationalTask.deleteMany(),
     // Eventos primeiro: dias, pedidos, orçamentos, conversa, autorizações, e-mails e comprovantes vão junto.
     prisma.event.deleteMany(),

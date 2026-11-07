@@ -121,6 +121,8 @@ model User {
   events                Event[]
   assignedTasks         OperationalTask[]   @relation("TaskAssignee")
   createdTasks          OperationalTask[]   @relation("TaskCreator")
+  handoversNext         ShiftHandover[]     @relation("HandoverNext")
+  handoversCreated      ShiftHandover[]     @relation("HandoverCreator")
 
   @@map("users")
 }
@@ -638,6 +640,7 @@ model Event {
   schedule       EventScheduleItem[]
   people         EventPerson[]
   vehicles       EventVehicle[]
+  handoverNotes  ShiftHandoverEvent[]
   tasks          OperationalTask[]
 
   @@index([status, createdAt])
@@ -950,4 +953,65 @@ model EventVehicle {
 
   @@unique([eventId, plate])
   @@map("event_vehicles")
+}
+
+// ---------------------------------------------------------------------------
+// Fase 17 — passagem de plantão (documento SAD/NUCEV, 5.4)
+// ---------------------------------------------------------------------------
+
+enum HandoverSituation {
+  ON_TRACK
+  ATTENTION
+  PROBLEM
+
+  @@map("handover_situation")
+}
+
+/// Passagem de plantão geral: o resumo do dia, as pendências, o que é
+/// prioritário e quem assume; guarda também o retrato do dia (snapshot).
+model ShiftHandover {
+  id                  String    @id @default(uuid()) @db.Uuid
+  date                DateTime  @db.Date
+  shiftLabel          String?   @map("shift_label")
+  summary             String?
+  pending             String?
+  priorities          String?
+  nextResponsibleId   String?   @map("next_responsible_id") @db.Uuid
+  nextResponsibleName String?   @map("next_responsible_name")
+  notes               String?
+  /// Os números e as listas do dia no momento da passagem (eventos, tarefas, reservas).
+  snapshot            Json
+  createdById         String?   @map("created_by_id") @db.Uuid
+  createdByName       String    @map("created_by_name")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  acknowledgedAt      DateTime? @map("acknowledged_at") @db.Timestamptz(3)
+  acknowledgedByName  String?   @map("acknowledged_by_name")
+
+  events          ShiftHandoverEvent[]
+  nextResponsible User?                @relation("HandoverNext", fields: [nextResponsibleId], references: [id], onDelete: SetNull)
+  createdBy       User?                @relation("HandoverCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([date, createdAt])
+  @@map("shift_handovers")
+}
+
+/// Passagem por evento: o que foi feito, por quem, o que falta e quem assume.
+model ShiftHandoverEvent {
+  id                  String            @id @default(uuid()) @db.Uuid
+  handoverId          String            @map("handover_id") @db.Uuid
+  eventId             String?           @map("event_id") @db.Uuid
+  /// "EV-000008/2026 — Cerimônia do Jaleco", para continuar legível se o evento sumir.
+  eventLabel          String            @map("event_label")
+  situation           HandoverSituation @default(ON_TRACK)
+  done                String?
+  doneBy              String?           @map("done_by")
+  pending             String?
+  nextResponsibleName String?           @map("next_responsible_name")
+  notes               String?
+
+  handover ShiftHandover @relation(fields: [handoverId], references: [id], onDelete: Cascade)
+  event    Event?        @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@index([eventId])
+  @@map("shift_handover_events")
 }

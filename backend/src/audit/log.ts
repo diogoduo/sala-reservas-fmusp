@@ -77,9 +77,12 @@ export type AuditAction =
   | "task.update"
   | "task.done"
   | "task.reopen"
-  | "task.delete";
+  | "task.delete"
+  // Fase 17: passagem de plantão
+  | "handover.create"
+  | "handover.acknowledge";
 
-export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user" | "price" | "event" | "setting" | "task";
+export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user" | "price" | "event" | "setting" | "task" | "handover";
 
 /** Quem fez a ação. `null` = o próprio sistema. */
 export type AuditActor = { id: string; name: string } | null;

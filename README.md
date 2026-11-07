@@ -1237,6 +1237,50 @@ Cerimônia do Jaleco já com a organização começada.
   `POST/PATCH/DELETE …/organization/people` para palestrantes e
   participantes, e `POST/PATCH/DELETE /api/events/:id/vehicles`.
 
+## Fase 17 — Plantão: checklist do dia, passagem de plantão e dia seguinte
+
+Nova tela **Plantão** (`/admin/plantao`), para o SAD e o NUCEV (documento
+SAD/NUCEV, 5.3 e 5.4). Ela tem três abas:
+
+- **Checklist do dia**: tarefas da equipe com responsável, prazo, prioridade e
+  evento vinculado, separadas em atrasadas, do dia, sem prazo e concluídas.
+  - As pendências dos eventos (Fase 16) aparecem juntas, com o link do evento.
+  - Dá para filtrar por "as minhas" e "prioritárias".
+  - Quem criou, alterou e concluiu fica na própria tarefa, com data e hora, e
+    o **histórico da tarefa** mostra cada mudança.
+  - O fluxo do documento é a Vanessa criar e atualizar e a Maria concluir.
+    Qualquer pessoa da equipe pode fazer tudo.
+- **Passagem de plantão**:
+  - **Geral**: turno, resumo das atividades do dia, pendências gerais,
+    atividades prioritárias, quem assume e observações. Os botões
+    "Preencher com…" sugerem os textos a partir do retrato do dia, para
+    revisar antes de registrar.
+  - **Por evento** (os eventos do dia): situação atual (em dia, precisa de
+    atenção, com problema), o que já foi feito e por quem, o que está
+    pendente, o próximo responsável e observações.
+  - Cada passagem guarda o **retrato do dia** (eventos, reservas e tarefas
+    naquele momento). Quem assume clica em **Recebi o plantão**; quem passou
+    não pode confirmar a própria.
+- **Dia seguinte**:
+  - os eventos de amanhã (horário, salas, responsável no NUCEV, pendências,
+    buffet, estacionamento e veículos);
+  - as reservas confirmadas e as que aguardam confirmação;
+  - o checklist (pendente e concluído);
+  - quem cuida de quê.
+
+- Tabelas: `operational_tasks` (com `priority` e `updated_by_name`),
+  `shift_handovers` e `shift_handover_events` (migrations `daily_checklist` e
+  `shift_handover`).
+- API (SAD e NUCEV):
+  - `GET/POST /api/tasks` e `PATCH/DELETE /api/tasks/:id`;
+  - `GET /api/plantao/day?date=`;
+  - `GET/POST /api/plantao/handovers` e
+    `POST /api/plantao/handovers/:id/acknowledge`.
+- No Histórico, os filtros novos "Checklist do plantão" e "Passagem de
+  plantão".
+- A base de demonstração traz o checklist da Vanessa e da Maria e uma
+  passagem de hoje esperando a Maria receber.
+
 ## Interface
 
 Redesign completo do front-end, responsivo do celular ao computador, com tema
