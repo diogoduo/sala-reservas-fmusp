@@ -458,6 +458,14 @@ fotos não são carregadas de novo, e rodar outra vez leva segundos); as outras
 salas são apagadas. É o modo da apresentação: salas de verdade e uma Agenda
 cheia, com pessoas e pedidos fictícios.
 
+**Eventos de demonstração (Fases 11 a 13):** a base também cria 9 eventos, um em
+cada etapa (recebido, em análise, pré-reservado, orçamento enviado com a
+autorização da Diretoria pendente, alteração pedida, aguardando pagamento,
+comprovante enviado, confirmado e recusado), com as salas reservadas sem
+conflito com as outras reservas, orçamentos calculados pela tabela vigente,
+conversa e o link da Diretoria (`prisma/demo/events.ts`). O `--reset` apaga os
+eventos junto e volta os protocolos `EV-` para 000001.
+
 O `--reset` apaga todas as reservas e séries, as salas (com fotos e
 inventário), os bloqueios, os notebooks, as sanções, o histórico e os usuários
 que não são as 4 contas de teste, e volta a numeração dos protocolos para 000001.

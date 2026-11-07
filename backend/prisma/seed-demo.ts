@@ -36,6 +36,7 @@ import { holidayName, weekdayOf } from "../src/lib/calendar";
 import { renderPhotoVersions } from "../src/photos/storage";
 import { PALETTES, roomIllustration, VIEWS } from "./demo/illustrations";
 import { importFmusp, loadFmuspData } from "./import-fmusp";
+import { seedDemoEvents } from "./demo/events";
 import { createMissingSupportAreas, SUPPORT_AREAS } from "./support-areas";
 
 const prisma = new PrismaClient();
@@ -463,6 +464,8 @@ type RoomKey = { building: string; floor: string; name: string };
 async function reset(keepRooms: RoomKey[] = []) {
   const keep = DEV_USERS.map((u) => u.email);
   await prisma.$transaction([
+    // Eventos primeiro: dias, pedidos, orçamentos, conversa, autorizações, e-mails e comprovantes vão junto.
+    prisma.event.deleteMany(),
     prisma.auditLog.deleteMany(),
     prisma.userSanction.deleteMany(),
     prisma.reservation.deleteMany(),
@@ -475,6 +478,7 @@ async function reset(keepRooms: RoomKey[] = []) {
   ]);
   // Protocolos recomeçam do 000001.
   await prisma.$queryRaw`SELECT setval('reservation_protocol_seq', 1, false)`;
+  await prisma.$queryRaw`SELECT setval('event_protocol_seq', 1, false)`;
 }
 
 async function main() {
@@ -814,6 +818,23 @@ async function main() {
     });
     created++;
   }
+
+  // Fases 11 a 13: eventos em cada etapa (recebido, em análise, pré-reservado,
+  // orçamento enviado, alteração pedida, aguardando pagamento, comprovante enviado,
+  // confirmado e recusado), nas salas da base.
+  const people = new Map((await prisma.user.findMany({ select: { id: true, name: true, email: true } })).map((u) => [u.email, u]));
+  const nucevUser = people.get("vanessa.demo@fm.usp.br")!;
+  const events = await seedDemoEvents(prisma, {
+    person: (email) => people.get(email)!,
+    sad: { id: sadId, name: people.get("admin@fm.usp.br")!.name },
+    nucev: { id: nucevUser.id, name: nucevUser.name },
+    futureOpenDays,
+    at,
+    roomId: async (name) => roomByName.get(name)?.id ?? (await prisma.room.findFirst({ where: { name }, select: { id: true } }))?.id ?? null,
+    isFree,
+    occupy,
+  });
+  console.log(`${events} eventos de demonstração`);
 
   // Fase 9: Graduação, Pós e Defesa são exclusivos de quem tem permissão. Quem
   // pediu esses tipos nesta base recebe a permissão correspondente (Cultura e
