@@ -203,12 +203,13 @@ export function EventsAdmin() {
           {visible.length === 0 ? (
             <EmptyState icon={CalendarStarIcon} title="Nenhum evento aqui" description="Os pedidos feitos em “Solicitar evento” aparecem neste painel." />
           ) : view === "board" ? (
-            <div className="-mx-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
-              <div className="flex gap-3">
+            // As 7 etapas em grade, sem rolagem lateral: 4 em cima e 3 embaixo
+            // (2 por linha em tela média, uma embaixo da outra no celular).
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {STAGES.map((stage) => {
                   const items = visible.filter(stage.match);
                   return (
-                    <section key={stage.key} aria-label={stage.label} className="w-64 shrink-0 rounded-2xl bg-surface-muted p-2">
+                    <section key={stage.key} aria-label={stage.label} className="min-w-0 rounded-2xl bg-surface-muted p-2">
                       <h2 className="flex items-center justify-between px-1.5 pt-1 pb-2 text-sm font-semibold">
                         {stage.label} <span className="text-muted tabular-nums">{items.length}</span>
                       </h2>
@@ -221,7 +222,6 @@ export function EventsAdmin() {
                     </section>
                   );
                 })}
-              </div>
             </div>
           ) : (
             <div className="space-y-3">
