@@ -168,6 +168,9 @@ export interface ApprovalChecklist {
 
 export interface Reservation {
   id: string;
+  /** Fase 12: sala de um evento (pré-reserva do SAD ou reserva confirmada). */
+  eventId?: string | null;
+  preReservedUntil?: string | null;
   /** Nº de protocolo do pedido (Art. 8º §1º, b); o mesmo em todas as datas de uma série. */
   protocol: string;
   seriesId: string | null;

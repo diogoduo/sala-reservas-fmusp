@@ -1119,6 +1119,20 @@ Regra do documento (4.4): **o comprovante sozinho não confirma nada.**
   `POST …/payment/refuse { reason }`, `POST …/confirm`,
   `GET/PUT /api/settings/payment-instructions`.
 
+### Solicitações: ordem e filtros
+
+Além das abas por situação (Pendentes, Alteradas, Aprovadas…) e da busca:
+
+- **Ordenar por:** data mais próxima (padrão: as futuras primeiro, da mais
+  próxima para a mais distante; as que já passaram vão para o fim), **maior
+  prioridade** (Portaria 2793, Art. 7º; empate pela data mais próxima), pedido
+  mais antigo ou pedido mais recente.
+- **Filtrar por período** (próximos 7 ou 30 dias, pela próxima data do pedido)
+  e por **tipo de atividade**, com "limpar filtros".
+- As salas de um evento aparecem num cartão só, com o selo **Evento** (ou
+  "Evento · pré-reserva") e o botão **Abrir o evento**: mudam pela tela do
+  evento.
+
 ## Interface
 
 Redesign completo do front-end, responsivo do celular ao computador, com tema

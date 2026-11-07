@@ -94,6 +94,7 @@ export function reservationWarnings(r: AdminReservation): PortariaWarning[] {
   }
   const capacity = capacityWarning(r.expectedAttendees, r.room);
   if (capacity) warnings.push(capacity);
-  if (r.activityType === "CULTURE_EXTENSION") warnings.push(...checklistWarnings(r.approvalChecklist));
+  // Sala de evento (Fases 12 e 13): a conferência é a do fluxo do evento, não a da CCEx.
+  if (r.activityType === "CULTURE_EXTENSION" && !r.eventId) warnings.push(...checklistWarnings(r.approvalChecklist));
   return warnings;
 }

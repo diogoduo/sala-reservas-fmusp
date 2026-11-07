@@ -2,6 +2,7 @@ import {
   ArrowRightIcon,
   CalendarBlankIcon,
   CalendarPlusIcon,
+  CalendarStarIcon,
   CheckCircleIcon,
   ClockCounterClockwiseIcon,
   HammerIcon,
@@ -24,21 +25,21 @@ import {
 } from "@phosphor-icons/react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
-import { ACTIVITY_TYPE_LABELS, PRIORITY_LABELS, priorityOf } from "../../lib/activities";
+import { ACTIVITY_TYPE_LABELS, ACTIVITY_TYPES, PRIORITY_LABELS, priorityOf } from "../../lib/activities";
 import { api } from "../../lib/api";
 import { useCanManage } from "../../lib/auth";
 import { formatDateTimeRange, formatShortDate, formatTimeRange, plural } from "../../lib/format";
 import { ACTIVITY_ICONS } from "../../lib/icons";
 import { reservationWarnings } from "../../lib/portarias";
-import { formatMinutes, groupBySeries, isModifiedPending, notifyReservationsChanged, onReservationsChanged } from "../../lib/reservations";
+import { formatMinutes, isModifiedPending, notifyReservationsChanged, onReservationsChanged } from "../../lib/reservations";
 import { useToast } from "../../lib/toast";
-import type { AdminReservation, ReservationStatus, Resource, Sanction } from "../../lib/types";
+import type { ActivityType, AdminReservation, ReservationStatus, Resource, Sanction } from "../../lib/types";
 import { StatusBadge } from "../StatusBadge";
 import { Avatar } from "../ui/Avatar";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { CardListSkeleton, EmptyState } from "../ui/Feedback";
-import { Input } from "../ui/Field";
+import { Input, Select } from "../ui/Field";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Card, IconTile, PageHeader } from "../ui/Surface";
 import { AdminReservationActions, isAdminActionable } from "./ReservationActions";
@@ -70,7 +71,52 @@ function Chip({ icon: ChipIcon, children }: { icon: Icon; children: ReactNode })
   );
 }
 
-const groupKey = (group: AdminReservation[]) => group[0]!.seriesId ?? group[0]!.id;
+/** Uma série vira um cartão; as salas de um evento também (Fase 12). */
+const keyOf = (r: AdminReservation) => r.seriesId ?? r.eventId ?? r.id;
+const groupKey = (group: AdminReservation[]) => keyOf(group[0]!);
+
+function groupReservations(list: AdminReservation[]): AdminReservation[][] {
+  const groups = new Map<string, AdminReservation[]>();
+  for (const r of list) groups.set(keyOf(r), [...(groups.get(keyOf(r)) ?? []), r]);
+  return [...groups.values()].map((g) => [...g].sort((a, b) => a.startTime.localeCompare(b.startTime)));
+}
+
+type Sort = "SOONEST" | "PRIORITY" | "OLDEST_REQUEST" | "NEWEST_REQUEST";
+const SORTS: { value: Sort; label: string }[] = [
+  { value: "SOONEST", label: "Data mais próxima" },
+  { value: "PRIORITY", label: "Maior prioridade (Art. 7º)" },
+  { value: "OLDEST_REQUEST", label: "Pedido mais antigo" },
+  { value: "NEWEST_REQUEST", label: "Pedido mais recente" },
+];
+type Period = "ALL" | "7" | "30";
+
+/** A próxima data do grupo que ainda não passou (ou a última, se todas passaram). */
+const nextStart = (group: AdminReservation[], now: number) =>
+  new Date((group.find((r) => new Date(r.startTime).getTime() >= now) ?? group[group.length - 1]!).startTime).getTime();
+
+/** Futuras primeiro, da mais próxima para a mais distante; as que já passaram vão para o fim. */
+function bySoonest(now: number) {
+  return (a: AdminReservation[], b: AdminReservation[]) => {
+    const [x, y] = [nextStart(a, now), nextStart(b, now)];
+    const [fx, fy] = [x >= now, y >= now];
+    if (fx !== fy) return fx ? -1 : 1;
+    return fx ? x - y : y - x;
+  };
+}
+
+function sortGroups(groups: AdminReservation[][], sort: Sort): AdminReservation[][] {
+  const now = Date.now();
+  const soonest = bySoonest(now);
+  const priority = (g: AdminReservation[]) => priorityOf(g[0]!.activityType, g[0]!.activityDetails);
+  const created = (g: AdminReservation[]) => new Date(g[0]!.createdAt).getTime();
+  const compare = {
+    SOONEST: soonest,
+    PRIORITY: (a: AdminReservation[], b: AdminReservation[]) => priority(a) - priority(b) || soonest(a, b),
+    OLDEST_REQUEST: (a: AdminReservation[], b: AdminReservation[]) => created(a) - created(b),
+    NEWEST_REQUEST: (a: AdminReservation[], b: AdminReservation[]) => created(b) - created(a),
+  }[sort];
+  return [...groups].sort(compare);
+}
 
 type ActiveSuspension = Sanction & { user: { id: string; name: string; email: string } };
 
@@ -136,6 +182,9 @@ export function RequestsAdmin() {
   const [status, setStatus] = useState<Filter>("PENDING");
   const [query, setQuery] = useState("");
   const [openKey, setOpenKey] = useState<string | null>(null);
+  const [sort, setSort] = useState<Sort>("SOONEST");
+  const [period, setPeriod] = useState<Period>("ALL");
+  const [activity, setActivity] = useState<ActivityType | "">("");
 
   // Carrega tudo de uma vez: os filtros e as contagens ficam instantâneos.
   async function load() {
@@ -162,14 +211,25 @@ export function RequestsAdmin() {
   }
 
   const all = reservations ?? [];
-  const groupsByStatus = (s: Filter) => groupBySeries(all.filter((r) => matchesFilter(r, s)));
+  const groupsByStatus = (s: Filter) => groupReservations(all.filter((r) => matchesFilter(r, s)));
   const statusGroups = groupsByStatus(status);
   const needle = query.trim().toLowerCase();
-  const groups = needle
-    ? statusGroups.filter(([first]) =>
-        `${first!.protocol} ${first!.title} ${first!.user.name} ${first!.user.email}`.toLowerCase().includes(needle),
-      )
-    : statusGroups;
+  const now = Date.now();
+  const horizon = period === "ALL" ? null : now + Number(period) * 86_400_000;
+  const groups = sortGroups(
+    statusGroups.filter(([first], i) => {
+      const group = statusGroups[i]!;
+      if (needle && !`${first!.protocol} ${first!.title} ${first!.user.name} ${first!.user.email}`.toLowerCase().includes(needle)) return false;
+      if (activity && first!.activityType !== activity) return false;
+      if (horizon !== null) {
+        const next = nextStart(group, now);
+        if (next < now || next > horizon) return false;
+      }
+      return true;
+    }),
+    sort,
+  );
+  const filtered = Boolean(needle || activity || period !== "ALL");
   const openGroup = openKey ? statusGroups.find((g) => groupKey(g) === openKey) : undefined;
   const filter = STATUS_FILTERS.find((f) => f.value === status)!;
 
@@ -216,13 +276,52 @@ export function RequestsAdmin() {
         </div>
       </div>
 
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Select label="Ordenar por" value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
+          {SORTS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+        <Select label="Período" value={period} onChange={(e) => setPeriod(e.target.value as Period)}>
+          <option value="ALL">Todas as datas</option>
+          <option value="7">Próximos 7 dias</option>
+          <option value="30">Próximos 30 dias</option>
+        </Select>
+        <Select label="Tipo de atividade" value={activity} onChange={(e) => setActivity(e.target.value as ActivityType | "")}>
+          <option value="">Todos os tipos</option>
+          {ACTIVITY_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {ACTIVITY_TYPE_LABELS[t]}
+            </option>
+          ))}
+        </Select>
+      </div>
+      {filtered && (
+        <p className="text-sm text-muted" aria-live="polite">
+          {plural(groups.length, "solicitação", "solicitações")} com esses filtros ·{" "}
+          <button
+            type="button"
+            className="font-medium text-primary hover:underline"
+            onClick={() => {
+              setQuery("");
+              setActivity("");
+              setPeriod("ALL");
+            }}
+          >
+            limpar filtros
+          </button>
+        </p>
+      )}
+
       {reservations === null ? (
         <CardListSkeleton />
       ) : groups.length === 0 ? (
         <EmptyState
-          icon={needle ? MagnifyingGlassIcon : TrayIcon}
-          title={needle ? "Nada encontrado" : `Sem solicitações ${filter.label.toLowerCase()}`}
-          description={needle ? `Nenhuma solicitação ${filter.label.toLowerCase().replace(/s$/, "")} com "${query}".` : filter.empty}
+          icon={filtered ? MagnifyingGlassIcon : TrayIcon}
+          title={filtered ? "Nada encontrado" : `Sem solicitações ${filter.label.toLowerCase()}`}
+          description={filtered ? `Nenhuma solicitação ${filter.label.toLowerCase().replace(/s$/, "")} com esses filtros.` : filter.empty}
         />
       ) : (
         <ul className="space-y-4">
@@ -250,6 +349,11 @@ export function RequestsAdmin() {
                               Alterada
                             </Badge>
                           )}
+                          {first.eventId && (
+                            <Badge tone="primary" icon={CalendarStarIcon}>
+                              {first.preReservedUntil ? "Evento · pré-reserva" : "Evento"}
+                            </Badge>
+                          )}
                         </div>
                       </div>
                       <p className="mt-1 flex min-w-0 items-center gap-2 text-sm text-muted">
@@ -271,7 +375,12 @@ export function RequestsAdmin() {
                         </span>
                       );
                     })()}
-                    {group.length === 1 ? (
+                    {first.eventId ? (
+                      <Chip icon={CalendarStarIcon}>
+                        {plural(rooms.length, "sala", "salas")} · {[...new Set(group.map((r) => formatShortDate(r.startTime)))].join(", ")} ·{" "}
+                        {formatTimeRange(first.startTime, first.endTime)}
+                      </Chip>
+                    ) : group.length === 1 ? (
                       <Chip icon={CalendarBlankIcon}>{formatDateTimeRange(first.startTime, first.endTime)}</Chip>
                     ) : (
                       <Chip icon={RepeatIcon}>
@@ -317,6 +426,12 @@ export function RequestsAdmin() {
                           : `Enviada em ${new Date(first.createdAt).toLocaleDateString("pt-BR")}`}
                     </p>
                     <div className="flex flex-wrap items-center gap-1">
+                      {first.eventId ? (
+                        <Button size="sm" variant="secondary" iconRight={ArrowRightIcon} onClick={() => navigate(`/admin/eventos/${first.eventId}`)}>
+                          Abrir o evento
+                        </Button>
+                      ) : (
+                        <>
                       {actionTarget && canManage && (
                         <AdminReservationActions reservation={actionTarget} returnTo="/admin/solicitacoes" onChanged={() => void load()} />
                       )}
@@ -328,6 +443,8 @@ export function RequestsAdmin() {
                       >
                         {isPending && canManage ? "Analisar" : "Ver detalhes"}
                       </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </Card>
