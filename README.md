@@ -1181,9 +1181,19 @@ desativado, e as duas ações ficam no Histórico.
 
 ## Fase 16 — Organização do evento confirmado
 
-Depois que o SAD confirma a reserva, a página do evento ganha a aba
-**Organização**, que só a equipe vê. Nela, o NUCEV e o SAD organizam o evento
-(documento SAD/NUCEV, 5.1 e etapas 9 e 10):
+A página do evento tem a aba **Organização**, que só a equipe vê. Nela, o
+NUCEV e o SAD organizam o evento (documento SAD/NUCEV, 5.1 e etapas 9 e 10).
+
+**Quem pediu o evento informa palestrantes externos, participantes e veículos**,
+antes ou depois da confirmação, enquanto o evento está aberto. Isso é feito na
+página do próprio evento, e a equipe vê na hora, com "Informado por" em cada
+item. A equipe também pode editar. As outras partes (programação, pendências,
+responsáveis, logística e encerramento) são só da equipe e abrem depois que o
+SAD confirma a reserva.
+
+- **Veículos** (para a liberação de vagas): placa no formato antigo
+  (ABC-1234) ou Mercosul (ABC1D23), conferida na tela e no banco; modelo e cor,
+  motorista e observações. Cada placa entra uma vez por evento.
 
 - **Programação e cronograma**, por dia: o horário, o local (com sugestão das
   salas do evento) e o palestrante ou responsável.
@@ -1216,12 +1226,16 @@ indicador "Aguardando encerramento". Cada mudança vai para o Histórico
 Cerimônia do Jaleco já com a organização começada.
 
 - Tabelas: `event_plans`, `event_schedule_items`, `event_people`,
-  `operational_tasks`, além de `events.closed_*` e `actual_attendees`
-  (migration `event_organization`).
+  `event_vehicles`, `operational_tasks`, além de `events.closed_*` e
+  `actual_attendees` (migrations `event_organization` e
+  `event_requester_info`).
 - API (NUCEV e SAD): `GET /api/events/:id/organization`,
   `PUT …/organization/plan`, `POST/PATCH/DELETE …/organization/schedule`,
   `POST/PATCH/DELETE …/organization/people` (e `…/people/import`),
   `POST/PATCH/DELETE …/organization/tasks`, `POST /api/events/:id/close`.
+- API de quem pediu (e da equipe): `GET /api/events/:id/guests`,
+  `POST/PATCH/DELETE …/organization/people` para palestrantes e
+  participantes, e `POST/PATCH/DELETE /api/events/:id/vehicles`.
 
 ## Interface
 

@@ -291,7 +291,9 @@ export async function seedDemoEvents(prisma: PrismaClient, h: DemoEventHelpers):
     }
 
     // Fase 16: o evento confirmado já com a organização começada.
-    if (spec.stage === "CONFIRMED") await seedOrganization(prisma, h, event.id, days[0]!);
+    if (spec.stage === "CONFIRMED") await seedOrganization(prisma, h, event.id, days[0]!, who.name);
+    // Antes da confirmação, quem pediu já informou palestrantes, participantes e veículos.
+    if (spec.title === "Congresso de Saúde Coletiva") await seedGuests(prisma, event.id, who.name);
     created++;
   }
   return created;
@@ -302,7 +304,7 @@ export async function seedDemoEvents(prisma: PrismaClient, h: DemoEventHelpers):
  * programação, responsáveis, um palestrante, participantes, logística e
  * pendências (uma já concluída). Nomes fictícios.
  */
-async function seedOrganization(prisma: PrismaClient, h: DemoEventHelpers, eventId: string, day: string) {
+async function seedOrganization(prisma: PrismaClient, h: DemoEventHelpers, eventId: string, day: string, requester: string) {
   await prisma.eventPlan.create({
     data: {
       eventId,
@@ -327,12 +329,18 @@ async function seedOrganization(prisma: PrismaClient, h: DemoEventHelpers, event
   });
   await prisma.eventPerson.createMany({
     data: [
-      { eventId, kind: "ORGANIZER", name: h.nucev.name, affiliation: "NUCEV · coordenação", contact: "vanessa.demo@fm.usp.br" },
-      { eventId, kind: "ORGANIZER", name: "Secretaria de Graduação (demo)", affiliation: "Lista dos alunos e jalecos", contact: "graduacao.demo@fm.usp.br" },
-      { eventId, kind: "SPEAKER", name: "Prof. Dr. Paraninfo (demo)", affiliation: "Convidado externo", contact: "paraninfo.demo@fm.usp.br", notes: "Chega às 18:30; vaga no estacionamento." },
+      { eventId, kind: "ORGANIZER", name: h.nucev.name, affiliation: "NUCEV · coordenação", contact: "vanessa.demo@fm.usp.br", addedByName: h.nucev.name },
+      { eventId, kind: "ORGANIZER", name: "Secretaria de Graduação (demo)", affiliation: "Lista dos alunos e jalecos", contact: "graduacao.demo@fm.usp.br", addedByName: h.nucev.name },
+      { eventId, kind: "SPEAKER", name: "Prof. Dr. Paraninfo (demo)", affiliation: "Convidado externo", contact: "paraninfo.demo@fm.usp.br", notes: "Chega às 18:30; vaga no estacionamento.", addedByName: requester },
       ...["Ana Beatriz Lima", "Bruno Carvalho", "Carla Mendes", "Diego Fernandes", "Eduarda Ribeiro", "Felipe Araújo", "Gabriela Nunes", "Henrique Castro", "Isabela Moura", "João Pedro Alves", "Larissa Teixeira", "Mateus Oliveira"].map(
-        (name) => ({ eventId, kind: "PARTICIPANT" as const, name: `${name} (demo)`, affiliation: "1º ano · Medicina" }),
+        (name) => ({ eventId, kind: "PARTICIPANT" as const, name: `${name} (demo)`, affiliation: "1º ano · Medicina", addedByName: requester }),
       ),
+    ],
+  });
+  await prisma.eventVehicle.createMany({
+    data: [
+      { eventId, plate: "FMU1D26", model: "Corolla preto", driver: "Prof. Dr. Paraninfo (demo)", notes: "Chega às 18:30.", addedByName: requester },
+      { eventId, plate: "DEM2026", model: "Spin prata", driver: "Diretoria (demo)", addedByName: requester },
     ],
   });
   const due = (offset: number) => new Date(`${h.futureOpenDays(offset)[0] ?? day}T00:00:00Z`);
@@ -343,4 +351,15 @@ async function seedOrganization(prisma: PrismaClient, h: DemoEventHelpers, event
       { eventId, title: "Reservar as vagas do estacionamento", status: "DONE", doneAt: new Date(), doneByName: h.nucev.name, assigneeId: h.nucev.id, assigneeName: h.nucev.name, createdById: h.nucev.id, createdByName: h.nucev.name },
     ],
   });
+}
+
+/** Listas informadas por quem pediu, antes da confirmação (Congresso, ainda no orçamento). */
+async function seedGuests(prisma: PrismaClient, eventId: string, requester: string) {
+  await prisma.eventPerson.createMany({
+    data: [
+      { eventId, kind: "SPEAKER", name: "Dra. Convidada da Saúde Pública (demo)", affiliation: "Fiocruz", contact: "convidada.demo@fiocruz.br", notes: "Passagem e hospedagem por conta do evento.", addedByName: requester },
+      ...["Aline Prado", "Caio Martins", "Fernanda Rocha", "Rafael Duarte"].map((name) => ({ eventId, kind: "PARTICIPANT" as const, name: `${name} (demo)`, affiliation: "Saúde Coletiva", addedByName: requester })),
+    ],
+  });
+  await prisma.eventVehicle.create({ data: { eventId, plate: "SAU3C45", model: "HB20 branco", driver: "Dra. Convidada da Saúde Pública (demo)", addedByName: requester } });
 }

@@ -27,7 +27,7 @@ import { Alert, CardListSkeleton } from "../ui/Feedback";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Card, PageHeader } from "../ui/Surface";
 import { AuthorizationPanel, Conversation, NoticesPanel, PaymentPanel, QuotePanel, ReservedRooms, StaffActions } from "./EventManagement";
-import { EventOrganization } from "./EventOrganization";
+import { EventOrganization, GuestInfo } from "./EventOrganization";
 
 const REQUESTER_CANCELLABLE: EventStatus[] = ["SUBMITTED", "IN_REVIEW", "PRE_RESERVED", "QUOTE_SENT", "CHANGES_REQUESTED", "QUOTE_APPROVED"];
 /** Para a equipe, o próximo passo de um evento confirmado (Fase 16). */
@@ -101,7 +101,7 @@ export function EventDetail() {
   const mine = event.userId === user?.id;
   const quotes = management.quotes;
   const phase = confirmedPhase(event);
-  const tab = staff && event.status === "CONFIRMED" && params.get("aba") === "organizacao" ? "organizacao" : "pedido";
+  const tab = staff && params.get("aba") === "organizacao" ? "organizacao" : "pedido";
 
   return (
     <div className="space-y-6">
@@ -131,8 +131,8 @@ export function EventDetail() {
         {event.cancellationReason && ` Motivo: ${event.cancellationReason}`}
       </Alert>
 
-      {/* Fase 16: a organização do evento confirmado, só para a equipe. */}
-      {staff && event.status === "CONFIRMED" && (
+      {/* Fase 16: a organização do evento, só para a equipe (palestrantes, participantes e veículos desde o pedido). */}
+      {staff && (
         <SegmentedControl
           label="Seção do evento"
           value={tab}
@@ -220,6 +220,9 @@ export function EventDetail() {
               {event.notes && <p className="text-sm whitespace-pre-line text-muted">Observações: {event.notes}</p>}
             </Card>
           )}
+
+          {/* Quem pediu informa palestrantes, participantes e veículos, antes ou depois da confirmação. */}
+          {mine && !staff && <GuestInfo event={event} />}
 
           <Conversation event={event} management={management} onChanged={load} />
         </div>

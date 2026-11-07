@@ -11,6 +11,28 @@ let vanessaId: string;
 const inDays = (days: number) => zonedDateKey(new Date(Date.now() + days * 86_400_000));
 const day1 = inDays(20);
 const day2 = inDays(21);
+let categoryId: string;
+
+const eventPayload = (title: string) => ({
+  title,
+  kind: "CONGRESS",
+  description: "Programação de teste.",
+  targetAudience: "Alunos",
+  expectedAttendees: 80,
+  entity: "DEPARTMENT",
+  hasRegistrationFee: false,
+  sponsored: false,
+  responsible: "Prof. Teste",
+  responsibleContact: "teste@fm.usp.br",
+  department: "Departamento Teste",
+  coffeeBreak: false,
+  termsAccepted: true,
+  days: [
+    { date: day1, start: "08:00", end: "18:00" },
+    { date: day2, start: "08:00", end: "12:00" },
+  ],
+  spaces: [{ categoryId, count: 1 }],
+});
 
 beforeAll(async () => {
   await resetDatabase();
@@ -18,31 +40,11 @@ beforeAll(async () => {
   vanessaId = (await createUser("vanessa@fm.usp.br", "NUCEV")).id;
   await createUser("aluno@usp.br");
   const salas = await prisma.priceCategory.create({ data: { name: "Salas de aula e salas de reunião", unit: "HOUR", didactic: true } });
+  categoryId = salas.id;
+  await createUser("outro@usp.br");
   await prisma.room.create({ data: { name: "Sala Org", building: "Prédio Teste", floor: "1º andar", capacity: 90, roomType: "CLASSROOM", priceCategoryId: salas.id } });
   const aluno = await loginAs(app, "aluno@usp.br");
-  const { body } = await aluno
-    .post("/api/events")
-    .send({
-      title: "Simpósio de Organização",
-      kind: "CONGRESS",
-      description: "Programação de teste.",
-      targetAudience: "Alunos",
-      expectedAttendees: 80,
-      entity: "DEPARTMENT",
-      hasRegistrationFee: false,
-      sponsored: false,
-      responsible: "Prof. Teste",
-      responsibleContact: "teste@fm.usp.br",
-      department: "Departamento Teste",
-      coffeeBreak: false,
-      termsAccepted: true,
-      days: [
-        { date: day1, start: "08:00", end: "18:00" },
-        { date: day2, start: "08:00", end: "12:00" },
-      ],
-      spaces: [{ categoryId: salas.id, count: 1 }],
-    })
-    .expect(201);
+  const { body } = await aluno.post("/api/events").send(eventPayload("Simpósio de Organização")).expect(201);
   eventId = body.event.id;
 });
 
@@ -140,5 +142,55 @@ describe("Organização do evento confirmado (Fase 16)", () => {
     // Tudo no Histórico.
     expect(await prisma.auditLog.count({ where: { action: "event.organization" } })).toBeGreaterThan(8);
     expect(await prisma.auditLog.count({ where: { action: "event.close" } })).toBe(1);
+  });
+});
+
+describe("Palestrantes, participantes e veículos: quem pediu informa, antes ou depois da confirmação", () => {
+  let id: string;
+
+  it("antes da confirmação, quem pediu inclui palestrantes, participantes e veículos", async () => {
+    const aluno = await loginAs(app, "aluno@usp.br");
+    id = (await aluno.post("/api/events").send(eventPayload("Jornada com convidados")).expect(201)).body.event.id;
+    await aluno.post(`/api/events/${id}/organization/people`).send({ kind: "SPEAKER", name: "Dr. Convidado", affiliation: "Unicamp" }).expect(201);
+    expect((await aluno.post(`/api/events/${id}/organization/people/import`).send({ kind: "PARTICIPANT", text: "Ana\nBruno" }).expect(201)).body.added).toBe(2);
+    const { body } = await aluno.post(`/api/events/${id}/vehicles`).send({ plate: "abc-1d23", model: "Gol prata", driver: "Dr. Convidado" }).expect(201);
+    expect(body.vehicle).toMatchObject({ plate: "ABC1D23", addedByName: "aluno" });
+    expect((await aluno.post(`/api/events/${id}/vehicles`).send({ plate: "ABC1D23" }).expect(409)).body.error.code).toBe("DUPLICATE_PLATE");
+    await aluno.post(`/api/events/${id}/vehicles`).send({ plate: "1234" }).expect(400);
+    await aluno.post(`/api/events/${id}/vehicles`).send({ plate: "XYZ9876" }).expect(201);
+
+    const mine = (await aluno.get(`/api/events/${id}/guests`).expect(200)).body;
+    expect(mine.editable).toBe(true);
+    expect(mine.people.map((p: { name: string; addedByName: string }) => [p.name, p.addedByName])).toEqual([
+      ["Dr. Convidado", "aluno"],
+      ["Ana", "aluno"],
+      ["Bruno", "aluno"],
+    ]);
+    expect(mine.vehicles.map((v: { plate: string }) => v.plate)).toEqual(["ABC1D23", "XYZ9876"]);
+  });
+
+  it("a organização da equipe continua só com o NUCEV e o SAD; outra pessoa não vê nada", async () => {
+    const aluno = await loginAs(app, "aluno@usp.br");
+    await aluno.post(`/api/events/${id}/organization/people`).send({ kind: "ORGANIZER", name: "Eu mesmo" }).expect(403);
+    await aluno.post(`/api/events/${id}/organization/schedule`).send({ date: day1, start: "09:00", end: "10:00", title: "Abertura" }).expect(403);
+    const outro = await loginAs(app, "outro@usp.br");
+    await outro.get(`/api/events/${id}/guests`).expect(404);
+    await outro.post(`/api/events/${id}/vehicles`).send({ plate: "DEF4567" }).expect(404);
+    // A equipe vê o que foi informado desde o pedido, e também edita.
+    const nucev = await loginAs(app, "vanessa@fm.usp.br");
+    const org = (await nucev.get(`/api/events/${id}/organization`).expect(200)).body;
+    expect(org).toMatchObject({ editable: false, guestsEditable: true });
+    expect(org.vehicles).toHaveLength(2);
+    const vehicle = org.vehicles[1];
+    await nucev.patch(`/api/events/${id}/vehicles/${vehicle.id}`).send({ plate: "XYZ9876", model: "Onix branco" }).expect(200);
+    await nucev.delete(`/api/events/${id}/vehicles/${vehicle.id}`).expect(200);
+  });
+
+  it("pedido cancelado: as listas ficam só para consulta", async () => {
+    const aluno = await loginAs(app, "aluno@usp.br");
+    await aluno.post(`/api/events/${id}/cancel`).send({}).expect(200);
+    expect((await aluno.get(`/api/events/${id}/guests`).expect(200)).body.editable).toBe(false);
+    expect((await aluno.post(`/api/events/${id}/vehicles`).send({ plate: "GHI1J23" }).expect(409)).body.error.code).toBe("EVENT_CLOSED");
+    await aluno.post(`/api/events/${id}/organization/people`).send({ kind: "PARTICIPANT", name: "Depois" }).expect(409);
   });
 });

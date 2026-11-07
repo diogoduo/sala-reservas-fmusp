@@ -26,6 +26,9 @@ import {
   type EventPersonKind,
   type EventPersonRow,
   type EventRequest,
+  type EventVehicleRow,
+  type GuestInfoData,
+  plateText,
   type ScheduleItemRow,
   type TaskRow,
 } from "../../lib/events";
@@ -280,11 +283,25 @@ function PersonDialog({ kind, person, onClose, onSave, busy }: { kind: EventPers
   );
 }
 
-function PeopleList({ event, org, kind, people, reload }: { event: EventRequest; org: EventOrganizationData; kind: EventPersonKind; people: EventPersonRow[]; reload: () => void }) {
+function PeopleList({
+  eventId,
+  editable,
+  kind,
+  people,
+  reload,
+  showAddedBy,
+}: {
+  eventId: string;
+  editable: boolean;
+  kind: EventPersonKind;
+  people: EventPersonRow[];
+  reload: () => void;
+  showAddedBy?: boolean;
+}) {
   const confirm = useConfirm();
   const { send, busy } = useSend(reload);
   const [editing, setEditing] = useState<EventPersonRow | "new" | null>(null);
-  const base = `/events/${event.id}/organization/people`;
+  const base = `/events/${eventId}/organization/people`;
   const text = PEOPLE_TEXT[kind];
 
   async function save(draft: Record<string, string>) {
@@ -307,8 +324,9 @@ function PeopleList({ event, org, kind, people, reload }: { event: EventRequest;
                 <p className="font-medium break-words">{p.name}</p>
                 <p className="text-muted">{[p.affiliation, p.contact].filter(Boolean).join(" · ") || "—"}</p>
                 {p.notes && <p className="mt-0.5 text-xs whitespace-pre-line text-muted">{p.notes}</p>}
+                {showAddedBy && p.addedByName && <p className="mt-0.5 text-xs text-muted">Informado por {p.addedByName}</p>}
               </div>
-              {org.editable && (
+              {editable && (
                 <div className="flex shrink-0">
                   <IconButton icon={PencilSimpleIcon} label={`Alterar ${p.name}`} onClick={() => setEditing(p)} />
                   <IconButton icon={TrashIcon} label={`Tirar ${p.name}`} onClick={() => void remove(p)} />
@@ -318,7 +336,7 @@ function PeopleList({ event, org, kind, people, reload }: { event: EventRequest;
           ))}
         </ul>
       )}
-      {org.editable && (
+      {editable && (
         <Button size="sm" variant="secondary" icon={PlusIcon} className="mt-3" onClick={() => setEditing("new")}>
           Incluir {text.one}
         </Button>
@@ -329,7 +347,7 @@ function PeopleList({ event, org, kind, people, reload }: { event: EventRequest;
 }
 
 /** "Nome;contato;instituição" por linha, para abrir na planilha. */
-function downloadCsv(event: EventRequest, people: EventPersonRow[]) {
+function downloadCsv(event: Pick<EventRequest, "protocol">, people: EventPersonRow[]) {
   const cell = (v: string | null) => `"${(v ?? "").replace(/"/g, '""')}"`;
   const lines = ["Nome;Contato;Instituição;Observações", ...people.map((p) => [p.name, p.contact, p.affiliation, p.notes].map(cell).join(";"))];
   const blob = new Blob([`﻿${lines.join("\r\n")}`], { type: "text/csv;charset=utf-8" });
@@ -343,14 +361,26 @@ function downloadCsv(event: EventRequest, people: EventPersonRow[]) {
 
 const PARTICIPANTS_SHOWN = 50;
 
-function ParticipantsSection({ event, org, reload }: { event: EventRequest; org: EventOrganizationData; reload: () => void }) {
+function ParticipantsSection({
+  event,
+  editable,
+  people,
+  reload,
+  showAddedBy,
+}: {
+  event: Pick<EventRequest, "id" | "protocol" | "expectedAttendees">;
+  editable: boolean;
+  people: EventPersonRow[];
+  reload: () => void;
+  showAddedBy?: boolean;
+}) {
   const toast = useToast();
   const [query, setQuery] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [pasting, setPasting] = useState(false);
   const [pasted, setPasted] = useState("");
   const [busy, setBusy] = useState(false);
-  const participants = org.people.filter((p) => p.kind === "PARTICIPANT");
+  const participants = people.filter((p) => p.kind === "PARTICIPANT");
   const needle = query.trim().toLowerCase();
   const filtered = needle ? participants.filter((p) => `${p.name} ${p.contact ?? ""} ${p.affiliation ?? ""}`.toLowerCase().includes(needle)) : participants;
   const shown = showAll || needle ? filtered : filtered.slice(0, PARTICIPANTS_SHOWN);
@@ -382,7 +412,7 @@ function ParticipantsSection({ event, org, reload }: { event: EventRequest; org:
               Baixar (CSV)
             </Button>
           )}
-          {org.editable && (
+          {editable && (
             <Button size="sm" variant="secondary" icon={ClipboardTextIcon} onClick={() => setPasting(true)}>
               Colar lista
             </Button>
@@ -396,7 +426,7 @@ function ParticipantsSection({ event, org, reload }: { event: EventRequest; org:
           <MagnifyingGlassIcon size={18} aria-hidden className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted" />
         </div>
       )}
-      <PeopleList event={event} org={org} kind="PARTICIPANT" people={shown} reload={reload} />
+      <PeopleList eventId={event.id} editable={editable} kind="PARTICIPANT" people={shown} reload={reload} showAddedBy={showAddedBy} />
       {!showAll && !needle && filtered.length > PARTICIPANTS_SHOWN && (
         <button type="button" className="mt-2 text-sm font-medium text-primary hover:underline" onClick={() => setShowAll(true)}>
           Mostrar todos ({filtered.length})
@@ -561,6 +591,9 @@ function LogisticsSection({ event, org, reload }: { event: EventRequest; org: Ev
                 <CarIcon size={16} aria-hidden /> Vagas
               </span>
               <Input aria-label="Vagas" type="number" min={0} inputMode="numeric" value={draft.parkingSpots} onChange={(e) => set({ parkingSpots: e.target.value })} containerClassName="max-w-32" disabled={disabled} />
+              <p className="text-xs text-muted">
+                {org.vehicles.length > 0 ? `${plural(org.vehicles.length, "veículo informado", "veículos informados")} na lista de veículos.` : "Nenhum veículo informado ainda."}
+              </p>
               <Textarea label="Estacionamento" rows={2} value={draft.parkingDetails} onChange={(e) => set({ parkingDetails: e.target.value })} placeholder="Para quem, placas, horários" disabled={disabled} />
             </>
           )}
@@ -677,6 +710,160 @@ function ClosingCard({ event, org, onClosed }: { event: EventRequest; org: Event
 
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Veículos (liberação de vagas)
+// ---------------------------------------------------------------------------
+
+const PLATE = /^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/;
+const normalizePlate = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+function VehicleDialog({ vehicle, onClose, onSave, busy }: { vehicle: EventVehicleRow | null; onClose: () => void; onSave: (v: Record<string, string>) => void; busy: boolean }) {
+  const [draft, setDraft] = useState({ plate: vehicle ? plateText(vehicle.plate) : "", model: vehicle?.model ?? "", driver: vehicle?.driver ?? "", notes: vehicle?.notes ?? "" });
+  const plateOk = PLATE.test(normalizePlate(draft.plate));
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={vehicle ? "Alterar veículo" : "Incluir veículo"}
+      description="Para a liberação da vaga no estacionamento."
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            Cancelar
+          </Button>
+          <Button loading={busy} disabled={!plateOk} onClick={() => onSave(draft)}>
+            Salvar
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Input
+          label="Placa"
+          required
+          value={draft.plate}
+          onChange={(e) => setDraft({ ...draft, plate: e.target.value.toUpperCase() })}
+          placeholder="ABC-1234 ou ABC1D23"
+          maxLength={8}
+          error={draft.plate && !plateOk ? "Use ABC-1234 ou ABC1D23." : undefined}
+          containerClassName="sm:max-w-xs"
+          data-autofocus
+        />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Input label="Modelo e cor" value={draft.model} onChange={(e) => setDraft({ ...draft, model: e.target.value })} placeholder="Ex.: Onix branco" />
+          <Input label="Motorista" value={draft.driver} onChange={(e) => setDraft({ ...draft, driver: e.target.value })} />
+        </div>
+        <Textarea label="Observações" rows={2} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} placeholder="Ex.: chega às 18:30, traz o palestrante" />
+      </div>
+    </Dialog>
+  );
+}
+
+function VehiclesSection({ eventId, editable, vehicles, reload, showAddedBy }: { eventId: string; editable: boolean; vehicles: EventVehicleRow[]; reload: () => void; showAddedBy?: boolean }) {
+  const confirm = useConfirm();
+  const { send, busy } = useSend(reload);
+  const [editing, setEditing] = useState<EventVehicleRow | "new" | null>(null);
+  const base = `/events/${eventId}/vehicles`;
+
+  async function save(draft: Record<string, string>) {
+    const ok = editing === "new" ? await send(base, "POST", draft, "Veículo incluído") : await send(`${base}/${(editing as EventVehicleRow).id}`, "PATCH", draft, "Veículo alterado");
+    if (ok) setEditing(null);
+  }
+  async function remove(v: EventVehicleRow) {
+    if (await confirm({ title: `Tirar o veículo ${plateText(v.plate)}?`, confirmLabel: "Tirar", tone: "danger" })) await send(`${base}/${v.id}`, "DELETE", undefined, "Veículo tirado da lista");
+  }
+
+  return (
+    <Section icon={CarIcon} title="Veículos" description={vehicles.length > 0 ? `${plural(vehicles.length, "veículo", "veículos")} para a liberação de vagas` : "Placas para a liberação de vagas no estacionamento."}>
+      {vehicles.length === 0 ? (
+        <p className="text-sm text-muted">Nenhum veículo informado.</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {vehicles.map((v) => (
+            <li key={v.id} className="flex items-start gap-3 py-2.5 text-sm">
+              <span className="shrink-0 rounded-md border border-border-strong bg-surface-muted px-2 py-0.5 font-mono font-semibold tracking-wider">{plateText(v.plate)}</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-muted">{[v.model, v.driver].filter(Boolean).join(" · ") || "—"}</p>
+                {v.notes && <p className="mt-0.5 text-xs whitespace-pre-line text-muted">{v.notes}</p>}
+                {showAddedBy && v.addedByName && <p className="mt-0.5 text-xs text-muted">Informado por {v.addedByName}</p>}
+              </div>
+              {editable && (
+                <div className="flex shrink-0">
+                  <IconButton icon={PencilSimpleIcon} label={`Alterar ${plateText(v.plate)}`} onClick={() => setEditing(v)} />
+                  <IconButton icon={TrashIcon} label={`Tirar ${plateText(v.plate)}`} onClick={() => void remove(v)} />
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {editable && (
+        <Button size="sm" variant="secondary" icon={PlusIcon} className="mt-3" onClick={() => setEditing("new")}>
+          Incluir veículo
+        </Button>
+      )}
+      {editing && <VehicleDialog vehicle={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSave={(d) => void save(d)} busy={busy} />}
+    </Section>
+  );
+}
+
+/** Palestrantes, participantes e veículos: o que quem pediu informa (e a equipe vê). */
+function GuestSections({
+  event,
+  editable,
+  people,
+  vehicles,
+  reload,
+  showAddedBy,
+}: {
+  event: Pick<EventRequest, "id" | "protocol" | "expectedAttendees">;
+  editable: boolean;
+  people: EventPersonRow[];
+  vehicles: EventVehicleRow[];
+  reload: () => void;
+  showAddedBy?: boolean;
+}) {
+  const speakers = people.filter((p) => p.kind === "SPEAKER");
+  return (
+    <>
+      <Section icon={MicrophoneStageIcon} title="Palestrantes externos" description={speakers.length > 0 ? plural(speakers.length, "palestrante", "palestrantes") : undefined}>
+        <PeopleList eventId={event.id} editable={editable} kind="SPEAKER" people={speakers} reload={reload} showAddedBy={showAddedBy} />
+      </Section>
+      <ParticipantsSection event={event} editable={editable} people={people} reload={reload} showAddedBy={showAddedBy} />
+      <VehiclesSection eventId={event.id} editable={editable} vehicles={vehicles} reload={reload} showAddedBy={showAddedBy} />
+    </>
+  );
+}
+
+/**
+ * Para quem pediu o evento: palestrantes externos, participantes e veículos,
+ * antes ou depois da confirmação, enquanto o evento está aberto.
+ */
+export function GuestInfo({ event }: { event: EventRequest }) {
+  const toast = useToast();
+  const [data, setData] = useState<GuestInfoData | null>(null);
+  const load = useCallback(() => {
+    api<GuestInfoData>(`/events/${event.id}/guests`)
+      .then(setData)
+      .catch((e) => toast.error("Não foi possível carregar as listas.", errorText(e, "")));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event.id]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  if (!data) return null;
+  return (
+    <div className="space-y-6">
+      <Alert tone="info">
+        {data.editable
+          ? "Informe aqui os palestrantes externos, os participantes e os veículos que precisam de vaga no estacionamento. Pode ser antes ou depois da confirmação; o NUCEV e o SAD veem na hora."
+          : "As listas do evento ficam só para consulta."}
+      </Alert>
+      <GuestSections event={event} editable={data.editable} people={data.people} vehicles={data.vehicles} reload={load} />
+    </div>
+  );
+}
+
 export function EventOrganization({ event, management, onEventChanged }: { event: EventRequest; management: EventManagement; onEventChanged: () => void }) {
   const toast = useToast();
   const [org, setOrg] = useState<EventOrganizationData | null>(null);
@@ -695,21 +882,29 @@ export function EventOrganization({ event, management, onEventChanged }: { event
   }, [load]);
 
   if (!org) return <CardListSkeleton />;
-  const speakers = org.people.filter((p) => p.kind === "SPEAKER");
   const organizers = org.people.filter((p) => p.kind === "ORGANIZER");
+  const guests = <GuestSections event={event} editable={org.guestsEditable} people={org.people} vehicles={org.vehicles} reload={load} showAddedBy />;
+
+  // Antes da confirmação: só o que quem pediu informa; o resto abre depois.
+  if (event.status !== "CONFIRMED") {
+    return (
+      <div className="space-y-6">
+        <Alert tone="info">
+          Palestrantes, participantes e veículos quem informa é o solicitante, antes ou depois da confirmação; a equipe também pode editar. A programação, as
+          pendências, a logística e o encerramento abrem depois que o SAD confirma a reserva.
+        </Alert>
+        <div className="grid gap-6 lg:grid-cols-2">{guests}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {!org.editable && event.status === "CONFIRMED" && event.closedAt && (
-        <Alert tone="info">Evento encerrado: a organização fica só para consulta.</Alert>
-      )}
+      {!org.editable && event.closedAt && <Alert tone="info">Evento encerrado: a organização fica só para consulta.</Alert>}
       <div className="grid gap-6 lg:grid-cols-[1fr_24rem]">
         <div className="min-w-0 space-y-6">
           <ScheduleSection event={event} org={org} rooms={rooms} reload={load} />
-          <Section icon={MicrophoneStageIcon} title="Palestrantes externos" description={speakers.length > 0 ? plural(speakers.length, "palestrante", "palestrantes") : undefined}>
-            <PeopleList event={event} org={org} kind="SPEAKER" people={speakers} reload={load} />
-          </Section>
-          <ParticipantsSection event={event} org={org} reload={load} />
+          {guests}
         </div>
         <div className="min-w-0 space-y-6">
           <ClosingCard
@@ -722,12 +917,12 @@ export function EventOrganization({ event, management, onEventChanged }: { event
           />
           <TasksSection event={event} org={org} reload={load} />
           <Section icon={UserCircleGearIcon} title="Responsáveis pela organização">
-            <PeopleList event={event} org={org} kind="ORGANIZER" people={organizers} reload={load} />
+            <PeopleList eventId={event.id} editable={org.editable} kind="ORGANIZER" people={organizers} reload={load} />
           </Section>
           <LogisticsSection key={org.plan?.updatedAt ?? "novo"} event={event} org={org} reload={load} />
         </div>
       </div>
-      {org.editable && <p className="text-xs text-muted">Tudo o que muda aqui vai para o Histórico, com quem fez e quando.</p>}
+      <p className="text-xs text-muted">Tudo o que muda aqui vai para o Histórico, com quem fez e quando.</p>
     </div>
   );
 }

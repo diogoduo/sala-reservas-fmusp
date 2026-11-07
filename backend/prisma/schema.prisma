@@ -637,6 +637,7 @@ model Event {
   plan           EventPlan?
   schedule       EventScheduleItem[]
   people         EventPerson[]
+  vehicles       EventVehicle[]
   tasks          OperationalTask[]
 
   @@index([status, createdAt])
@@ -885,6 +886,8 @@ model EventPerson {
   affiliation String?
   contact     String?
   notes       String?
+  /// Quem incluiu (o solicitante ou alguém da equipe).
+  addedByName String?         @map("added_by_name")
   createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
@@ -925,4 +928,23 @@ model OperationalTask {
   @@index([eventId, status])
   @@index([status, dueDate])
   @@map("operational_tasks")
+}
+
+/// Veículos para a liberação de vagas no estacionamento: quem pediu o evento
+/// informa (antes ou depois da confirmação); a equipe também pode incluir.
+model EventVehicle {
+  id          String   @id @default(uuid()) @db.Uuid
+  eventId     String   @map("event_id") @db.Uuid
+  /// Placa sem traço, em maiúsculas: ABC1234 (antiga) ou ABC1D23 (Mercosul).
+  plate       String
+  model       String?
+  driver      String?
+  notes       String?
+  addedByName String?  @map("added_by_name")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, plate])
+  @@map("event_vehicles")
 }

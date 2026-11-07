@@ -373,6 +373,27 @@ export interface EventPersonRow {
   affiliation: string | null;
   contact: string | null;
   notes: string | null;
+  addedByName: string | null;
+}
+
+/** Veículo para a liberação de vaga: placa sem traço (ABC1234 ou ABC1D23). */
+export interface EventVehicleRow {
+  id: string;
+  plate: string;
+  model: string | null;
+  driver: string | null;
+  notes: string | null;
+  addedByName: string | null;
+}
+
+/** "ABC1234" → "ABC-1234"; a Mercosul (ABC1D23) fica como está. */
+export const plateText = (plate: string) => (/^[A-Z]{3}\d{4}$/.test(plate) ? `${plate.slice(0, 3)}-${plate.slice(3)}` : plate);
+
+/** O que quem pediu informa: palestrantes, participantes e veículos. */
+export interface GuestInfoData {
+  editable: boolean;
+  people: EventPersonRow[];
+  vehicles: EventVehicleRow[];
 }
 
 export interface TaskRow {
@@ -392,10 +413,13 @@ export interface TaskRow {
 
 export interface EventOrganizationData {
   editable: boolean;
+  /** Palestrantes, participantes e veículos: abertos antes e depois da confirmação. */
+  guestsEditable: boolean;
   closable: boolean;
   plan: EventPlanRow | null;
   schedule: ScheduleItemRow[];
   people: EventPersonRow[];
+  vehicles: EventVehicleRow[];
   tasks: TaskRow[];
   team: { id: string; name: string; role: string }[];
 }
