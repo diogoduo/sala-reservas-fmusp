@@ -265,4 +265,19 @@ describe("Gestão do evento (Fase 12)", () => {
     const [entry] = await prisma.auditLog.findMany({ where: { action: "event.expire" } });
     expect(entry).toMatchObject({ actorId: null });
   });
+  it("agenda geral (Fase 15): o evento aparece em cada dia, com as salas dentro dele", async () => {
+    const event = await prisma.event.findUniqueOrThrow({ where: { id: eventId }, include: { days: true } });
+    const keys = event.days.map((d) => d.date.toISOString().slice(0, 10)).sort();
+    const sad = await loginAs(app, "admin@fm.usp.br");
+    const { body } = await sad.get(`/api/admin/agenda/range?from=${keys[0]}&to=${keys.at(-1)}`).expect(200);
+    const item = body.events.find((e: { id: string }) => e.id === eventId);
+    expect(item.days.map((d: { date: string }) => d.date)).toEqual(keys);
+    expect(item.days[0].rooms.length).toBeGreaterThan(0);
+    // As salas do evento não aparecem soltas, como reservas.
+    expect(body.reservations.some((r: { protocol: string }) => r.protocol === event.protocol)).toBe(false);
+    await sad.get("/api/admin/agenda/range?from=2026-01-01&to=2026-03-31").expect(400);
+    await sad.get(`/api/admin/agenda/range?from=${keys.at(-1)}&to=${keys[0]}`).expect(keys.length > 1 ? 400 : 200);
+    // O NUCEV também consulta a agenda.
+    await (await loginAs(app, "vanessa@fm.usp.br")).get(`/api/admin/agenda/range?from=${keys[0]}&to=${keys[0]}`).expect(200);
+  });
 });

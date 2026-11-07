@@ -492,6 +492,87 @@ adminActionsRouter.get(
   }),
 );
 
+// ----------------------------------------------------------------------------
+// Fase 15 — agenda geral SAD + NUCEV: reservas e eventos de um período (semana
+// ou mês), em formato enxuto. As salas de um evento vêm dentro do evento (não
+// como reservas soltas), para a agenda mostrar o evento uma vez por dia.
+// ----------------------------------------------------------------------------
+
+const AGENDA_MAX_DAYS = 42;
+const CLOSED_EVENT: Prisma.EventWhereInput["status"] = { notIn: ["CANCELLED", "REJECTED", "EXPIRED"] };
+
+adminActionsRouter.get(
+  "/agenda/range",
+  asyncHandler(async (req, res) => {
+    const { from, to } = z.object({ from: dateKeySchema, to: dateKeySchema }).parse(req.query);
+    if (to < from) throw new AppError(400, "VALIDATION_ERROR", "O fim do período vem antes do início.");
+    const start = zonedDayRange(from).start;
+    const end = zonedDayRange(to).end;
+    if (end.getTime() - start.getTime() > AGENDA_MAX_DAYS * 86_400_000) {
+      throw new AppError(400, "VALIDATION_ERROR", `O período pode ter no máximo ${AGENDA_MAX_DAYS} dias.`);
+    }
+
+    const [reservations, events, rooms] = await Promise.all([
+      prisma.reservation.findMany({
+        where: { startTime: { gte: start, lt: end }, eventId: null },
+        select: {
+          id: true,
+          protocol: true,
+          title: true,
+          startTime: true,
+          endTime: true,
+          status: true,
+          modifiedByRequesterAt: true,
+          activityType: true,
+          expectedAttendees: true,
+          seriesId: true,
+          room: { select: { id: true, name: true } },
+          user: { select: { name: true, email: true } },
+          reviewedBy: { select: { name: true } },
+        },
+        orderBy: [{ startTime: "asc" }, { title: "asc" }],
+      }),
+      prisma.event.findMany({
+        where: { status: CLOSED_EVENT, days: { some: { date: { gte: new Date(`${from}T00:00:00Z`), lte: new Date(`${to}T00:00:00Z`) } } } },
+        select: {
+          id: true,
+          protocol: true,
+          title: true,
+          status: true,
+          expectedAttendees: true,
+          assigneeName: true,
+          responsible: true,
+          user: { select: { name: true, email: true } },
+          days: { orderBy: { date: "asc" }, select: { date: true, startTime: true, endTime: true } },
+          reservations: {
+            where: { status: { in: ["PENDING", "APPROVED"] } },
+            select: { startTime: true, room: { select: { id: true, name: true } } },
+          },
+        },
+      }),
+      prisma.room.findMany({ where: { status: "ACTIVE" }, select: { id: true, name: true, building: true, floor: true }, orderBy: { name: "asc" } }),
+    ]);
+
+    res.json({
+      from,
+      to,
+      reservations,
+      events: events.map(({ days, reservations: booked, ...event }) => ({
+        ...event,
+        days: days
+          .map((d) => {
+            const date = d.date.toISOString().slice(0, 10);
+            // As salas pré-reservadas (ou confirmadas) do evento naquele dia.
+            const dayRooms = booked.filter((r) => zonedDateKey(r.startTime) === date).map((r) => r.room!);
+            return { date, startTime: d.startTime, endTime: d.endTime, rooms: [...new Map(dayRooms.map((r) => [r.id, r])).values()] };
+          })
+          .filter((d) => d.date >= from && d.date <= to),
+      })),
+      rooms,
+    });
+  }),
+);
+
 // Quantas reservas há em cada dia do mês, por situação (para o calendário do mês).
 adminActionsRouter.get(
   "/agenda/month",

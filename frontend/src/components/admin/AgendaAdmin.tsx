@@ -6,6 +6,7 @@ import {
   CaretRightIcon,
   CheckCircleIcon,
   ClockIcon,
+  ColumnsIcon,
   DoorOpenIcon,
   HammerIcon,
   HourglassMediumIcon,
@@ -16,6 +17,7 @@ import {
   PencilSimpleLineIcon,
   PlusIcon,
   ProhibitIcon,
+  SquaresFourIcon,
   UserMinusIcon,
   UsersIcon,
   WarningIcon,
@@ -44,6 +46,7 @@ import { EmptyState, Skeleton } from "../ui/Feedback";
 import { Input } from "../ui/Field";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Card, PageHeader } from "../ui/Surface";
+import { AgendaRange } from "./AgendaRange";
 import { AdminReservationActions, NoShowButton } from "./ReservationActions";
 import { RequestDetails, ReviewDrawer } from "./ReviewPanel";
 
@@ -91,6 +94,14 @@ function matchesStatus(r: AdminReservation, filter: StatusFilter) {
   if (filter === "PENDING") return r.status === "PENDING" && !isModifiedPending(r);
   return r.status === filter;
 }
+
+type AgendaView = "day" | "week" | "month";
+
+const VIEW_OPTIONS: { value: AgendaView; label: string; icon: Icon }[] = [
+  { value: "day", label: "Dia", icon: CalendarBlankIcon },
+  { value: "week", label: "Semana", icon: ColumnsIcon },
+  { value: "month", label: "Mês", icon: SquaresFourIcon },
+];
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const isoDay = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -426,6 +437,10 @@ export function AgendaAdmin() {
   const [params, setParams] = useSearchParams();
   const date = /^\d{4}-\d{2}-\d{2}$/.test(params.get("data") ?? "") ? params.get("data")! : isoDay(new Date());
   const openId = params.get("reserva");
+  // Fase 15: dia (salas ocupadas e livres), semana ou mês (reservas e eventos juntos).
+  const viewParam = params.get("visao");
+  const view: AgendaView = viewParam === "semana" ? "week" : viewParam === "mes" ? "month" : "day";
+  const withView = (query: Record<string, string>) => (viewParam && view !== "day" ? { ...query, visao: viewParam } : query);
   const [day, setDay] = useState<AgendaDay | null>(null);
   const [counts, setCounts] = useState<MonthCounts | null>(null);
   const [resources, setResources] = useState<Resource[]>([]);
@@ -433,8 +448,9 @@ export function AgendaAdmin() {
   const [reviewing, setReviewing] = useState<AdminReservation | null>(null);
   const month = date.slice(0, 7);
 
-  const setDate = (key: string) => setParams({ data: key }, { replace: true });
-  const openReservation = (id: string | null) => setParams(id ? { data: date, reserva: id } : { data: date }, { replace: true });
+  const setDate = (key: string) => setParams(withView({ data: key }), { replace: true });
+  const openReservation = (id: string | null) => setParams(withView(id ? { data: date, reserva: id } : { data: date }), { replace: true });
+  const setView = (next: AgendaView) => setParams({ data: date, ...(next === "day" ? {} : { visao: next === "week" ? "semana" : "mes" }) }, { replace: true });
 
   const load = useCallback(() => {
     api<AgendaDay>(`/admin/agenda?date=${date}`)
@@ -473,7 +489,7 @@ export function AgendaAdmin() {
     <div className="space-y-6">
       <PageHeader
         title="Agenda"
-        description="Tudo o que acontece em cada dia: as reservas por situação e as salas ocupadas e livres."
+        description="Reservas e eventos do SAD e do NUCEV por dia, semana ou mês, com as salas ocupadas e livres."
         actions={
           canManage ? (
             <Button icon={CalendarPlusIcon} onClick={() => navigate(newReservationUrl())}>
@@ -483,6 +499,18 @@ export function AgendaAdmin() {
         }
       />
 
+      <SegmentedControl label="Visão" value={view} onChange={setView} options={VIEW_OPTIONS} />
+
+      {view !== "day" ? (
+        <AgendaRange
+          view={view}
+          date={date}
+          onDateChange={setDate}
+          onOpenReservation={(key, id) => setParams(withView({ data: key, reserva: id }), { replace: true })}
+          onOpenDay={(key) => setParams({ data: key }, { replace: true })}
+        />
+      ) : (
+        <>
       <div className="flex flex-wrap items-center gap-2">
         <IconButton icon={CaretLeftIcon} label="Dia anterior" variant="secondary" onClick={() => setDate(shiftDay(date, -1))} />
         <IconButton icon={CaretRightIcon} label="Próximo dia" variant="secondary" onClick={() => setDate(shiftDay(date, 1))} />
@@ -544,6 +572,8 @@ export function AgendaAdmin() {
         <RoomsTimeline day={day} onOpen={(r) => openReservation(r.id)} onBook={canManage ? (roomId) => navigate(newReservationUrl(roomId)) : undefined} />
       ) : (
         <EmptyState icon={DoorOpenIcon} title="Nenhuma sala ativa" />
+      )}
+        </>
       )}
 
       {opened && !reviewing && (
