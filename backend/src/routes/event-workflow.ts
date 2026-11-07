@@ -85,6 +85,9 @@ export async function paymentInstructions(db: Prisma.TransactionClient | typeof 
 }
 
 const requesterPath = (id: string) => `/eventos/${id}`;
+
+/** Pagamento em andamento: a pré-reserva feita aqui não muda a etapa. */
+const PAYMENT_STEPS: EventStatus[] = ["PAYMENT_SUBMITTED", "PAYMENT_VALIDATED"];
 const staffPath = (id: string) => `/admin/eventos/${id}`;
 
 // ---------------------------------------------------------------------------
@@ -197,9 +200,12 @@ eventWorkflowRouter.post(
     const event = await loadEvent(req.params.id!);
     assertStatus(
       event,
-      ["SUBMITTED", "IN_REVIEW", "CHANGES_REQUESTED", "PRE_RESERVED", "QUOTE_SENT", "QUOTE_APPROVED"],
+      ["SUBMITTED", "IN_REVIEW", "CHANGES_REQUESTED", "PRE_RESERVED", "QUOTE_SENT", "QUOTE_APPROVED", ...PAYMENT_STEPS],
       "Não dá para pré-reservar um evento nesta situação.",
     );
+    // Orçamento emitido sem pré-reserva e pagamento já em andamento: o SAD escolhe
+    // as salas sem o evento voltar de etapa (senão a confirmação fica travada).
+    const keepStatus = PAYMENT_STEPS.includes(event.status);
     if (input.validUntil < zonedDateKey(new Date())) throw new AppError(400, "VALIDATION_ERROR", "A validade não pode ser no passado.");
     const allocations = input.allocations.filter((a) => a.roomIds.length > 0);
     if (allocations.length === 0) throw new AppError(400, "VALIDATION_ERROR", "Escolha ao menos uma sala.");
@@ -257,14 +263,14 @@ eventWorkflowRouter.post(
             createdRooms.push(room.name);
           }
         }
-        await tx.event.update({ where: { id: event.id }, data: { status: "PRE_RESERVED", preReservedUntil: validUntil } });
+        await tx.event.update({ where: { id: event.id }, data: { status: keepStatus ? event.status : "PRE_RESERVED", preReservedUntil: validUntil } });
         await recordAudit(tx, {
           actor: req.user!,
           action: "event.pre_reserve",
           entityType: "event",
           entityId: event.protocol,
           label: label(event),
-          changes: event.status === "PRE_RESERVED" ? undefined : { status: { from: event.status, to: "PRE_RESERVED" } },
+          changes: event.status === "PRE_RESERVED" || keepStatus ? undefined : { status: { from: event.status, to: "PRE_RESERVED" } },
           details: { validUntil: input.validUntil, rooms: createdRooms, reservations: count },
         });
         const notice = await queueNotice(tx, {
@@ -272,10 +278,12 @@ eventWorkflowRouter.post(
           to: [event.user.email],
           subject: `Espaços pré-reservados: ${event.title}`,
           heading: "Espaços pré-reservados",
-          paragraphs: [
-            `O SAD pré-reservou os espaços do evento ${event.protocol}. A pré-reserva vale até ${brDate(input.validUntil)}.`,
-            "O NUCEV vai enviar o orçamento. A reserva só fica confirmada depois do pagamento validado.",
-          ],
+          paragraphs: keepStatus
+            ? [`O SAD escolheu os espaços do evento ${event.protocol}.`, "A reserva fica garantida quando o SAD confirmar, depois do pagamento validado."]
+            : [
+                `O SAD pré-reservou os espaços do evento ${event.protocol}. A pré-reserva vale até ${brDate(input.validUntil)}.`,
+                "O NUCEV vai enviar o orçamento. A reserva só fica confirmada depois do pagamento validado.",
+              ],
           details: [["Espaços", createdRooms.join(", ")]],
           path: requesterPath(event.id),
         });

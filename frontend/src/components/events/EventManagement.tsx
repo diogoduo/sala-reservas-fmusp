@@ -249,7 +249,19 @@ function PreReserveDialog({ event, onClose, onDone }: { event: EventRequest; onC
 }
 
 /** O NUCEV confere o cálculo (das salas pré-reservadas), marca a isenção se houver e envia. */
-function QuoteDialog({ event, possiblyExempt, onClose, onDone }: { event: EventRequest; possiblyExempt: boolean; onClose: () => void; onDone: () => void }) {
+function QuoteDialog({
+  event,
+  possiblyExempt,
+  preReserved,
+  onClose,
+  onDone,
+}: {
+  event: EventRequest;
+  possiblyExempt: boolean;
+  preReserved: boolean;
+  onClose: () => void;
+  onDone: () => void;
+}) {
   const toast = useToast();
   const [exempt, setExempt] = useState(false);
   const [reason, setReason] = useState(possiblyExempt ? "Evento institucional da FMUSP, sem inscrição e sem patrocínio (Portaria 2794, Art. 4º I)." : "");
@@ -304,6 +316,9 @@ function QuoteDialog({ event, possiblyExempt, onClose, onDone }: { event: EventR
           <Switch checked={exempt} onChange={setExempt} label="Isento" description="Portaria 2794, Art. 4º I e II. O total fica zerado e o motivo vai para o solicitante." />
           {exempt && <Textarea label="Motivo da isenção" required rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />}
         </div>
+        {!preReserved && (
+          <Alert tone="warning">Ainda não há salas pré-reservadas: o orçamento sai sobre o que foi pedido, e o SAD precisa escolher as salas antes de confirmar o evento.</Alert>
+        )}
         {possiblyExempt && !exempt && <Alert tone="info">Evento da FMUSP sem inscrição e sem patrocínio: pode ser isento (Art. 4º I).</Alert>}
         {error && <Alert tone="danger">{error}</Alert>}
         {preview ? <QuoteBreakdown estimate={preview} /> : <p className="text-sm text-muted">Calculando…</p>}
@@ -339,6 +354,13 @@ export function StaffActions({
   // Átrios e outros espaços marcados no cadastro: pedidos pelo nome ou pré-reservados.
   const boardNeeded = event.spaces.some((x) => x.room?.requiresBoardApproval) || management.reservations.some((r) => r.room?.requiresBoardApproval);
   const boardOpen = management.authorizations.some((a) => a.status !== "DENIED");
+  // Orçamento emitido sem pré-reserva: lembra que o SAD ainda precisa escolher as salas.
+  const nextStep =
+    s === "PAYMENT_VALIDATED" && !hasReservations
+      ? "SAD: escolha as salas em “Escolher salas e pré-reservar” e depois confirme a reserva."
+      : ["QUOTE_SENT", "QUOTE_APPROVED", "PAYMENT_SUBMITTED"].includes(s) && !hasReservations
+        ? `${NEXT_STEP[s]} Falta o SAD pré-reservar as salas.`
+        : NEXT_STEP[s];
 
   async function post(path: string, body: unknown, success: string) {
     setBusy(true);
@@ -363,7 +385,7 @@ export function StaffActions({
     <Card className="space-y-4 p-4 sm:p-6">
       <div>
         <h2 className="text-base font-semibold">Gestão</h2>
-        <p className="text-sm text-muted">{NEXT_STEP[s] ?? "Sem ações pendentes."}</p>
+        <p className="text-sm text-muted">{nextStep ?? "Sem ações pendentes."}</p>
         {event.assigneeName && <p className="mt-1 text-xs text-muted">Responsável no NUCEV: {event.assigneeName}</p>}
       </div>
       <div className="flex flex-col gap-2">
@@ -372,8 +394,12 @@ export function StaffActions({
             Iniciar análise
           </Button>
         )}
-        {sad && ["SUBMITTED", "IN_REVIEW", "CHANGES_REQUESTED", "PRE_RESERVED", "QUOTE_SENT", "QUOTE_APPROVED"].includes(s) && (
-          <Button variant={s === "IN_REVIEW" || s === "CHANGES_REQUESTED" ? "primary" : "secondary"} icon={DoorOpenIcon} onClick={() => setDialog("prereserve")}>
+        {sad && ["SUBMITTED", "IN_REVIEW", "CHANGES_REQUESTED", "PRE_RESERVED", "QUOTE_SENT", "QUOTE_APPROVED", "PAYMENT_SUBMITTED", "PAYMENT_VALIDATED"].includes(s) && (
+          <Button
+            variant={s === "IN_REVIEW" || s === "CHANGES_REQUESTED" || (s === "PAYMENT_VALIDATED" && !hasReservations) ? "primary" : "secondary"}
+            icon={DoorOpenIcon}
+            onClick={() => setDialog("prereserve")}
+          >
             {hasReservations ? "Refazer a pré-reserva" : "Escolher salas e pré-reservar"}
           </Button>
         )}
@@ -405,7 +431,7 @@ export function StaffActions({
       </div>
 
       {dialog === "prereserve" && <PreReserveDialog event={event} onClose={() => setDialog(null)} onDone={done} />}
-      {dialog === "quote" && <QuoteDialog event={event} possiblyExempt={possiblyExempt} onClose={() => setDialog(null)} onDone={done} />}
+      {dialog === "quote" && <QuoteDialog event={event} possiblyExempt={possiblyExempt} preReserved={hasReservations} onClose={() => setDialog(null)} onDone={done} />}
       {dialog === "release" && (
         <ReasonDialog
           title="Liberar a pré-reserva?"
@@ -839,11 +865,20 @@ export function PaymentPanel({ event, management, onChanged }: { event: EventReq
         </div>
       )}
       {sad && event.status === "PAYMENT_VALIDATED" && (
-        <div className="border-t border-border pt-4">
-          <Button icon={CheckCircleIcon} loading={busy === "confirm"} onClick={() => void post("confirm", {}, "Reserva confirmada")} className="w-full">
+        <div className="space-y-2 border-t border-border pt-4">
+          {management.reservations.length === 0 && (
+            <Alert tone="warning">Ainda não há salas para este evento. Em Gestão, use “Escolher salas e pré-reservar” e depois confirme.</Alert>
+          )}
+          <Button
+            icon={CheckCircleIcon}
+            loading={busy === "confirm"}
+            disabled={management.reservations.length === 0}
+            onClick={() => void post("confirm", {}, "Reserva confirmada")}
+            className="w-full"
+          >
             Confirmar a reserva
           </Button>
-          <p className="mt-2 text-xs text-muted">A pré-reserva vira reserva efetivada, e quem pediu é avisado.</p>
+          <p className="text-xs text-muted">A pré-reserva vira reserva efetivada, e quem pediu é avisado.</p>
         </div>
       )}
       {refusing && (

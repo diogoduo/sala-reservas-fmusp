@@ -232,6 +232,25 @@ describe("Gestão do evento (Fase 12)", () => {
     await (await loginAs(app, "admin@fm.usp.br")).post(`/api/events/${id}/confirm`).send({}).expect(200);
   });
 
+  it("orçamento sem pré-reserva: com o pagamento validado, o SAD ainda escolhe as salas e confirma", async () => {
+    const aluno = await loginAs(app, "aluno@usp.br");
+    const body = eventBody({ title: "Evento sem pré-reserva", days: [{ date: inDays(50), start: "09:00", end: "12:00" }], spaces: [{ categoryId: salasCategoryId, count: 1 }] });
+    const id = (await aluno.post("/api/events").send(body).expect(201)).body.event.id as string;
+    const nucev = await loginAs(app, "vanessa@fm.usp.br");
+    await nucev.post(`/api/events/${id}/review`).expect(200);
+    const quote = (await nucev.post(`/api/events/${id}/quotes`).send({ exemptionReason: "Evento institucional sem inscrição (Art. 4º I)" }).expect(201)).body.quote;
+    await aluno.post(`/api/events/${id}/quotes/${quote.id}/decision`).send({ decision: "APPROVE" }).expect(200);
+
+    const sad = await loginAs(app, "admin@fm.usp.br");
+    expect((await sad.post(`/api/events/${id}/confirm`).send({}).expect(409)).body.error.code).toBe("NO_RESERVATIONS");
+    const [space] = (await sad.get(`/api/events/${id}/candidates`).expect(200)).body.spaces;
+    await sad.post(`/api/events/${id}/pre-reserve`).send({ validUntil: inDays(5), allocations: [{ spaceId: space.spaceId, roomIds: [salaB.id] }] }).expect(200);
+    // A etapa não volta para "Pré-reservado".
+    expect((await prisma.event.findUniqueOrThrow({ where: { id } })).status).toBe("PAYMENT_VALIDATED");
+    await sad.post(`/api/events/${id}/confirm`).send({}).expect(200);
+    expect(await prisma.reservation.count({ where: { eventId: id, status: "APPROVED", preReservedUntil: null } })).toBe(1);
+  });
+
   it("pré-reserva vencida: o sistema cancela as reservas e libera as salas", async () => {
     const id = await preReservedEvent("Evento que vence", 40);
     await prisma.event.update({ where: { id }, data: { preReservedUntil: new Date(Date.now() - 60_000) } });
