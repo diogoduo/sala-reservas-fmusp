@@ -28,7 +28,7 @@ const minutes = z.coerce
   .number()
   .int()
   .min(0)
-  .max(480, "No máximo 8 horas.")
+  .max(240, "No máximo 4 horas.")
   .refine((m) => m % 15 === 0, "Em múltiplos de 15 minutos.")
   .default(0);
 

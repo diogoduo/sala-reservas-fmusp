@@ -22,7 +22,7 @@ export const EVENT_STATUS_LABELS: Record<EventStatus, string> = {
   IN_REVIEW: "Em análise",
   QUOTE_SENT: "Orçamento enviado",
   CHANGES_REQUESTED: "Alteração pedida",
-  QUOTE_APPROVED: "Orçamento aprovado",
+  QUOTE_APPROVED: "Aguardando pagamento",
   PRE_RESERVED: "Pré-reservado",
   PAYMENT_SUBMITTED: "Comprovante enviado",
   PAYMENT_VALIDATED: "Pagamento validado",
@@ -50,11 +50,11 @@ export const EVENT_STATUS_TONES: Record<EventStatus, Tone> = {
 /** O que acontece agora, para quem pediu. */
 export const EVENT_STATUS_HINTS: Record<EventStatus, string> = {
   SUBMITTED: "O pedido chegou. O NUCEV vai analisar e enviar o orçamento.",
-  IN_REVIEW: "O NUCEV está analisando os espaços e o orçamento.",
+  IN_REVIEW: "O NUCEV está analisando o pedido, e o SAD vai escolher as salas.",
   QUOTE_SENT: "O orçamento foi enviado: aprove, recuse ou peça alteração.",
-  CHANGES_REQUESTED: "Você pediu alteração: o NUCEV vai revisar o orçamento.",
-  QUOTE_APPROVED: "Orçamento aprovado. O SAD vai pré-reservar os espaços.",
-  PRE_RESERVED: "Os espaços estão pré-reservados até a data indicada. Faça o pagamento e envie o comprovante.",
+  CHANGES_REQUESTED: "Alteração pedida: o NUCEV e o SAD vão revisar os espaços e o orçamento.",
+  QUOTE_APPROVED: "Orçamento aprovado. Faça o pagamento seguindo as orientações e envie o comprovante.",
+  PRE_RESERVED: "O SAD pré-reservou os espaços. O NUCEV vai enviar o orçamento.",
   PAYMENT_SUBMITTED: "Comprovante enviado. O NUCEV está conferindo.",
   PAYMENT_VALIDATED: "Pagamento validado. O SAD vai confirmar a reserva.",
   CONFIRMED: "Reserva confirmada.",
@@ -90,7 +90,7 @@ export interface EventSpace {
   /** Vazio = todos os dias. */
   dates: string[];
   priceCategory: { id: string; name: string; unit: PriceUnit } | null;
-  room: { id: string; name: string; building: string; floor: string } | null;
+  room: { id: string; name: string; building: string; floor: string; requiresBoardApproval: boolean } | null;
 }
 
 export interface EventRequest {
@@ -116,6 +116,11 @@ export interface EventRequest {
   notes: string | null;
   estimate: QuoteEstimate | null;
   status: EventStatus;
+  assigneeName: string | null;
+  preReservedUntil: string | null;
+  rejectionReason: string | null;
+  /** O orçamento mais recente emitido (só a versão e o total). */
+  quotes?: { version: number; totalCents: number; status: QuoteStatus }[];
   cancelledAt: string | null;
   cancellationReason: string | null;
   createdAt: string;
@@ -159,3 +164,123 @@ export function eventStatusText(e: Pick<EventRequest, "status" | "days">): strin
   if (keys.length && today >= keys[0]!) return "Em andamento";
   return EVENT_STATUS_LABELS.CONFIRMED;
 }
+
+// --- Fase 12: gestão do evento ------------------------------------------------
+
+export type QuoteStatus = "SENT" | "APPROVED" | "REJECTED" | "CHANGES_REQUESTED" | "SUPERSEDED";
+
+export const QUOTE_STATUS_LABELS: Record<QuoteStatus, string> = {
+  SENT: "Aguardando resposta",
+  APPROVED: "Aprovado",
+  REJECTED: "Recusado",
+  CHANGES_REQUESTED: "Alteração pedida",
+  SUPERSEDED: "Substituído",
+};
+
+export const QUOTE_STATUS_TONES: Record<QuoteStatus, Tone> = {
+  SENT: "warning",
+  APPROVED: "success",
+  REJECTED: "danger",
+  CHANGES_REQUESTED: "warning",
+  SUPERSEDED: "neutral",
+};
+
+export interface EventQuoteRow {
+  id: string;
+  version: number;
+  estimate: QuoteEstimate;
+  totalCents: number;
+  exemptionReason: string | null;
+  notes: string | null;
+  status: QuoteStatus;
+  createdAt: string;
+  createdByName: string | null;
+  decidedAt: string | null;
+  decidedByName: string | null;
+  decisionNote: string | null;
+}
+
+export interface EventMessageRow {
+  id: string;
+  authorId: string | null;
+  authorName: string;
+  authorRole: string;
+  body: string;
+  createdAt: string;
+}
+
+export type AuthorizationStatus = "PENDING" | "AUTHORIZED" | "DENIED";
+
+export const AUTHORIZATION_LABELS: Record<AuthorizationStatus, string> = {
+  PENDING: "Aguardando a Diretoria",
+  AUTHORIZED: "Autorizado",
+  DENIED: "Negado",
+};
+
+export interface EventAuthorizationRow {
+  id: string;
+  recipient: string;
+  spaces: string;
+  note: string | null;
+  status: AuthorizationStatus;
+  requestedAt: string;
+  requestedByName: string | null;
+  respondedAt: string | null;
+  responseNote: string | null;
+}
+
+export interface EventNoticeRow {
+  id: string;
+  to: string[];
+  subject: string;
+  body: string;
+  link: string | null;
+  createdAt: string;
+  sentAt: string | null;
+}
+
+export interface EventReservationRow {
+  id: string;
+  room: { id: string; name: string; building: string; floor: string; requiresBoardApproval: boolean } | null;
+  date: string;
+  start: string;
+  end: string;
+  preReservedUntil: string | null;
+}
+
+export interface EventManagement {
+  reservations: EventReservationRow[];
+  quotes: EventQuoteRow[];
+  messages: EventMessageRow[];
+  authorizations: EventAuthorizationRow[];
+  notices: EventNoticeRow[];
+}
+
+export interface CandidateSpace {
+  spaceId: string;
+  needed: number;
+  dates: string[];
+  rooms: {
+    id: string;
+    name: string;
+    building: string;
+    floor: string;
+    capacity: number | null;
+    requiresBoardApproval: boolean;
+    busyDates: string[];
+    selected: boolean;
+  }[];
+}
+
+/** N dias úteis a partir de hoje (sem sábados e domingos), "AAAA-MM-DD". */
+export function businessDaysFromToday(n: number): string {
+  const d = new Date();
+  let left = n;
+  while (left > 0) {
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() !== 0 && d.getDay() !== 6) left--;
+  }
+  return d.toLocaleDateString("en-CA");
+}
+
+export const dateTimeText = (iso: string) => new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });

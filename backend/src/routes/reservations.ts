@@ -34,6 +34,9 @@ import {
 import { cancelReservationSchema, requesterCreateSchema, updateReservationSchema } from "../schemas/reservation";
 
 export const reservationsRouter = Router();
+
+/** Sala de um evento: muda pela tela do evento (o SAD altera; o solicitante cancela o evento). */
+const EVENT_RESERVATION = new AppError(409, "EVENT_RESERVATION", "Esta sala faz parte de um evento: as mudanças são feitas na tela do evento.");
 reservationsRouter.param("id", uuidParam("RESERVATION_NOT_FOUND", "Reserva não encontrada."));
 
 const reservationInclude = {
@@ -172,7 +175,8 @@ reservationsRouter.get(
   asyncHandler(async (req, res) => {
     const query = listQuerySchema.parse(req.query);
     const reservations = await prisma.reservation.findMany({
-      where: { userId: req.user!.id, status: query.status },
+      // As salas de um evento (pré-reserva do SAD) ficam na tela do evento, não aqui.
+      where: { userId: req.user!.id, status: query.status, eventId: null },
       include: reservationInclude,
       orderBy: { startTime: "asc" },
     });
@@ -248,6 +252,7 @@ reservationsRouter.post(
       if (!CANCELLABLE_STATUSES.includes(reservation.status)) {
         throw new AppError(409, "RESERVATION_NOT_CANCELLABLE", "Esta reserva já foi rejeitada ou cancelada.");
       }
+      if (reservation.eventId) throw EVENT_RESERVATION;
       if (reservation.startTime <= now) {
         throw new AppError(400, "RESERVATION_IN_PAST", "Não é possível cancelar uma reserva que já começou ou terminou.");
       }
@@ -323,6 +328,7 @@ reservationsRouter.put(
         if (!CANCELLABLE_STATUSES.includes(reservation.status)) {
           throw new AppError(409, "RESERVATION_NOT_EDITABLE", "Esta reserva já foi rejeitada ou cancelada e não pode ser alterada.");
         }
+        if (reservation.eventId) throw EVENT_RESERVATION;
         if (!isWithinRequesterDeadline(reservation.startTime, now)) {
           throw new AppError(400, "EDIT_TOO_SOON", deadlineMessage(reservation.startTime, "alterar"));
         }

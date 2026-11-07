@@ -1,11 +1,14 @@
 import { createApp } from "./app";
 import { env } from "./config/env";
+import { scheduleExpiry } from "./events/expiry";
 import { prisma } from "./lib/prisma";
 
 const app = createApp();
 
 const server = app.listen(env.PORT, () => {
   console.log(`API no ar em http://localhost:${env.PORT} (${env.NODE_ENV}, auth=${env.AUTH_MODE})`);
+  // Fase 12: pré-reservas de evento vencidas liberam as salas sozinhas.
+  scheduleExpiry();
 });
 
 function shutdown(signal: string) {

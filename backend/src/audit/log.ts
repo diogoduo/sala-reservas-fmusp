@@ -49,7 +49,21 @@ export type AuditAction =
   | "price.category_update"
   // Eventos (Fases 11 a 13)
   | "event.request"
-  | "event.cancel";
+  | "event.cancel"
+  | "event.review"
+  | "event.pre_reserve"
+  | "event.release"
+  | "event.quote_send"
+  | "event.quote_decision"
+  | "event.reject"
+  | "event.staff_cancel"
+  | "event.authorization_request"
+  | "event.authorization_response"
+  | "event.expire"
+  | "event.payment_receipt"
+  | "event.payment_validate"
+  | "event.payment_refuse"
+  | "event.confirm";
 
 export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user" | "price" | "event";
 

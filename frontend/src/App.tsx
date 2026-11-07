@@ -1,7 +1,8 @@
-import { Navigate, Route, Routes } from "react-router";
+import { Navigate, Route, Routes, useLocation } from "react-router";
 import { AgendaAdmin } from "./components/admin/AgendaAdmin";
 import { AuditLogPage } from "./components/admin/AuditLogPage";
 import { PricesPage } from "./components/admin/PricesPage";
+import { AuthorizationPage } from "./components/events/AuthorizationPage";
 import { EventDetail } from "./components/events/EventDetail";
 import { EventsAdmin, MyEvents } from "./components/events/EventList";
 import { EventRequestForm } from "./components/events/EventRequestForm";
@@ -22,6 +23,16 @@ import { useAuth } from "./lib/auth";
 
 export default function App() {
   const { user, loading } = useAuth();
+  const location = useLocation();
+
+  // Link do e-mail da Diretoria (Fase 12): abre sem login.
+  if (location.pathname.startsWith("/autorizacao/")) {
+    return (
+      <Routes>
+        <Route path="/autorizacao/:token" element={<AuthorizationPage />} />
+      </Routes>
+    );
+  }
 
   if (loading) {
     return (

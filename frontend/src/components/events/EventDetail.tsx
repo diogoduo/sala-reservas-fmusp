@@ -1,11 +1,21 @@
 import { ArrowLeftIcon, CoffeeIcon, ProhibitIcon } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { CULTURE_KIND_LABELS, ORGANIZER_ENTITY_LABELS } from "../../lib/activities";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { useConfirm } from "../../lib/confirm";
-import { dayLabel, EVENT_STATUS_HINTS, EVENT_STATUS_TONES, eventPeriod, eventStatusText, spaceText, type EventRequest, type EventStatus } from "../../lib/events";
+import {
+  dayLabel,
+  EVENT_STATUS_HINTS,
+  EVENT_STATUS_TONES,
+  eventPeriod,
+  eventStatusText,
+  spaceText,
+  type EventManagement,
+  type EventRequest,
+  type EventStatus,
+} from "../../lib/events";
 import { isStaff } from "../../lib/permissions";
 import { useToast } from "../../lib/toast";
 import { QuoteBreakdown } from "../quotes/QuoteBreakdown";
@@ -13,8 +23,9 @@ import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { Alert, CardListSkeleton } from "../ui/Feedback";
 import { Card, PageHeader } from "../ui/Surface";
+import { AuthorizationPanel, Conversation, NoticesPanel, QuotePanel, ReservedRooms, StaffActions } from "./EventManagement";
 
-const REQUESTER_CANCELLABLE: EventStatus[] = ["SUBMITTED", "IN_REVIEW", "QUOTE_SENT", "CHANGES_REQUESTED", "QUOTE_APPROVED"];
+const REQUESTER_CANCELLABLE: EventStatus[] = ["SUBMITTED", "IN_REVIEW", "PRE_RESERVED", "QUOTE_SENT", "CHANGES_REQUESTED", "QUOTE_APPROVED"];
 const hoursText = (minutes: number) => `${(minutes / 60).toLocaleString("pt-BR")} h`;
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -26,40 +37,46 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
+interface EventResponse {
+  event: EventRequest;
+  possiblyExempt: boolean;
+  management: EventManagement;
+}
+
 /** Um evento, para quem pediu (/eventos/:id) e para o SAD e o NUCEV (/admin/eventos/:id). */
 export function EventDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
-  const [event, setEvent] = useState<EventRequest | null>(null);
-  const [possiblyExempt, setPossiblyExempt] = useState(false);
+  const [data, setData] = useState<EventResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const staff = isStaff(user?.role);
 
-  useEffect(() => {
-    api<{ event: EventRequest; possiblyExempt: boolean }>(`/events/${id}`)
-      .then((res) => {
-        setEvent(res.event);
-        setPossiblyExempt(res.possiblyExempt);
-      })
+  const load = useCallback(() => {
+    api<EventResponse>(`/events/${id}`)
+      .then(setData)
       .catch((e) => setError(e instanceof Error ? e.message : "Não foi possível carregar o evento."));
   }, [id]);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
   async function cancel() {
-    if (!event) return;
+    if (!data) return;
     const ok = await confirm({
       tone: "danger",
       title: "Cancelar o pedido de evento?",
-      description: "O NUCEV e o SAD são avisados. Para voltar atrás, será preciso fazer um pedido novo.",
+      description: "O NUCEV e o SAD são avisados, e as salas pré-reservadas são liberadas. Para voltar atrás, será preciso fazer um pedido novo.",
       confirmLabel: "Cancelar pedido",
       cancelLabel: "Voltar",
     });
     if (!ok) return;
     try {
-      const res = await api<{ event: EventRequest }>(`/events/${event.id}/cancel`, { method: "POST", body: "{}" });
-      setEvent(res.event);
-      toast.success("Pedido cancelado", event.protocol);
+      await api(`/events/${data.event.id}/cancel`, { method: "POST", body: "{}" });
+      toast.success("Pedido cancelado", data.event.protocol);
+      load();
     } catch (e) {
       toast.error("Não foi possível cancelar.", e instanceof ApiError ? e.message : undefined);
     }
@@ -67,8 +84,10 @@ export function EventDetail() {
 
   const back = staff ? "/admin/eventos" : "/eventos";
   if (error) return <Alert tone="danger">{error}</Alert>;
-  if (!event) return <CardListSkeleton />;
+  if (!data) return <CardListSkeleton />;
+  const { event, management, possiblyExempt } = data;
   const mine = event.userId === user?.id;
+  const quotes = management.quotes;
 
   return (
     <div className="space-y-6">
@@ -94,11 +113,12 @@ export function EventDetail() {
 
       <Alert tone={event.status === "REJECTED" ? "danger" : event.status === "CANCELLED" || event.status === "EXPIRED" ? "warning" : "info"}>
         {EVENT_STATUS_HINTS[event.status]}
+        {event.rejectionReason && ` Motivo: ${event.rejectionReason}`}
         {event.cancellationReason && ` Motivo: ${event.cancellationReason}`}
       </Alert>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_24rem]">
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <Card className="p-4 sm:p-6">
             <h2 className="text-base font-semibold">O evento</h2>
             <dl className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -156,6 +176,8 @@ export function EventDetail() {
             </ul>
           </Card>
 
+          <ReservedRooms event={event} management={management} />
+
           {(event.coffeeBreak || event.infrastructure || event.notes) && (
             <Card className="space-y-3 p-4 sm:p-6">
               <h2 className="text-base font-semibold">Coffee e infraestrutura</h2>
@@ -168,18 +190,37 @@ export function EventDetail() {
               {event.notes && <p className="text-sm whitespace-pre-line text-muted">Observações: {event.notes}</p>}
             </Card>
           )}
+
+          <Conversation event={event} management={management} onChanged={load} />
         </div>
 
-        <Card className="h-fit p-4 sm:p-6">
-          <h2 className="text-base font-semibold">Orçamento estimado</h2>
-          <p className="mb-4 text-sm text-muted">Calculado no envio do pedido. O NUCEV confere e envia o orçamento oficial.</p>
-          {event.estimate ? <QuoteBreakdown estimate={event.estimate} /> : <p className="text-sm text-muted">Sem estimativa: não havia tabela de preços para a data.</p>}
-          {possiblyExempt && (
-            <Alert tone="info" className="mt-4">
-              Evento da FMUSP sem inscrição e sem patrocínio: pode ser isento (Portaria 2794, Art. 4º I).
-            </Alert>
+        <div className="min-w-0 space-y-6">
+          {staff && <StaffActions event={event} management={management} possiblyExempt={possiblyExempt} onChanged={load} />}
+          <QuotePanel event={event} quotes={quotes} onChanged={load} />
+          <AuthorizationPanel management={management} />
+          {quotes.length === 0 ? (
+            <Card className="p-4 sm:p-6">
+              <h2 className="text-base font-semibold">Orçamento estimado</h2>
+              <p className="mb-4 text-sm text-muted">Calculado no envio do pedido. O NUCEV confere e envia o orçamento oficial.</p>
+              {event.estimate ? <QuoteBreakdown estimate={event.estimate} /> : <p className="text-sm text-muted">Sem estimativa: não havia tabela de preços para a data.</p>}
+              {possiblyExempt && (
+                <Alert tone="info" className="mt-4">
+                  Evento da FMUSP sem inscrição e sem patrocínio: pode ser isento (Portaria 2794, Art. 4º I).
+                </Alert>
+              )}
+            </Card>
+          ) : (
+            event.estimate && (
+              <details className="rounded-2xl border border-border bg-surface p-4 text-sm">
+                <summary className="cursor-pointer font-medium">Estimativa feita no envio do pedido</summary>
+                <div className="mt-3">
+                  <QuoteBreakdown estimate={event.estimate} />
+                </div>
+              </details>
+            )
           )}
-        </Card>
+          <NoticesPanel management={management} />
+        </div>
       </div>
     </div>
   );

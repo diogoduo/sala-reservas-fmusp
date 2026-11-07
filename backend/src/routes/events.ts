@@ -4,6 +4,8 @@ import { z } from "zod";
 import { recordAudit } from "../audit/log";
 import { assertCanRequestActivity } from "../auth/permissions";
 import { spaceAvailability } from "../events/availability";
+import { expireOverduePreReservations } from "../events/expiry";
+import { deliverNotices, queueNotice, staffEmails } from "../events/notices";
 import { createEventSchema, eventDaySchema, eventSpaceSchema, FMUSP_ENTITIES, INSTITUTIONAL_ENTITIES, usageWindow, type CreateEventInput } from "../events/schema";
 import { asyncHandler } from "../lib/async-handler";
 import { AppError } from "../lib/errors";
@@ -11,6 +13,7 @@ import { prisma } from "../lib/prisma";
 import { zonedClock, zonedDateKey, zonedTime } from "../lib/timezone";
 import { isStaff, requireAuth, requireStaff } from "../middleware/auth";
 import { estimateQuote } from "../quotes/estimate";
+import { eventManagement } from "./event-workflow";
 import { assertNotSuspended } from "../reservations/portaria";
 import { assertMinAdvance } from "../reservations/rules";
 
@@ -26,12 +29,13 @@ export const eventsRouter = Router();
 
 const eventInclude = {
   user: { select: { id: true, name: true, email: true } },
+  quotes: { orderBy: { version: "desc" }, take: 1, select: { version: true, totalCents: true, status: true } },
   days: { orderBy: { date: "asc" } },
   spaces: {
     orderBy: { position: "asc" },
     include: {
       priceCategory: { select: { id: true, name: true, unit: true } },
-      room: { select: { id: true, name: true, building: true, floor: true } },
+      room: { select: { id: true, name: true, building: true, floor: true, requiresBoardApproval: true } },
     },
   },
 } satisfies Prisma.EventInclude;
@@ -171,6 +175,7 @@ eventsRouter.get(
   "/mine",
   requireAuth,
   asyncHandler(async (req, res) => {
+    await expireOverduePreReservations();
     const events = await prisma.event.findMany({ where: { userId: req.user!.id }, include: eventInclude, orderBy: { createdAt: "desc" } });
     res.json({ events: events.map(serializeEvent) });
   }),
@@ -186,6 +191,7 @@ eventsRouter.get(
   requireStaff,
   asyncHandler(async (req, res) => {
     const query = listQuerySchema.parse(req.query);
+    await expireOverduePreReservations();
     const events = await prisma.event.findMany({
       where: {
         status: query.status,
@@ -233,9 +239,10 @@ eventsRouter.get(
   "/:id",
   requireAuth,
   asyncHandler(async (req, res) => {
+    await expireOverduePreReservations();
     const event = await findEvent(req.params.id!);
     if (event.userId !== req.user!.id && !isStaff(req.user!.role)) throw new AppError(404, "EVENT_NOT_FOUND", "Evento não encontrado.");
-    res.json({ event: serializeEvent(event), possiblyExempt: possiblyExempt(event) });
+    res.json({ event: serializeEvent(event), possiblyExempt: possiblyExempt(event), management: await eventManagement(event.id, req.user!) });
   }),
 );
 
@@ -243,8 +250,8 @@ eventsRouter.get(
 const possiblyExempt = (e: { entity: string; hasRegistrationFee: boolean; sponsored: boolean }) =>
   FMUSP_ENTITIES.includes(e.entity) && !e.hasRegistrationFee && !e.sponsored;
 
-/** O solicitante desiste antes da pré-reserva (depois dela, o cancelamento libera os espaços — Fase 12). */
-const REQUESTER_CANCELLABLE: EventStatus[] = ["SUBMITTED", "IN_REVIEW", "QUOTE_SENT", "CHANGES_REQUESTED", "QUOTE_APPROVED"];
+/** O solicitante desiste antes do pagamento; as salas pré-reservadas são liberadas. */
+const REQUESTER_CANCELLABLE: EventStatus[] = ["SUBMITTED", "IN_REVIEW", "PRE_RESERVED", "QUOTE_SENT", "CHANGES_REQUESTED", "QUOTE_APPROVED"];
 
 eventsRouter.post(
   "/:id/cancel",
@@ -256,10 +263,14 @@ eventsRouter.post(
     if (!REQUESTER_CANCELLABLE.includes(event.status)) {
       throw new AppError(409, "EVENT_NOT_CANCELLABLE", "Este evento não pode mais ser cancelado por aqui. Fale com o NUCEV.");
     }
-    const updated = await prisma.$transaction(async (tx) => {
+    const { updated, noticeId } = await prisma.$transaction(async (tx) => {
+      await tx.reservation.updateMany({
+        where: { eventId: event.id, status: { in: ["PENDING", "APPROVED"] } },
+        data: { status: "CANCELLED", cancelledAt: new Date(), cancelledById: req.user!.id, cancellationReason: "Evento cancelado pelo solicitante." },
+      });
       const after = await tx.event.update({
         where: { id: event.id },
-        data: { status: "CANCELLED", cancelledAt: new Date(), cancellationReason: reason || null },
+        data: { status: "CANCELLED", cancelledAt: new Date(), cancellationReason: reason || null, preReservedUntil: null },
         include: eventInclude,
       });
       await recordAudit(tx, {
@@ -271,8 +282,17 @@ eventsRouter.post(
         changes: { status: { from: event.status, to: "CANCELLED" } },
         details: reason ? { reason } : undefined,
       });
-      return after;
+      const notice = await queueNotice(tx, {
+        eventId: event.id,
+        to: await staffEmails(tx, { withSad: true }),
+        subject: `Evento cancelado pelo solicitante: ${event.title}`,
+        heading: "Evento cancelado pelo solicitante",
+        paragraphs: [`${event.user.name} cancelou o evento ${event.protocol}.`, ...(reason ? [`Motivo: ${reason}`] : [])],
+        path: `/admin/eventos/${event.id}`,
+      });
+      return { updated: after, noticeId: notice.id };
     });
+    deliverNotices([noticeId]);
     res.json({ event: serializeEvent(updated) });
   }),
 );

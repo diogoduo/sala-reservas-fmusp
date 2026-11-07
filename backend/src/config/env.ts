@@ -78,6 +78,9 @@ const schema = z
     MAIL_REDIRECT_TO: optionalText(z.string().email()),
     MAIL_REDIRECT_EXCEPT: csv(""),
     TI_EMAIL_ADDRESS: z.string().email().default("ti@fm.usp.br"),
+    // Fase 12: quem autoriza o uso dos átrios (Portaria 2747/2025). Fictício até o
+    // SAD informar o e-mail real da Diretoria Executiva.
+    DIRETORIA_EMAIL_ADDRESS: z.string().email().default("diretoria.demo@fm.usp.br"),
   })
   .superRefine((cfg, ctx) => {
     const requireKeys = (keys: (keyof typeof cfg)[], reason: string) => {

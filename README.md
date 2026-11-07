@@ -1038,6 +1038,55 @@ permissão, como a Sueli e a Juliana, não vê o item). Formulário em etapas:
   NUCEV), `GET /api/events/:id`, `POST /api/events/:id/cancel`,
   `POST /api/events/availability`.
 
+## Fase 12 — Gestão do evento (SAD e NUCEV)
+
+Fluxo do documento SAD/NUCEV (4.3): **análise → pré-reserva → orçamento →
+aprovação do solicitante** (o pagamento e a confirmação entram na Fase 13).
+Divisão de tarefas combinada:
+
+| Quem | O que faz |
+|---|---|
+| **NUCEV** | Inicia a análise (fica como responsável), emite o orçamento em versões (com isenção e motivo), pede a autorização da Diretoria e recusa o pedido |
+| **SAD** | Escolhe as salas de cada pedido e faz a **pré-reserva**, com a validade que ele define; libera a pré-reserva e cancela o evento. Também pode fazer o que o NUCEV faz |
+| **Solicitante** | Aprova o orçamento, pede alteração (com o que precisa mudar) ou recusa (o evento é cancelado e as salas liberadas) |
+| **Diretoria Executiva** | Autoriza ou nega o uso dos átrios pelo link do e-mail, sem login |
+
+- **Painel Eventos** (`/admin/eventos`): indicadores (recebidos, em análise,
+  pré-reservas ativas, orçamentos enviados, aguardando pagamento, pagamento
+  em validação, confirmados, em andamento, finalizados, cancelados) e um
+  **quadro por etapas** no estilo do Monday, além da lista.
+- **Pré-reserva:** são reservas aprovadas ligadas ao evento
+  (`reservations.event_id`), com validade (`pre_reserved_until`). Bloqueiam a
+  sala pela mesma regra de conflito das outras reservas (exclusion
+  constraint) e aparecem na Agenda e em Salas livres. Ao escolher, o SAD vê
+  as salas que servem (categoria e capacidade) e os dias em que cada uma está
+  ocupada. **Vencida a validade** sem comprovante, o sistema cancela as
+  reservas, libera as salas e marca o evento como "Pré-reserva vencida"
+  (`events/expiry.ts`, a cada 5 minutos e a cada consulta). As salas do
+  evento não aparecem em "Minhas reservas" do solicitante e só mudam pela
+  tela do evento.
+- **Orçamento com versões** (`event_quotes`): calculado pelo motor da Fase 10
+  sobre as **salas pré-reservadas** (sem pré-reserva, sobre o que foi
+  pedido). Cada envio guarda o cálculo e os preços usados; a versão anterior
+  fica "Substituída" e não aceita mais resposta.
+- **Autorização da Diretoria** (`event_authorizations`): o e-mail vai para
+  `DIRETORIA_EMAIL_ADDRESS` (fictício: `diretoria.demo@fm.usp.br`) com o
+  evento, as datas, o espaço, os participantes, o responsável e o motivo, e
+  um link `/autorizacao/<token>` para autorizar ou negar. O token só aparece
+  para a equipe.
+- **Conversa** (`event_messages`) entre solicitante, SAD e NUCEV; cada
+  mensagem avisa o outro lado.
+- **E-mails do evento** (`event_notices`): cada aviso fica gravado e aparece
+  na tela do evento, com o link. Com o e-mail desligado (como na
+  demonstração), fica "Registrado"; com o e-mail ligado, "Enviado".
+- Tudo vai para o Histórico (pedido, análise, pré-reserva, liberação,
+  orçamento, resposta, recusa, cancelamento, autorização, vencimento).
+- API: `POST /api/events/:id/review`, `GET …/candidates`, `POST …/pre-reserve`,
+  `POST …/release`, `POST …/quotes/preview`, `POST …/quotes`,
+  `POST …/quotes/:quoteId/decision`, `POST …/reject`, `POST …/staff-cancel`,
+  `POST …/messages`, `POST …/authorization`; público:
+  `GET/POST /api/authorizations/:token`.
+
 ## Interface
 
 Redesign completo do front-end, responsivo do celular ao computador, com tema
