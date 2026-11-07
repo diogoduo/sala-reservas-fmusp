@@ -50,6 +50,12 @@ const args: Record<string, string> = Object.fromEntries(
   }),
 );
 const REAL_ROOMS = args["salas-reais"] === "true";
+/**
+ * O dia da apresentação, que a base deixa cheio (e a semana dele bem ocupada):
+ * --dia-cheio=AAAA-MM-DD (padrão: 2026-11-10, a reunião com a chefia).
+ */
+const FULL_DAY = args["dia-cheio"] ?? "2026-11-10";
+if (!/^\d{4}-\d{2}-\d{2}$/.test(FULL_DAY)) throw new Error("Use --dia-cheio=AAAA-MM-DD.");
 
 /**
  * --salas-reais: cada sala fictícia vira uma sala real parecida (tipo e
@@ -627,6 +633,26 @@ async function main() {
   const checklist = { ccexAuthorized: true, academicDivisionApproved: true, feeSettled: true, directorateHomologated: false };
   let created = 0;
 
+  // Fases 11 a 13: eventos em cada etapa (recebido, em análise, pré-reservado,
+  // orçamento enviado, alteração pedida, aguardando pagamento, comprovante enviado,
+  // confirmado e recusado), nas salas da base.
+  const people = new Map((await prisma.user.findMany({ select: { id: true, name: true, email: true } })).map((u) => [u.email, u]));
+  const nucevUser = people.get("vanessa.demo@fm.usp.br")!;
+  const events = await seedDemoEvents(prisma, {
+    person: (email) => people.get(email)!,
+    sad: { id: sadId, name: people.get("admin@fm.usp.br")!.name },
+    nucev: { id: nucevUser.id, name: nucevUser.name },
+    futureOpenDays,
+    openDaysFrom: (key) => openDays.filter((d) => d >= key),
+    fullDay: FULL_DAY,
+    shiftDay: shiftKey,
+    at,
+    roomId: async (name) => roomByName.get(name)?.id ?? (await prisma.room.findFirst({ where: { name }, select: { id: true } }))?.id ?? null,
+    isFree,
+    occupy,
+  });
+  console.log(`${events} eventos de demonstração`);
+
   // Séries semanais
   for (const s of SERIES) {
     const days = (s.pending ? futureOpenDays(7) : openDays).filter((d) => s.weekdays.includes(weekdayOf(d)));
@@ -809,6 +835,99 @@ async function main() {
     created++;
   }
 
+  // Semana da apresentação: muitas reservas em cada dia (o dia cheio lotado),
+  // quase todas aprovadas, para a Agenda, o mapa e o painel da TV abrirem cheios.
+  const weekStart = shiftKey(FULL_DAY, -((weekdayOf(FULL_DAY) + 6) % 7));
+  const presentationWeek = Array.from({ length: 6 }, (_, i) => shiftKey(weekStart, i)).filter((d) => holidayName(d) === null);
+  let weekCreated = 0;
+  for (const day of presentationWeek) {
+    const goal = day === FULL_DAY ? 55 : weekdayOf(day) === 6 ? 8 : 18;
+    let made = 0;
+    // Cada atividade no máximo 2 vezes no dia, em horários diferentes (para não parecer repetido).
+    const usedTitles = new Map<string, number>();
+    const usedSlots = new Set<string>();
+    for (let tries = 0; made < goal && tries < 1500; tries++) {
+      const r = SINGLES[template % SINGLES.length]!;
+      template++;
+      // No dia cheio, a tarde (perto das 14h, a hora da reunião) fica mais disputada.
+      const near14 = [...r.starts].sort((a, b) => Math.abs(Number(a.slice(0, 2)) - 14) - Math.abs(Number(b.slice(0, 2)) - 14))[0]!;
+      const startTime = day === FULL_DAY && random() < 0.6 ? near14 : pick(r.starts);
+      const start = addMinutes(at(day, startTime), -(r.setup ?? 0));
+      const end = addMinutes(at(day, startTime), r.duration);
+      if (dateKey(end) !== day || at(day, "22:00") < end || start < at(day, "07:00")) continue;
+      if ((usedTitles.get(r.title) ?? 0) >= 2 || usedSlots.has(`${r.title}|${startTime}`)) continue;
+      const past = start <= now;
+      const roll = random();
+      const status: ReservationStatus = past ? (roll < 0.93 ? "APPROVED" : "CANCELLED") : roll < 0.8 ? "APPROVED" : roll < 0.95 ? "PENDING" : "CANCELLED";
+      const fits = r.rooms.filter((name) => (roomByName.get(name)?.capacity ?? 0) >= r.attendees);
+      const room = status === "APPROVED" ? fits.find((name) => isFree(name, start, end)) : undefined;
+      if (status === "APPROVED" && !room) continue;
+      if (room) occupy(room, start, end);
+      const createdAt = new Date(Math.min(addDaysTo(start, -(4 + Math.floor(random() * 10))).getTime(), addMinutes(now, -90).getTime()));
+      const reviewedAt = new Date(Math.min(addDaysTo(createdAt, 1).getTime(), addMinutes(now, -30).getTime()));
+      const data: Prisma.ReservationUncheckedCreateInput = { ...base(r, start, end), protocol: await nextProtocol(createdAt), createdAt, status };
+      if (status === "APPROVED") {
+        Object.assign(data, { roomId: roomByName.get(room!)!.id, reviewedById: sadId, reviewedAt });
+        if (r.type === "CULTURE_EXTENSION") data.approvalChecklist = checklist;
+      }
+      if (status === "CANCELLED") Object.assign(data, { cancelledAt: reviewedAt, cancelledById: uid(r.person) });
+      await prisma.reservation.create({ data });
+      usedTitles.set(r.title, (usedTitles.get(r.title) ?? 0) + 1);
+      usedSlots.add(`${r.title}|${startTime}`);
+      made++;
+      created++;
+      weekCreated++;
+    }
+  }
+  // A tarde do dia cheio (a hora da reunião): atividades diferentes nas salas
+  // reais que o resto da base não usa, para o mapa e o painel da TV às 14h.
+  if (REAL_ROOMS) {
+    const afternoon: Request[] = [
+      grad("helena", "DEM0128", "Habilidades Clínicas", 30, "PRACTICAL", 3, { rooms: ["Sala de Aula 4202"], starts: ["14:00"] }),
+      grad("ricardo", "DEM0160", "Farmacologia Clínica", 88, "LECTURE", 3, { rooms: ["Anfiteatro 4104"], starts: ["14:00"] }),
+      grad("eduardo", "DEM0220", "Anatomia do Sistema Nervoso", 85, "LECTURE", 1, { rooms: ["Anfiteatro 2104"], starts: ["13:30"], duration: 150 }),
+      grad("marina", "DEM0340", "Saúde Coletiva II", 88, "EXAM", 4, { rooms: ["Anfiteatro 3303"], starts: ["14:00"] }),
+      grad("docente", "DEM0175", "Informática em Saúde", 80, "PRACTICAL", 2, { rooms: ["Sala de Informática 2155"], starts: ["14:00"] }),
+      grad("eduardo", "DEM0230", "Embriologia", 22, "PRACTICAL", 1, { rooms: ["Sala de Informática 1366 B"], starts: ["14:00"] }),
+      pos("paulo", "PGD5060", "Metodologia Qualitativa em Saúde", 40, { rooms: ["Anfiteatro 4303"], starts: ["14:00"] }),
+      { ...meeting("graduacao", "MEETING", "Reunião da Comissão de Residência Médica", 10, ["CTA 3301"]), starts: ["14:00"] },
+      { ...meeting("helena", "MEETING", "Conselho do Departamento de Clínica Médica", 6, ["Congregação 2107"]), starts: ["14:30"] },
+      { ...meeting("graduacao", "STAFF", "Treinamento da equipe de apoio no novo sistema de reservas", 10, ["Sala de Reunião da Administração"]), starts: ["14:00"], duration: 120 },
+      culture("camila", "SEMINAR", "Roda de Conversa: Saúde Mental no Internato", "CAOC", 65, "14:00 Abertura\n14:15 Roda de conversa", { rooms: ["Sala 1 do IOF"], starts: ["14:00"], duration: 120 }),
+      culture("bruno", "LEAGUE", "Liga de Medicina Tropical — Aula aberta", "LEAGUE", 60, "14:30 Aula\n15:45 Perguntas", { rooms: ["Anfiteatro Mario Camargo"], starts: ["14:30"], duration: 120 }),
+      culture("ricardo", "COURSE", "Curso de Atualização em Medicina Legal", "DEPARTMENT", 90, "13:30 Abertura\n14:00 Aulas", { rooms: ["Anfiteatro Nina Rodrigues"], starts: ["13:30"], duration: 210 }),
+      { ...meeting("posgrad", "MEETING", "Banca de Qualificação — Programa de Medicina Tropical", 8, ["Sala de Vídeo do IMT"]), starts: ["15:00"], duration: 120 },
+    ];
+    for (const r of afternoon) {
+      const name = r.rooms[0]!;
+      if (!roomByName.has(name)) {
+        const row = await prisma.room.findFirst({ where: { name, status: "ACTIVE" }, select: { id: true, capacity: true } });
+        if (!row) continue;
+        roomByName.set(name, { id: row.id, capacity: row.capacity });
+      }
+      const start = at(FULL_DAY, r.starts[0]!);
+      const end = addMinutes(start, r.duration);
+      if (!isFree(name, start, end)) continue;
+      occupy(name, start, end);
+      const createdAt = new Date(Math.min(addDaysTo(start, -7).getTime(), addMinutes(now, -90).getTime()));
+      await prisma.reservation.create({
+        data: {
+          ...base(r, start, end),
+          protocol: await nextProtocol(createdAt),
+          createdAt,
+          status: "APPROVED",
+          roomId: roomByName.get(name)!.id,
+          reviewedById: sadId,
+          reviewedAt: new Date(Math.min(addDaysTo(createdAt, 1).getTime(), addMinutes(now, -30).getTime())),
+          ...(r.type === "CULTURE_EXTENSION" ? { approvalChecklist: checklist } : {}),
+        },
+      });
+      created++;
+      weekCreated++;
+    }
+  }
+  console.log(`Semana da apresentação (${presentationWeek[0]} a ${presentationWeek.at(-1)}, dia cheio ${FULL_DAY}): ${weekCreated} reservas a mais`);
+
   // Uma reserva do SAD fora das portarias (domingo): aparece com o aviso na Agenda.
   const sunday = windowDays.find((d) => weekdayOf(d) === 0 && d >= shiftKey(today, 3));
   if (sunday && isFree("Teatro Principal", at(sunday, "08:00"), at(sunday, "13:00"))) {
@@ -831,42 +950,29 @@ async function main() {
     created++;
   }
 
-  // Fases 11 a 13: eventos em cada etapa (recebido, em análise, pré-reservado,
-  // orçamento enviado, alteração pedida, aguardando pagamento, comprovante enviado,
-  // confirmado e recusado), nas salas da base.
-  const people = new Map((await prisma.user.findMany({ select: { id: true, name: true, email: true } })).map((u) => [u.email, u]));
-  const nucevUser = people.get("vanessa.demo@fm.usp.br")!;
-  const events = await seedDemoEvents(prisma, {
-    person: (email) => people.get(email)!,
-    sad: { id: sadId, name: people.get("admin@fm.usp.br")!.name },
-    nucev: { id: nucevUser.id, name: nucevUser.name },
-    futureOpenDays,
-    at,
-    roomId: async (name) => roomByName.get(name)?.id ?? (await prisma.room.findFirst({ where: { name }, select: { id: true } }))?.id ?? null,
-    isFree,
-    occupy,
-  });
-  console.log(`${events} eventos de demonstração`);
 
-  // Fase 17: o checklist do dia da equipe.
+  // Fase 17: o checklist do dia da equipe, no dia cheio (ou hoje, se ele já passou).
+  const plantaoAnchor = FULL_DAY > today ? FULL_DAY : today;
+  const plantaoDay = (offset: number) => shiftKey(plantaoAnchor, offset);
   const maria = people.get("maria.demo@fm.usp.br")!;
   const plantao = await seedDemoPlantao(prisma, {
     vanessa: { id: nucevUser.id, name: nucevUser.name },
     maria: { id: maria.id, name: maria.name },
     sad: { id: sadId, name: people.get("admin@fm.usp.br")!.name },
-    dayKey: (offset) => zonedDateKey(new Date(Date.now() + offset * 86_400_000)),
+    dayKey: plantaoDay,
   });
   console.log(`${plantao} tarefas no checklist do plantão`);
 
   // Fase 18: os pranchões (10 emprestados para a Cerimônia do Jaleco).
   const jaleco = await prisma.event.findFirst({ where: { title: "Cerimônia do Jaleco" }, select: { id: true } });
+  const forum = await prisma.event.findFirst({ where: { title: "Fórum de Ensino Médico 2026" }, select: { id: true } });
   await seedDemoMaterials(prisma, {
     vanessa: { id: nucevUser.id, name: nucevUser.name },
     maria: { id: maria.id, name: maria.name },
     sad: { id: sadId, name: people.get("admin@fm.usp.br")!.name },
-    dayKey: (offset) => zonedDateKey(new Date(Date.now() + offset * 86_400_000)),
-  }, jaleco?.id ?? null);
-  console.log("40 pranchões (10 em uso)");
+    dayKey: plantaoDay,
+  }, jaleco?.id ?? null, forum?.id ?? null);
+  console.log(`40 pranchões (${forum ? 22 : 10} em uso)`);
 
   // Fase 19: o catálogo de disciplinas, com as das reservas da base. Os docentes
   // (Prof./Profa./Docente) ficam ligados às deles; a secretaria, a nenhuma.

@@ -12,6 +12,9 @@ export interface DemoPlantaoHelpers {
   dayKey: (offset: number) => string;
 }
 
+/** Um horário do dia (fuso da faculdade). */
+const clockOn = (key: string, time: string) => new Date(`${key}T${time}:00-03:00`);
+
 export async function seedDemoPlantao(prisma: PrismaClient, h: DemoPlantaoHelpers): Promise<number> {
   const date = (offset: number) => new Date(`${h.dayKey(offset)}T00:00:00Z`);
   const by = { createdById: h.vanessa.id, createdByName: h.vanessa.name };
@@ -27,7 +30,7 @@ export async function seedDemoPlantao(prisma: PrismaClient, h: DemoPlantaoHelper
       assigneeName: h.maria.name,
       dueDate: date(0),
       status: "DONE" as const,
-      doneAt: new Date(),
+      doneAt: clockOn(h.dayKey(0), "09:15"),
       doneByName: h.maria.name,
       ...by,
     },
@@ -49,13 +52,14 @@ export async function seedDemoPlantao(prisma: PrismaClient, h: DemoPlantaoHelper
       snapshot: (await dayOverview(today)) as unknown as Prisma.InputJsonValue,
       createdById: h.vanessa.id,
       createdByName: h.vanessa.name,
+      createdAt: clockOn(today, "12:30"),
     },
   });
   return tasks.length;
 }
 
 /** Fase 18 — os pranchões da base: 40 no depósito, 10 emprestados para o evento confirmado e uma devolução no histórico. */
-export async function seedDemoMaterials(prisma: PrismaClient, h: DemoPlantaoHelpers, eventId: string | null): Promise<void> {
+export async function seedDemoMaterials(prisma: PrismaClient, h: DemoPlantaoHelpers, eventId: string | null, forumId: string | null = null): Promise<void> {
   const home = "Depósito do SAD (subsolo)";
   const item = await prisma.materialItem.create({ data: { name: "Pranchão", total: 40, homeLocation: home } });
   const days = (offset: number) => new Date(Date.now() + offset * 86_400_000);
@@ -77,4 +81,13 @@ export async function seedDemoMaterials(prisma: PrismaClient, h: DemoPlantaoHelp
   await prisma.materialMovement.create({
     data: { itemId: item.id, loanId: loan.id, kind: "CHECKOUT", quantity: 10, fromLocation: home, toLocation: "Foyer do Teatro", person: "Seu João (manutenção)", at: days(-1), notes: "Mesas do coquetel", recordedByName: h.vanessa.name },
   });
+  // Em uso também: 12 pranchões nas salas das oficinas do Fórum de Ensino Médico.
+  if (forumId) {
+    const forum = await prisma.materialLoan.create({
+      data: { itemId: item.id, quantity: 12, location: "Salas das oficinas do Fórum", eventId: forumId, purpose: "Mesas das oficinas", takenBy: "Seu João (manutenção)", takenAt: clockOn(h.dayKey(0), "07:00"), expectedReturnAt: new Date(`${h.dayKey(0)}T00:00:00Z`), recordedByName: h.maria.name },
+    });
+    await prisma.materialMovement.create({
+      data: { itemId: item.id, loanId: forum.id, kind: "CHECKOUT", quantity: 12, fromLocation: home, toLocation: "Salas das oficinas do Fórum", person: "Seu João (manutenção)", at: clockOn(h.dayKey(0), "07:00"), notes: "Mesas das oficinas", recordedByName: h.maria.name },
+    });
+  }
 }

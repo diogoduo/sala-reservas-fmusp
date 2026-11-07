@@ -27,6 +27,8 @@ interface EventSpec {
   stage: EventStatus;
   /** Primeiro dia útil livre a partir de N dias. */
   daysAhead: number;
+  /** Ou: a partir deste dia da semana da apresentação (0 = o dia cheio, 1 = o seguinte…). */
+  onWeekDay?: number;
   dayCount: 1 | 2;
   start: string;
   end: string;
@@ -45,6 +47,12 @@ export interface DemoEventHelpers {
   sad: { id: string; name: string };
   nucev: { id: string; name: string };
   futureOpenDays: (offset: number) => string[];
+  /** Dias de funcionamento a partir deste dia (para os eventos da semana da apresentação). */
+  openDaysFrom: (key: string) => string[];
+  /** O dia da apresentação ("AAAA-MM-DD"), que a base deixa cheio. */
+  fullDay: string;
+  /** Um dia a partir do dia da apresentação. */
+  shiftDay: (key: string, days: number) => string;
   at: (key: string, time: string) => Date;
   /** Sala (fictícia ou, com --salas-reais, a real correspondente) pelo nome usado nas reservas da base. */
   roomId: (name: string) => Promise<string | null>;
@@ -66,20 +74,20 @@ function specs(): EventSpec[] {
     {
       ...base, person: "camila.rocha.demo@usp.br", title: "Simpósio de Saúde Mental na Graduação", kind: "SEMINAR", entity: "CAOC", attendees: 180,
       description: "08:30 Credenciamento\n09:00 Conferência de abertura\n10:30 Mesas-redondas\n14:00 Oficinas", audience: "Alunos de graduação",
-      stage: "SUBMITTED", daysAhead: 18, dayCount: 1, coffee: 180,
+      stage: "SUBMITTED", onWeekDay: 2, daysAhead: 18, dayCount: 1, coffee: 180,
       spaces: [{ room: "Teatro Principal", purpose: "Abertura e conferências" }, { room: "Hall do Teatro (Foyer)", purpose: "Coffee break" }],
     },
     {
       ...base, person: "ricardo.alves.demo@usp.br", title: "Jornada de Cirurgia Robótica", kind: "CONGRESS", entity: "DEPARTMENT", attendees: 120, fee: true,
       description: "Dia 1: conferências e casos clínicos\nDia 2: oficinas práticas em grupos", audience: "Residentes e cirurgiões",
-      stage: "IN_REVIEW", daysAhead: 20, dayCount: 2,
+      stage: "IN_REVIEW", onWeekDay: 3, daysAhead: 20, dayCount: 2,
       spaces: [{ category: SALAS, count: 3, minCapacity: 30, purpose: "Oficinas", rooms: [] }, { room: "Hall de transição do 4º andar", purpose: "Coffee break" }],
       coffee: 60,
     },
     {
       ...base, person: "helena.martins.demo@usp.br", title: "Curso de Ultrassonografia Point-of-Care", kind: "COURSE", entity: "DEPARTMENT", attendees: 60, fee: true,
       description: "Aulas teóricas pela manhã e prática supervisionada à tarde.", audience: "Residentes de clínica médica",
-      stage: "PRE_RESERVED", daysAhead: 16, dayCount: 1,
+      stage: "PRE_RESERVED", onWeekDay: 3, daysAhead: 16, dayCount: 1,
       spaces: [{ category: SALAS, count: 2, minCapacity: 30, purpose: "Aulas e prática", rooms: ["Sala 103", "Sala 104"] }],
     },
     {
@@ -103,19 +111,26 @@ function specs(): EventSpec[] {
     {
       ...base, person: "bruno.ferreira.demo@usp.br", title: "Encontro de Ligas Acadêmicas", kind: "LEAGUE", entity: "USP_UNIT", attendees: 80, fee: true,
       description: "Apresentação das ligas e sessões de casos clínicos.", audience: "Alunos de graduação",
-      stage: "QUOTE_APPROVED", daysAhead: 26, dayCount: 1, start: "13:00", end: "18:00", setup: 30,
+      stage: "QUOTE_APPROVED", onWeekDay: 1, daysAhead: 26, dayCount: 1, start: "13:00", end: "18:00", setup: 30,
       spaces: [{ room: "Anfiteatro C", purpose: "Sessões" }],
     },
     {
       ...base, person: "docente@fm.usp.br", title: "Workshop de Simulação Realística", kind: "COURSE", entity: "DEPARTMENT", attendees: 40, fee: true,
       description: "Cenários de simulação em pequenos grupos, com debriefing.", audience: "Residentes e enfermagem",
-      stage: "PAYMENT_SUBMITTED", daysAhead: 14, dayCount: 1,
+      stage: "PAYMENT_SUBMITTED", onWeekDay: 2, daysAhead: 14, dayCount: 1,
       spaces: [{ room: "Laboratório de Habilidades", purpose: "Simulação" }, { category: SALAS, count: 1, minCapacity: 20, purpose: "Debriefing", rooms: ["Sala 203"] }],
+    },
+    {
+      ...base, person: "marina.costa.demo@usp.br", title: "Fórum de Ensino Médico 2026", kind: "CONGRESS", entity: "DIRECTORATE", attendees: 110,
+      description: "08:00 Credenciamento\n09:00 Abertura\n10:30 Mesa: avaliação no internato\n14:00 Oficinas simultâneas\n16:30 Encerramento", audience: "Docentes e preceptores",
+      stage: "CONFIRMED", onWeekDay: 0, daysAhead: 1, dayCount: 1, start: "08:00", end: "17:00", setup: 60,
+      exempt: "Evento institucional da Diretoria, sem inscrição e sem patrocínio (Portaria 2794, Art. 4º I).",
+      spaces: [{ room: "Anfiteatro A", purpose: "Plenária" }, { category: SALAS, count: 2, minCapacity: 20, purpose: "Oficinas da tarde", rooms: ["Sala 201", "Sala 203"] }],
     },
     {
       ...base, person: "graduacao.demo@fm.usp.br", title: "Cerimônia do Jaleco", kind: "CEREMONY", entity: "ACADEMIC_DIVISION", attendees: 200,
       description: "18:00 Recepção das famílias\n19:00 Cerimônia\n20:30 Encerramento", audience: "Alunos do 1º ano e famílias",
-      stage: "CONFIRMED", daysAhead: 12, dayCount: 1, start: "18:00", end: "21:00", setup: 120, exempt: "Evento institucional da FMUSP, sem inscrição e sem patrocínio (Portaria 2794, Art. 4º I).",
+      stage: "CONFIRMED", onWeekDay: 0, daysAhead: 12, dayCount: 1, start: "18:00", end: "21:00", setup: 120, exempt: "Evento institucional da FMUSP, sem inscrição e sem patrocínio (Portaria 2794, Art. 4º I).",
       spaces: [{ room: "Teatro Principal", purpose: "Cerimônia" }],
     },
     {
@@ -139,7 +154,7 @@ export async function seedDemoEvents(prisma: PrismaClient, h: DemoEventHelpers):
     const who = h.person(spec.person);
     const wantRooms = PRE_RESERVED_OR_LATER.includes(spec.stage);
     // Os dias: os primeiros dias úteis seguidos em que as salas pedidas estão livres.
-    const candidates = h.futureOpenDays(spec.daysAhead);
+    const candidates = spec.onWeekDay !== undefined ? h.openDaysFrom(h.shiftDay(h.fullDay, spec.onWeekDay)) : h.futureOpenDays(spec.daysAhead);
     const roomsOf = (s: SpaceSpec) => ("room" in s ? [s.room] : s.rooms);
     const allRooms = spec.spaces.flatMap(roomsOf);
     let days: string[] = [];
@@ -291,7 +306,8 @@ export async function seedDemoEvents(prisma: PrismaClient, h: DemoEventHelpers):
     }
 
     // Fase 16: o evento confirmado já com a organização começada.
-    if (spec.stage === "CONFIRMED") await seedOrganization(prisma, h, event.id, days[0]!, who.name);
+    if (spec.title === "Cerimônia do Jaleco") await seedOrganization(prisma, h, event.id, days[0]!, who.name);
+    if (spec.title === "Fórum de Ensino Médico 2026") await seedForum(prisma, h, event.id, days[0]!, who.name);
     // Antes da confirmação, quem pediu já informou palestrantes, participantes e veículos.
     if (spec.title === "Congresso de Saúde Coletiva") await seedGuests(prisma, event.id, who.name);
     created++;
@@ -362,4 +378,57 @@ async function seedGuests(prisma: PrismaClient, eventId: string, requester: stri
     ],
   });
   await prisma.eventVehicle.create({ data: { eventId, plate: "SAU3C45", model: "HB20 branco", driver: "Dra. Convidada da Saúde Pública (demo)", addedByName: requester } });
+}
+
+/** O Fórum de Ensino Médico (o evento do dia cheio): programação, pessoas, veículos, logística e pendências. */
+async function seedForum(prisma: PrismaClient, h: DemoEventHelpers, eventId: string, day: string, requester: string) {
+  await prisma.eventPlan.create({
+    data: {
+      eventId,
+      buffetNeeded: true,
+      buffetDetails: "Coffee break às 10:00 e às 15:30 no hall do anfiteatro; almoço livre.",
+      parkingNeeded: true,
+      parkingSpots: 3,
+      parkingDetails: "Convidados da mesa da manhã.",
+      structure: "Mesa de credenciamento na entrada, 4 mesas para as oficinas, sinalização até as salas.",
+      equipment: "Projetor e 2 microfones no anfiteatro; projetor nas salas das oficinas.",
+      updatedByName: h.nucev.name,
+    },
+  });
+  const items: [string, string, string, string, string | null][] = [
+    ["08:00", "09:00", "Credenciamento", "Hall do anfiteatro", null],
+    ["09:00", "10:00", "Abertura", "Plenária", "Diretoria (demo)"],
+    ["10:30", "12:00", "Mesa: avaliação no internato", "Plenária", "Profa. Convidada (demo)"],
+    ["14:00", "16:00", "Oficinas simultâneas", "Salas das oficinas", "Preceptores (demo)"],
+    ["16:30", "17:00", "Encerramento", "Plenária", null],
+  ];
+  await prisma.eventScheduleItem.createMany({
+    data: items.map(([start, end, title, location, speaker]) => ({ eventId, startsAt: h.at(day, start), endsAt: h.at(day, end), title, location, speaker })),
+  });
+  await prisma.eventPerson.createMany({
+    data: [
+      { eventId, kind: "ORGANIZER", name: h.nucev.name, affiliation: "NUCEV · coordenação", addedByName: h.nucev.name },
+      { eventId, kind: "SPEAKER", name: "Profa. Convidada (demo)", affiliation: "Unifesp", notes: "Chega às 10:00.", addedByName: requester },
+      { eventId, kind: "SPEAKER", name: "Prof. Convidado do Internato (demo)", affiliation: "Unicamp", addedByName: requester },
+      ...["Adriana Lopes", "Bernardo Souza", "Clara Nogueira", "Daniela Prado", "Everton Lima", "Fábio Reis", "Giovana Matos", "Hugo Pinheiro"].map((name) => ({
+        eventId,
+        kind: "PARTICIPANT" as const,
+        name: `${name} (demo)`,
+        affiliation: "Preceptoria",
+        addedByName: requester,
+      })),
+    ],
+  });
+  await prisma.eventVehicle.createMany({
+    data: [
+      { eventId, plate: "FOR1M26", model: "Corolla prata", driver: "Profa. Convidada (demo)", addedByName: requester },
+      { eventId, plate: "EDU2026", model: "Onix branco", driver: "Prof. Convidado do Internato (demo)", addedByName: requester },
+    ],
+  });
+  await prisma.operationalTask.createMany({
+    data: [
+      { eventId, title: "Montar as mesas das oficinas", assigneeId: h.sad.id, assigneeName: h.sad.name, dueDate: new Date(`${day}T00:00:00Z`), priority: true, createdById: h.nucev.id, createdByName: h.nucev.name },
+      { eventId, title: "Imprimir os crachás dos convidados", status: "DONE", doneAt: h.at(day, "07:30"), doneByName: h.nucev.name, assigneeId: h.nucev.id, assigneeName: h.nucev.name, createdById: h.nucev.id, createdByName: h.nucev.name },
+    ],
+  });
 }
