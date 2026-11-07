@@ -22,7 +22,15 @@ interface MapFile {
   buildings: { name: string; x: number; y: number; color?: string; floors: Record<string, Rect[]>; landmarks: Landmark[] }[];
   rooms: ({ number: string; x: number; y: number } | { name: string; x: number; y: number })[];
   /** Plantas renderizadas (PNG): o recorte é em pixels da planta a 2000 px de largura. */
-  plans?: { building: string; floor: string; file: string; renderWidth: number; crop: [number, number, number, number] }[];
+  plans?: {
+    building: string;
+    floor: string;
+    file: string;
+    renderWidth: number;
+    crop: [number, number, number, number];
+    /** Trechos a apagar (linhas de corte, carimbos), em pixels da planta a 2000 px: [x, y, w, h]. */
+    erase?: [number, number, number, number][];
+  }[];
 }
 
 /** "Sala de Reunião 2107-A" termina em "2107-A" (e não em "2107"); espaços e traços não contam. */
@@ -85,11 +93,21 @@ export async function importCampusMap(prisma: PrismaClient, file = path.join(__d
     const top = Math.round((cy - dy) * f);
     const { data, info } = await sharp(source).extract({ left, top, width: Math.round(cw * f), height: Math.round(ch * f) }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     const out = Buffer.alloc(info.width * info.height * 4);
+    // As áreas apagadas (linhas de corte nos pátios e fora do prédio, carimbos).
+    const erased = new Uint8Array(info.width * info.height);
+    for (const [ex, ey, ew, eh] of plan.erase ?? []) {
+      const x0 = Math.max(0, Math.round(ex * f) - left);
+      const y0 = Math.max(0, Math.round(ey * f) - top);
+      const x1 = Math.min(info.width, Math.round((ex + ew) * f) - left);
+      const y1 = Math.min(info.height, Math.round((ey + eh) * f) - top);
+      for (let yy = y0; yy < y1; yy++) erased.fill(1, yy * info.width + x0, yy * info.width + Math.max(x0, x1));
+    }
     for (let i = 0; i < data.length; i += 4) {
       const [r, g, b] = [data[i]!, data[i + 1]!, data[i + 2]!];
-      const annotation = (r > 140 && g < 120 && b < 120) || (b > 120 && b > g + 35 && r > 80);
+      const annotation = erased[i / 4] === 1 || (r > 140 && g < 120 && b < 120) || (b > 120 && b > g + 35 && r > 80);
       const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-      const alpha = annotation || lum > 170 ? 0 : Math.min(255, Math.round((200 - lum) * 1.6));
+      // Só as linhas escuras (paredes); as cinza-claras (hachuras, o X dos pátios) somem.
+      const alpha = annotation || lum > 140 ? 0 : Math.min(255, Math.round((170 - lum) * 2));
       out[i] = 255;
       out[i + 1] = 255;
       out[i + 2] = 255;
