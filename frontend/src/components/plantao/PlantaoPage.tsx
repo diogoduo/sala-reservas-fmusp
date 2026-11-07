@@ -1,4 +1,4 @@
-import { CalendarPlusIcon, CaretLeftIcon, CaretRightIcon, HandshakeIcon, ListChecksIcon } from "@phosphor-icons/react";
+import { CalendarPlusIcon, CaretLeftIcon, CaretRightIcon, HandshakeIcon, ListChecksIcon, StackIcon } from "@phosphor-icons/react";
 import { useSearchParams } from "react-router";
 import { Button, IconButton } from "../ui/Button";
 import { Input } from "../ui/Field";
@@ -6,13 +6,14 @@ import { SegmentedControl } from "../ui/SegmentedControl";
 import { PageHeader } from "../ui/Surface";
 import { ChecklistTab, isoDay, longDay, shiftDay } from "./ChecklistTab";
 import { HandoverTab } from "./HandoverTab";
+import { MaterialsTab } from "./MaterialsTab";
 import { NextDayTab } from "./NextDayTab";
 
 // Fase 17 — Plantão do SAD e do NUCEV (documento SAD/NUCEV, 5.3 e 5.4): o
 // checklist do dia, a passagem de plantão e a visão do dia seguinte.
 
-type Tab = "checklist" | "passagem" | "amanha";
-const TABS: Tab[] = ["checklist", "passagem", "amanha"];
+type Tab = "checklist" | "passagem" | "amanha" | "pranchoes";
+const TABS: Tab[] = ["checklist", "passagem", "amanha", "pranchoes"];
 
 export function PlantaoPage() {
   const [params, setParams] = useSearchParams();
@@ -23,7 +24,7 @@ export function PlantaoPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Plantão" description="O checklist do dia, a passagem de plantão e o dia seguinte, para a equipe do SAD e do NUCEV." />
+      <PageHeader title="Plantão" description="O checklist do dia, a passagem de plantão, o dia seguinte e os pranchões, para a equipe do SAD e do NUCEV." />
       <SegmentedControl
         label="Seção"
         value={tab}
@@ -32,9 +33,12 @@ export function PlantaoPage() {
           { value: "checklist", label: "Checklist do dia", icon: ListChecksIcon },
           { value: "passagem", label: "Passagem de plantão", icon: HandshakeIcon },
           { value: "amanha", label: "Dia seguinte", icon: CalendarPlusIcon },
+          { value: "pranchoes", label: "Pranchões", icon: StackIcon },
         ]}
       />
-      {tab === "checklist" ? (
+      {tab === "pranchoes" ? (
+        <MaterialsTab />
+      ) : tab === "checklist" ? (
         <ChecklistTab date={date} onDateChange={(data) => setQuery({ data })} />
       ) : (
         <>

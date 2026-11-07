@@ -18,6 +18,7 @@ import {
   PencilSimpleLineIcon,
   ProhibitIcon,
   ScrollIcon,
+  StackIcon,
   TelevisionIcon,
   FlagCheckeredIcon,
   ListChecksIcon,
@@ -67,6 +68,7 @@ export const AUDIT_ENTITY_LABELS: Record<AuditEntityType, string> = {
   setting: "Configurações",
   task: "Checklist do plantão",
   handover: "Passagem de plantão",
+  material: "Pranchões",
 };
 
 interface ActionMeta {
@@ -121,6 +123,11 @@ const ACTIONS: Record<string, ActionMeta> = {
   "task.delete": { label: "Tarefa apagada", tone: "neutral", icon: TrashIcon },
   "handover.create": { label: "Passagem de plantão registrada", tone: "info", icon: ListChecksIcon },
   "handover.acknowledge": { label: "Plantão recebido", tone: "success", icon: CheckCircleIcon },
+  "material.create": { label: "Material cadastrado", tone: "success", icon: StackIcon },
+  "material.update": { label: "Estoque ajustado", tone: "info", icon: StackIcon },
+  "material.checkout": { label: "Retirada de material", tone: "warning", icon: StackIcon },
+  "material.return": { label: "Devolução de material", tone: "success", icon: StackIcon },
+  "material.move": { label: "Material movimentado", tone: "info", icon: StackIcon },
   "event.request": { label: "Evento pedido", tone: "info", icon: CalendarStarIcon },
   "event.cancel": { label: "Evento cancelado pelo solicitante", tone: "neutral", icon: ProhibitIcon },
   "event.review": { label: "Análise iniciada (NUCEV)", tone: "info", icon: CalendarStarIcon },
@@ -326,6 +333,10 @@ export function auditDetailLines(entry: AuditEntry): string[] {
     const extra = typeof d.added === "number" ? ` · ${plural(d.added, "incluído", "incluídos")}${num(d.skipped) > 0 ? `, ${d.skipped} repetidos` : ""}` : "";
     lines.push(`${capitalize(d.section)}: ${d.change}${what ? ` — ${what}` : ""}${extra}`);
   }
+  if (entry.action.startsWith("material.") && typeof d.quantity === "number") {
+    lines.push([`${d.quantity} unidade(s)`, typeof d.location === "string" ? `para ${d.location}` : null, typeof d.from === "string" && entry.action !== "material.move" ? `de ${d.from}` : null, typeof d.takenBy === "string" ? `retirou: ${d.takenBy}` : null, typeof d.returnedBy === "string" ? `devolveu: ${d.returnedBy}` : null].filter(Boolean).join(" · "));
+  }
+  if (entry.action === "material.move" && typeof d.to === "string") lines.push(`De ${d.from} para ${d.to}${typeof d.movedBy === "string" ? ` (por ${d.movedBy})` : ""}`);
   if (entry.action === "event.close") {
     if (typeof d.actualAttendees === "number") lines.push(`Público presente: ${d.actualAttendees}`);
     if (num(d.openTasks) > 0) lines.push(`Encerrado com ${plural(num(d.openTasks), "pendência aberta", "pendências abertas")}`);

@@ -1281,6 +1281,37 @@ SAD/NUCEV, 5.3 e 5.4). Ela tem três abas:
 - A base de demonstração traz o checklist da Vanessa e da Maria e uma
   passagem de hoje esperando a Maria receber.
 
+## Fase 18 — Controle de pranchões
+
+Na tela **Plantão**, aba **Pranchões** (documento SAD/NUCEV, 5.2):
+
+- **Estoque**: total, **em uso**, **disponíveis** e onde ficam guardados.
+  "Ajustar" muda o total (com o motivo: comprou, quebrou, recontou), sem
+  deixar o total ficar abaixo do que está em uso.
+- **Retirada**: quantidade, para onde vão, quem retirou, quando, devolução
+  prevista e a finalidade.
+  - Pode ser vinculada a um **evento** ou a uma **reserva** (pelo protocolo).
+  - O material é travado no banco na hora da retirada: duas pessoas
+    retirando ao mesmo tempo não passam do total.
+- **Em uso agora**:
+  - cada retirada aberta, com o local atual e o evento ou a reserva;
+  - a devolução prevista fica em destaque quando atrasa;
+  - **Movimentar** muda o local, com quem levou;
+  - **Devolver** registra quem devolveu, e a devolução pode ser parcial.
+- **Histórico**: cada retirada, devolução, movimentação e ajuste, com data e
+  hora, quantidade, de onde para onde, a pessoa e quem registrou. As mesmas
+  ações vão para o Histórico do sistema (filtro "Pranchões").
+
+Dá para cadastrar outros materiais além dos pranchões (cavaletes, mesas…).
+
+- Tabelas: `material_items`, `material_loans` e `material_movements`
+  (migration `materials`).
+- API (SAD e NUCEV): `GET /api/materials`, `POST /api/materials/items`,
+  `PATCH /api/materials/items/:id`, `POST …/items/:id/checkout`,
+  `POST /api/materials/loans/:id/return` e `POST …/loans/:id/move`.
+- A base de demonstração traz 40 pranchões, com 10 emprestados para a
+  Cerimônia do Jaleco e uma devolução no histórico.
+
 ## Interface
 
 Redesign completo do front-end, responsivo do celular ao computador, com tema

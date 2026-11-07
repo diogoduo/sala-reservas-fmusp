@@ -53,3 +53,28 @@ export async function seedDemoPlantao(prisma: PrismaClient, h: DemoPlantaoHelper
   });
   return tasks.length;
 }
+
+/** Fase 18 — os pranchões da base: 40 no depósito, 10 emprestados para o evento confirmado e uma devolução no histórico. */
+export async function seedDemoMaterials(prisma: PrismaClient, h: DemoPlantaoHelpers, eventId: string | null): Promise<void> {
+  const home = "Depósito do SAD (subsolo)";
+  const item = await prisma.materialItem.create({ data: { name: "Pranchão", total: 40, homeLocation: home } });
+  const days = (offset: number) => new Date(Date.now() + offset * 86_400_000);
+  await prisma.materialMovement.create({ data: { itemId: item.id, kind: "ADJUST", quantity: 40, toLocation: home, at: days(-10), notes: "Cadastro do material", recordedByName: h.sad.name } });
+  // Já devolvido: 8 pranchões numa feira da semana passada.
+  const past = await prisma.materialLoan.create({
+    data: { itemId: item.id, quantity: 8, returnedQuantity: 8, location: "Átrio do relógio de ponto", purpose: "Mesas da feira", takenBy: "Seu João (manutenção)", takenAt: days(-6), returnedBy: "Seu João (manutenção)", returnedAt: days(-5), recordedByName: h.maria.name },
+  });
+  await prisma.materialMovement.createMany({
+    data: [
+      { itemId: item.id, loanId: past.id, kind: "CHECKOUT", quantity: 8, fromLocation: home, toLocation: "Átrio do relógio de ponto", person: "Seu João (manutenção)", at: days(-6), recordedByName: h.maria.name },
+      { itemId: item.id, loanId: past.id, kind: "RETURN", quantity: 8, fromLocation: "Átrio do relógio de ponto", toLocation: home, person: "Seu João (manutenção)", at: days(-5), recordedByName: h.maria.name },
+    ],
+  });
+  // Em uso: 10 no Foyer, para o coquetel da Cerimônia do Jaleco.
+  const loan = await prisma.materialLoan.create({
+    data: { itemId: item.id, quantity: 10, location: "Foyer do Teatro", eventId, purpose: "Mesas do coquetel", takenBy: "Seu João (manutenção)", takenAt: days(-1), expectedReturnAt: new Date(`${h.dayKey(14)}T00:00:00Z`), recordedByName: h.vanessa.name },
+  });
+  await prisma.materialMovement.create({
+    data: { itemId: item.id, loanId: loan.id, kind: "CHECKOUT", quantity: 10, fromLocation: home, toLocation: "Foyer do Teatro", person: "Seu João (manutenção)", at: days(-1), notes: "Mesas do coquetel", recordedByName: h.vanessa.name },
+  });
+}

@@ -37,7 +37,7 @@ import { renderPhotoVersions } from "../src/photos/storage";
 import { PALETTES, roomIllustration, VIEWS } from "./demo/illustrations";
 import { importFmusp, loadFmuspData } from "./import-fmusp";
 import { seedDemoEvents } from "./demo/events";
-import { seedDemoPlantao } from "./demo/plantao";
+import { seedDemoMaterials, seedDemoPlantao } from "./demo/plantao";
 import { zonedDateKey } from "../src/lib/timezone";
 import { createMissingSupportAreas, SUPPORT_AREAS } from "./support-areas";
 
@@ -469,6 +469,10 @@ async function reset(keepRooms: RoomKey[] = []) {
     // Plantão: passagens e tarefas (as avulsas; as dos eventos vão junto com eles).
     prisma.shiftHandover.deleteMany(),
     prisma.operationalTask.deleteMany(),
+    // Pranchões: o histórico, as retiradas e o estoque.
+    prisma.materialMovement.deleteMany(),
+    prisma.materialLoan.deleteMany(),
+    prisma.materialItem.deleteMany(),
     // Eventos primeiro: dias, pedidos, orçamentos, conversa, autorizações, e-mails e comprovantes vão junto.
     prisma.event.deleteMany(),
     prisma.auditLog.deleteMany(),
@@ -850,6 +854,16 @@ async function main() {
     dayKey: (offset) => zonedDateKey(new Date(Date.now() + offset * 86_400_000)),
   });
   console.log(`${plantao} tarefas no checklist do plantão`);
+
+  // Fase 18: os pranchões (10 emprestados para a Cerimônia do Jaleco).
+  const jaleco = await prisma.event.findFirst({ where: { title: "Cerimônia do Jaleco" }, select: { id: true } });
+  await seedDemoMaterials(prisma, {
+    vanessa: { id: nucevUser.id, name: nucevUser.name },
+    maria: { id: maria.id, name: maria.name },
+    sad: { id: sadId, name: people.get("admin@fm.usp.br")!.name },
+    dayKey: (offset) => zonedDateKey(new Date(Date.now() + offset * 86_400_000)),
+  }, jaleco?.id ?? null);
+  console.log("40 pranchões (10 em uso)");
 
   // Fase 9: Graduação, Pós e Defesa são exclusivos de quem tem permissão. Quem
   // pediu esses tipos nesta base recebe a permissão correspondente (Cultura e
