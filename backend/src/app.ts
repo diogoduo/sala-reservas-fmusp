@@ -27,6 +27,7 @@ import { eventWorkflowRouter } from "./routes/event-workflow";
 import { authorizationsRouter } from "./routes/authorizations";
 import { eventOrganizationRouter } from "./routes/event-organization";
 import { eventPaymentRouter, settingsRouter } from "./routes/event-payment";
+import { tasksRouter } from "./routes/tasks";
 import { tvRouter, tvSettingsRouter } from "./routes/tv";
 import { roomsRouter } from "./routes/rooms";
 
@@ -68,6 +69,7 @@ export function createApp() {
   app.use("/api/settings/tv", tvSettingsRouter);
   app.use("/api/settings", settingsRouter);
   app.use("/api/tv", tvRouter);
+  app.use("/api/tasks", tasksRouter);
   app.use("/api/authorizations", authorizationsRouter);
   app.use("/api/resources", resourcesRouter);
   app.use("/api/reservations", reservationsRouter);

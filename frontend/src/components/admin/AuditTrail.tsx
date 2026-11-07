@@ -1,7 +1,7 @@
 import { ClockCounterClockwiseIcon, MinusIcon, PlusIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { auditActionMeta, auditDetailLines, auditFieldLabel, auditListItem, formatAuditValue, listDiff, orderedChanges, useAuditLog } from "../../lib/audit";
-import type { AuditEntry } from "../../lib/types";
+import type { AuditEntityType, AuditEntry } from "../../lib/types";
 import { Button } from "../ui/Button";
 import { Alert, Skeleton } from "../ui/Feedback";
 import { IconTile } from "../ui/Surface";
@@ -78,14 +78,19 @@ export function AuditEntryItem({ entry, showLabel = true }: { entry: AuditEntry;
 
 /** Histórico de um pedido (todas as datas do protocolo), recolhido até o SAD abrir. */
 export function ReservationHistory({ protocol }: { protocol: string }) {
+  return <EntityHistory entityType="reservation" entityId={protocol} title="Histórico do pedido" />;
+}
+
+/** Histórico de qualquer registro (pedido, tarefa…), recolhido até abrir. */
+export function EntityHistory({ entityType, entityId, title }: { entityType: AuditEntityType; entityId: string; title: string }) {
   const [open, setOpen] = useState(false);
-  const { items, error, hasMore, loadMore, loadingMore } = useAuditLog({ entityType: "reservation", entityId: protocol, limit: "20" }, open);
+  const { items, error, hasMore, loadMore, loadingMore } = useAuditLog({ entityType, entityId, limit: "20" }, open);
 
   return (
     <details className="group rounded-xl border border-border" onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl px-3 text-sm font-semibold hover:bg-surface-muted [&::-webkit-details-marker]:hidden">
         <ClockCounterClockwiseIcon size={18} aria-hidden className="text-muted" />
-        <span className="flex-1">Histórico do pedido</span>
+        <span className="flex-1">{title}</span>
         <span className="text-xs font-normal text-muted group-open:hidden">Ver quem fez o quê</span>
       </summary>
       <div className="border-t border-border p-3">

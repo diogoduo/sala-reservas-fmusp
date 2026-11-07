@@ -16,6 +16,7 @@ import { Login } from "./components/Login";
 import { RegulationPage } from "./components/regulation/Regulation";
 import { MyReservations } from "./components/solicitante/MyReservations";
 import { AdminEditReservationPage, AdminNewReservationPage, EditReservationPage, ReservationPage } from "./components/solicitante/ReservationForm";
+import { PlantaoPage } from "./components/plantao/PlantaoPage";
 import { RoomSearch } from "./components/solicitante/RoomSearch";
 import { TvPanel } from "./components/tv/TvPanel";
 import { LogoMark } from "./components/ui/Logo";
@@ -63,6 +64,7 @@ export default function App() {
             <Route path="/admin/agenda" element={<AgendaAdmin />} />
             <Route path="/admin/eventos" element={<EventsAdmin />} />
             <Route path="/admin/eventos/:id" element={<EventDetail />} />
+            <Route path="/admin/plantao" element={<PlantaoPage />} />
             <Route path="/admin/reservar" element={<AdminNewReservationPage />} />
             <Route path="/admin/reservas/:id/editar" element={<AdminEditReservationPage />} />
             <Route path="/admin/salas-livres" element={<FreeRooms />} />
@@ -81,6 +83,7 @@ export default function App() {
             <Route path="/admin/agenda" element={<AgendaAdmin />} />
             <Route path="/admin/eventos" element={<EventsAdmin />} />
             <Route path="/admin/eventos/:id" element={<EventDetail />} />
+            <Route path="/admin/plantao" element={<PlantaoPage />} />
             <Route path="/admin/salas-livres" element={<FreeRooms />} />
             <Route path="/salas" element={<RoomSearch />} />
             <Route path="/admin/precos" element={<PricesPage />} />

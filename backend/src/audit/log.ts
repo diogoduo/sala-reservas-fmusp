@@ -71,9 +71,15 @@ export type AuditAction =
   | "settings.update"
   // Fase 15: link do painel da TV
   | "tv.link_create"
-  | "tv.link_disable";
+  | "tv.link_disable"
+  // Fase 17: checklist do dia (tarefas da equipe)
+  | "task.create"
+  | "task.update"
+  | "task.done"
+  | "task.reopen"
+  | "task.delete";
 
-export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user" | "price" | "event" | "setting";
+export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user" | "price" | "event" | "setting" | "task";
 
 /** Quem fez a ação. `null` = o próprio sistema. */
 export type AuditActor = { id: string; name: string } | null;

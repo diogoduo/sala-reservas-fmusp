@@ -37,6 +37,8 @@ import { renderPhotoVersions } from "../src/photos/storage";
 import { PALETTES, roomIllustration, VIEWS } from "./demo/illustrations";
 import { importFmusp, loadFmuspData } from "./import-fmusp";
 import { seedDemoEvents } from "./demo/events";
+import { seedDemoPlantao } from "./demo/plantao";
+import { zonedDateKey } from "../src/lib/timezone";
 import { createMissingSupportAreas, SUPPORT_AREAS } from "./support-areas";
 
 const prisma = new PrismaClient();
@@ -464,6 +466,8 @@ type RoomKey = { building: string; floor: string; name: string };
 async function reset(keepRooms: RoomKey[] = []) {
   const keep = DEV_USERS.map((u) => u.email);
   await prisma.$transaction([
+    // Tarefas do plantão (as avulsas; as dos eventos vão junto com eles).
+    prisma.operationalTask.deleteMany(),
     // Eventos primeiro: dias, pedidos, orçamentos, conversa, autorizações, e-mails e comprovantes vão junto.
     prisma.event.deleteMany(),
     prisma.auditLog.deleteMany(),
@@ -835,6 +839,16 @@ async function main() {
     occupy,
   });
   console.log(`${events} eventos de demonstração`);
+
+  // Fase 17: o checklist do dia da equipe.
+  const maria = people.get("maria.demo@fm.usp.br")!;
+  const plantao = await seedDemoPlantao(prisma, {
+    vanessa: { id: nucevUser.id, name: nucevUser.name },
+    maria: { id: maria.id, name: maria.name },
+    sad: { id: sadId, name: people.get("admin@fm.usp.br")!.name },
+    dayKey: (offset) => zonedDateKey(new Date(Date.now() + offset * 86_400_000)),
+  });
+  console.log(`${plantao} tarefas no checklist do plantão`);
 
   // Fase 9: Graduação, Pós e Defesa são exclusivos de quem tem permissão. Quem
   // pediu esses tipos nesta base recebe a permissão correspondente (Cultura e

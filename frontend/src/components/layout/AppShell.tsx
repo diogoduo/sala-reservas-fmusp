@@ -1,5 +1,6 @@
 import {
   CalendarStarIcon,
+  ListChecksIcon,
   CurrencyCircleDollarIcon,
   CalendarCheckIcon,
   CalendarDotsIcon,
@@ -109,6 +110,7 @@ export function AppShell() {
         { to: "/admin/solicitacoes", label: "Solicitações", shortLabel: "Pedidos", icon: TrayIcon, badge: pendingCount },
         { to: "/admin/agenda", label: "Agenda", shortLabel: "Agenda", icon: CalendarDotsIcon },
         { to: "/admin/eventos", label: "Eventos", shortLabel: "Eventos", icon: CalendarStarIcon },
+        { to: "/admin/plantao", label: "Plantão", shortLabel: "Plantão", icon: ListChecksIcon },
         { to: "/admin/salas-livres", label: "Salas livres", shortLabel: "Livres", icon: MagnifyingGlassIcon },
         { to: "/admin/salas", label: "Salas", shortLabel: "Salas", icon: DoorOpenIcon },
         { to: "/admin/recursos", label: "Recursos", shortLabel: "Recursos", icon: WrenchIcon },
@@ -120,6 +122,7 @@ export function AppShell() {
     : user.role === "NUCEV"
       ? [
           { to: "/admin/eventos", label: "Eventos", shortLabel: "Eventos", icon: CalendarStarIcon },
+          { to: "/admin/plantao", label: "Plantão", shortLabel: "Plantão", icon: ListChecksIcon },
           { to: "/admin/agenda", label: "Agenda", shortLabel: "Agenda", icon: CalendarDotsIcon },
           { to: "/admin/solicitacoes", label: "Solicitações", shortLabel: "Pedidos", icon: TrayIcon, badge: pendingCount },
           { to: "/admin/salas-livres", label: "Salas livres", shortLabel: "Livres", icon: MagnifyingGlassIcon },

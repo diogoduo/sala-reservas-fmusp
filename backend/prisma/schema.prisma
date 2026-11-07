@@ -914,10 +914,13 @@ model OperationalTask {
   assigneeName  String?    @map("assignee_name")
   dueDate       DateTime?  @map("due_date") @db.Date
   status        TaskStatus @default(OPEN)
+  /// Fase 17: atividade prioritária (destaque no checklist e na passagem de plantão).
+  priority      Boolean    @default(false)
   doneAt        DateTime?  @map("done_at") @db.Timestamptz(3)
   doneByName    String?    @map("done_by_name")
   createdById   String?    @map("created_by_id") @db.Uuid
   createdByName String     @map("created_by_name")
+  updatedByName String?    @map("updated_by_name")
   createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 

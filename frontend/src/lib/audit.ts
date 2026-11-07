@@ -65,6 +65,7 @@ export const AUDIT_ENTITY_LABELS: Record<AuditEntityType, string> = {
   price: "Preços",
   event: "Eventos",
   setting: "Configurações",
+  task: "Checklist do plantão",
 };
 
 interface ActionMeta {
@@ -112,6 +113,11 @@ const ACTIONS: Record<string, ActionMeta> = {
   "settings.update": { label: "Orientações de pagamento alteradas", tone: "info", icon: CurrencyCircleDollarIcon },
   "tv.link_create": { label: "Link do painel da TV gerado", tone: "info", icon: TelevisionIcon },
   "tv.link_disable": { label: "Link do painel da TV desativado", tone: "neutral", icon: TelevisionIcon },
+  "task.create": { label: "Tarefa criada", tone: "info", icon: ListChecksIcon },
+  "task.update": { label: "Tarefa alterada", tone: "info", icon: ListChecksIcon },
+  "task.done": { label: "Tarefa concluída", tone: "success", icon: CheckCircleIcon },
+  "task.reopen": { label: "Tarefa reaberta", tone: "warning", icon: ListChecksIcon },
+  "task.delete": { label: "Tarefa apagada", tone: "neutral", icon: TrashIcon },
   "event.request": { label: "Evento pedido", tone: "info", icon: CalendarStarIcon },
   "event.cancel": { label: "Evento cancelado pelo solicitante", tone: "neutral", icon: ProhibitIcon },
   "event.review": { label: "Análise iniciada (NUCEV)", tone: "info", icon: CalendarStarIcon },
@@ -137,6 +143,11 @@ export function auditActionMeta(action: string): ActionMeta {
 }
 
 const FIELD_LABELS: Record<string, string> = {
+  // Fase 17: tarefas do checklist
+  assignee: "Responsável",
+  dueDate: "Prazo",
+  priority: "Prioritária",
+  details: "Detalhes",
   status: "Situação",
   startTime: "Início",
   endTime: "Término",
