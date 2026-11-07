@@ -10,7 +10,7 @@ import { sendInBackground } from "../mail/mailer";
 import { approvedMails, rejectedMails } from "../mail/notifications";
 import { staffReadOnly } from "../middleware/auth";
 import { roomPhotosInclude } from "../photos/include";
-import { rankRoomOptions } from "../reservations/allocation";
+import { offersSupportAreas, rankRoomOptions } from "../reservations/allocation";
 import { findConflictingOccurrences, isOverlapViolation, loadBusyIntervals, lockRoomForUpdate } from "../reservations/conflicts";
 import { parseRequestedResources } from "../reservations/requested-resources";
 import { approvalChecklistSchema } from "../schemas/reservation";
@@ -166,8 +166,9 @@ adminRouter.get(
     const targets = await resolveReviewTargets(prisma, req.params.id!, scope, new Date());
     const first = targets[0]!;
 
+    // Aula, reunião, defesa…: só salas. Átrio, hall e copa só com coffee break ou em evento.
     const rooms = await prisma.room.findMany({
-      where: { status: "ACTIVE" },
+      where: { status: "ACTIVE", ...(offersSupportAreas(first) ? {} : { roomType: { not: "SUPPORT_AREA" } }) },
       include: roomWithResourcesInclude,
     });
     const occurrences = targets.map(toOccurrence);

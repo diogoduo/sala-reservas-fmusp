@@ -133,7 +133,10 @@ export function FreeRooms() {
   }, [date, start, end, valid]);
 
   const filtered = (rooms ?? []).filter(
-    (r) => (!minCapacity || (r.room.capacity ?? 0) >= Number(minCapacity)) && (!roomType || r.room.roomType === roomType),
+    // Sem tipo escolhido: só as salas. Átrios, halls e copas aparecem no tipo "Área de apoio".
+    (r) =>
+      (!minCapacity || (r.room.capacity ?? 0) >= Number(minCapacity)) &&
+      (roomType ? r.room.roomType === roomType : r.room.roomType !== "SUPPORT_AREA"),
   );
   const free = filtered.filter((r) => r.free);
   const occupied = filtered.filter((r) => !r.free);
@@ -194,7 +197,7 @@ export function FreeRooms() {
             onChange={(e) => update({ capacidade: e.target.value })}
           />
           <Select label="Tipo de espaço" value={roomType} onChange={(e) => update({ tipo: e.target.value })}>
-            <option value="">Todos os tipos</option>
+            <option value="">Todas as salas</option>
             {ROOM_TYPES.map((t) => (
               <option key={t} value={t}>
                 {ROOM_TYPE_LABELS[t]}

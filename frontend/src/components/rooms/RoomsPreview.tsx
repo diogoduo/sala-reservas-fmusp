@@ -37,8 +37,9 @@ export function RoomsPreview({ attendees, date }: Props) {
 
   // Da menor para a maior: as primeiras são as que o SAD tende a alocar.
   // (Salas Ativas sempre têm capacidade; o "?? 0" só satisfaz o tipo.)
+  // Átrios, halls, copas e a área de coffee são de eventos: não entram aqui.
   const fitting = rooms
-    .filter((room) => !attendees || (room.capacity ?? 0) >= attendees)
+    .filter((room) => room.roomType !== "SUPPORT_AREA" && (!attendees || (room.capacity ?? 0) >= attendees))
     .sort((a, b) => (a.capacity ?? 0) - (b.capacity ?? 0));
 
   function scrollBy(direction: 1 | -1) {

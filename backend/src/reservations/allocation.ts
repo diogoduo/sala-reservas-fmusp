@@ -25,6 +25,15 @@ export interface RoomOption {
 }
 
 /**
+ * As áreas de apoio (átrios, halls, copas, área de coffee) só entram como opção
+ * quando a atividade tem coffee break ou faz parte de um evento. Uma aula ou uma
+ * reunião comum vai para uma sala.
+ */
+export function offersSupportAreas(request: { coffeeBreak: boolean; eventId: string | null }): boolean {
+  return request.coffeeBreak || request.eventId !== null;
+}
+
+/**
  * Avalia cada sala para uma solicitação e ordena da mais para a menos adequada:
  *  1. comporta os participantes (área de apoio sem limite cadastrado, como o
  *     átrio, comporta qualquer número);

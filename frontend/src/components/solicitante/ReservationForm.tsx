@@ -879,7 +879,8 @@ function ReservationForm({ onReset, editing, asAdmin }: ReservationFormProps) {
                 {editing?.room && !activeRooms.some((r) => r.id === editing.room!.id) && (
                   <option value={editing.room.id}>{editing.room.name} (atual)</option>
                 )}
-                {activeRooms.map((r) => (
+                {/* Átrios, halls e copas são de eventos; só ficam se já forem a sala escolhida. */}
+                {activeRooms.filter((r) => r.roomType !== "SUPPORT_AREA" || r.id === roomId).map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name}
                     {r.id === editing?.roomId ? " (atual)" : ""} — {ROOM_TYPE_LABELS[r.roomType]}, {upToText(r)}

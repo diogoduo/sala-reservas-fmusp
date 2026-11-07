@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { rankRoomOptions, type RoomWithResources } from "../../src/reservations/allocation";
+import { offersSupportAreas, rankRoomOptions, type RoomWithResources } from "../../src/reservations/allocation";
 import type { BusyInterval } from "../../src/reservations/conflicts";
 import { atTime } from "../dates";
 
@@ -95,6 +95,12 @@ describe("ranking de salas (rankRoomOptions)", () => {
       ["Sala 2366", true],
       ["Sala 101", false],
     ]);
+  });
+
+  it("área de apoio só é opção com coffee break ou em evento (aula comum vai para sala)", () => {
+    expect(offersSupportAreas({ coffeeBreak: false, eventId: null })).toBe(false);
+    expect(offersSupportAreas({ coffeeBreak: true, eventId: null })).toBe(true);
+    expect(offersSupportAreas({ coffeeBreak: false, eventId: "evento" })).toBe(true);
   });
 
   it("área de apoio vem depois das salas; sem limite cadastrado (átrio), comporta qualquer público", () => {
