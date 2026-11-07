@@ -239,6 +239,12 @@ export function EventRequestForm() {
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((d) => ({ ...d, [key]: value }));
   const setDay = (i: number, patch: Partial<DayDraft>) => setDraft((d) => ({ ...d, days: d.days.map((day, j) => (j === i ? { ...day, ...patch } : day)) }));
+  /** Tira um espaço escolhido pelo nome (ex.: a área de coffee); sem nenhum, fica uma linha em branco. */
+  const removeRoom = (roomId: string) =>
+    setDraft((d) => {
+      const rest = d.spaces.filter((s) => !(s.mode === "room" && s.roomId === roomId));
+      return { ...d, spaces: rest.length > 0 ? rest : [emptySpace()] };
+    });
   const setSpace = (i: number, patch: Partial<SpaceDraft>) => setDraft((d) => ({ ...d, spaces: d.spaces.map((s, j) => (j === i ? { ...s, ...patch } : s)) }));
   const removeDay = (i: number) =>
     setDraft((d) => {
@@ -588,14 +594,24 @@ export function EventRequestForm() {
                           {r.requiresBoardApproval ? " · autorização da Diretoria" : ""}
                         </p>
                       </div>
-                      <Button
-                        size="sm"
-                        variant={added ? "ghost" : "secondary"}
-                        disabled={added}
-                        onClick={() => set("spaces", [...draft.spaces.filter(spaceChosen), { ...emptySpace(), mode: "room", roomId: r.id, purpose: "Coffee break" }])}
-                      >
-                        {added ? "Escolhido" : "Usar"}
-                      </Button>
+                      {added ? (
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="flex items-center gap-1 text-sm font-medium text-success-foreground">
+                            <CheckCircleIcon size={16} aria-hidden /> Escolhido
+                          </span>
+                          <Button size="sm" variant="ghost" icon={TrashIcon} aria-label={`Tirar ${r.name}`} onClick={() => removeRoom(r.id)}>
+                            Tirar
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => set("spaces", [...draft.spaces.filter(spaceChosen), { ...emptySpace(), mode: "room", roomId: r.id, purpose: "Coffee break" }])}
+                        >
+                          Usar
+                        </Button>
+                      )}
                     </li>
                   );
                 })}
