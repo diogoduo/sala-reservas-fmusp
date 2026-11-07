@@ -199,7 +199,11 @@ function ItemButton({ item, compact, onOpen }: { item: AgendaItem; compact?: boo
   return (
     <button
       type="button"
-      onClick={() => onOpen(item)}
+      // O quadrado do dia também é clicável (abre o dia): o clique na reserva para aqui.
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(item);
+      }}
       title={`${formatTimeRange(item.start, item.end)} · ${item.title} · ${roomText(item)}${label ? ` · ${label}` : ""}`}
       className={cn(
         "w-full rounded-lg border border-l-4 border-border bg-surface text-left transition-[border-color,box-shadow] hover:shadow-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
@@ -255,8 +259,26 @@ function WeekGrid({ days, byDay, today, onOpen, onOpenDay }: { days: string[]; b
       {days.map((d, i) => {
         const items = byDay.get(d) ?? [];
         return (
-          <section key={d} aria-label={dayTitle(d, today)} className={cn("min-w-0 rounded-xl border border-border bg-surface-muted/40 p-2", d === today && "border-primary ring-1 ring-primary")}>
-            <button type="button" onClick={() => onOpenDay(d)} className="mb-2 w-full rounded-md px-1 py-0.5 text-left hover:bg-surface-muted" title="Abrir o dia">
+          // Clicar em qualquer lugar do dia (fora das reservas) abre o dia; o botão do
+          // número continua para quem usa o teclado.
+          <section
+            key={d}
+            aria-label={dayTitle(d, today)}
+            onClick={() => onOpenDay(d)}
+            title="Abrir o dia"
+            className={cn(
+              "min-w-0 cursor-pointer rounded-xl border border-border bg-surface-muted/40 p-2 transition-colors hover:border-primary/60 hover:bg-surface-muted/70",
+              d === today && "border-primary ring-1 ring-primary",
+            )}
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenDay(d);
+              }}
+              className="mb-2 w-full rounded-md px-1 py-0.5 text-left hover:bg-surface-muted"
+            >
               <span className="block text-xs text-muted">{WEEKDAYS[i]}</span>
               <span className={cn("text-lg font-semibold tabular-nums", d === today && "text-primary")}>{parseDay(d).getDate()}</span>
               <span className="ml-1 text-xs text-muted">{items.length > 0 ? plural(items.length, "item", "itens") : ""}</span>
@@ -307,12 +329,27 @@ function MonthGrid({
           const items = byDay.get(d) ?? [];
           const outside = !d.startsWith(month);
           return (
+            // Clicar em qualquer lugar do quadrado (fora das reservas) abre o dia; o
+            // botão do número continua para quem usa o teclado.
             <section
               key={d}
               aria-label={dayTitle(d, today)}
-              className={cn("flex min-h-32 min-w-0 flex-col rounded-lg border border-border p-1.5", outside ? "bg-surface-muted/30 opacity-60" : "bg-surface", d === today && "border-primary ring-1 ring-primary")}
+              onClick={() => onOpenDay(d)}
+              title="Abrir o dia"
+              className={cn(
+                "flex min-h-32 min-w-0 cursor-pointer flex-col rounded-lg border border-border p-1.5 transition-colors hover:border-primary/60 hover:bg-surface-muted/60",
+                outside ? "bg-surface-muted/30 opacity-60" : "bg-surface",
+                d === today && "border-primary ring-1 ring-primary",
+              )}
             >
-              <button type="button" onClick={() => onOpenDay(d)} className={cn("self-start rounded px-1 text-sm font-semibold tabular-nums hover:bg-surface-muted", d === today && "text-primary")} title="Abrir o dia">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenDay(d);
+                }}
+                className={cn("self-start rounded px-1 text-sm font-semibold tabular-nums hover:bg-surface-muted", d === today && "text-primary")}
+              >
                 {parseDay(d).getDate()}
               </button>
               <ul className="mt-1 space-y-0.5">
@@ -320,7 +357,10 @@ function MonthGrid({
                   <li key={item.key}>
                     <button
                       type="button"
-                      onClick={() => onOpen(item)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpen(item);
+                      }}
                       title={`${formatTimeRange(item.start, item.end)} · ${item.title} · ${roomText(item)}`}
                       className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-xs hover:bg-surface-muted"
                     >
@@ -333,7 +373,14 @@ function MonthGrid({
                 ))}
               </ul>
               {items.length > MONTH_CELL_ITEMS && (
-                <button type="button" onClick={() => onOpenDay(d)} className="mt-auto self-start rounded px-1 text-xs font-medium text-primary hover:underline">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenDay(d);
+                  }}
+                  className="mt-auto self-start rounded px-1 text-xs font-medium text-primary hover:underline"
+                >
                   +{items.length - MONTH_CELL_ITEMS} mais
                 </button>
               )}
