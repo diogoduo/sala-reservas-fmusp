@@ -262,6 +262,13 @@ export async function cancelledMails(ids: string[]): Promise<Mail[]> {
   const wereApproved = list.filter((r) => r.reviewedAt !== null);
 
   const mails = [
+    // Quem cancelou recebe a confirmação (todas as fases da reserva avisam o solicitante).
+    mail([first.user.email], `Cancelamento registrado: ${first.title}`, {
+      heading: "Reserva cancelada",
+      paragraphs: ["O seu cancelamento foi registrado, e o horário ficou livre para outras solicitações."],
+      details: [protocolOf(first), ...(wereApproved.length > 0 ? [["Sala", roomsOf(wereApproved)] as [string, string]] : [])],
+      dates: list.map(formatSlot),
+    }),
     mail(await adminEmails(), `Reserva cancelada: ${first.title}`, {
       heading: "Reserva cancelada pelo solicitante",
       paragraphs: ["O horário já está livre para outras solicitações."],

@@ -40,7 +40,10 @@ export async function queueNotice(db: Db, notice: NoticeInput) {
 
 /** Envia os avisos gravados, sem segurar a resposta; marca `sentAt` quando o envio funciona. */
 export function deliverNotices(ids: string[]): void {
-  if (ids.length === 0 || !env.MAIL_ENABLED) return;
+  // Na demonstração sem MAIL_REDIRECT_TO o mailer não manda nada (trava das contas
+  // de teste): o aviso fica "Registrado", sem marcar como enviado.
+  const willSend = env.MAIL_ENABLED && (!env.DEMO_MODE || Boolean(env.MAIL_REDIRECT_TO));
+  if (ids.length === 0 || !willSend) return;
   void (async () => {
     for (const id of ids) {
       const notice = await prisma.eventNotice.findUnique({ where: { id } });
