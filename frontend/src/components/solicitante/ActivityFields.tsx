@@ -1,4 +1,6 @@
-import type { ChangeEvent } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
+import { api } from "../../lib/api";
+import { useAuth } from "../../lib/auth";
 import {
   ADMINISTRATIVE_KIND_LABELS,
   CCEX_STATUS_LABELS,
@@ -88,8 +90,30 @@ function ChoicePills({ legend, name, options, value, onChange, required }: Pills
   );
 }
 
+interface LinkedDiscipline {
+  id: string;
+  code: string;
+  name: string;
+  department: string | null;
+  level: "UNDERGRADUATE" | "GRADUATE";
+}
+
+/** Fase 19: as disciplinas ligadas a quem está pedindo (vazio = pede para qualquer disciplina). */
+function useMyDisciplines(enabled: boolean) {
+  const [list, setList] = useState<LinkedDiscipline[]>([]);
+  useEffect(() => {
+    if (!enabled) return;
+    api<{ disciplines: LinkedDiscipline[] }>("/disciplines/mine")
+      .then((res) => setList(res.disciplines))
+      .catch(() => setList([]));
+  }, [enabled]);
+  return list;
+}
+
 /** Campos que mudam conforme o tipo de atividade (seção "Sobre a atividade"). */
 export function ActivityFields({ type, values, onChange }: Props) {
+  const { user } = useAuth();
+  const linked = useMyDisciplines(user?.role === "USER").filter((d) => d.level === type);
   const text = (name: string) => ({
     name,
     value: typeof values[name] === "string" ? (values[name] as string) : "",
@@ -99,7 +123,36 @@ export function ActivityFields({ type, values, onChange }: Props) {
   // Graduação e Pós-Graduação compartilham os campos da disciplina.
   // ⚠️ O código só tem o formato checado; a validação contra uma tabela de
   // disciplinas no banco é um passo futuro.
-  const disciplineFields = (
+  const chooseDiscipline = (code: string) => {
+    const d = linked.find((x) => x.code === code);
+    onChange("disciplineCode", code);
+    if (d) {
+      onChange("disciplineName", d.name);
+      if (d.department) onChange("department", d.department);
+    }
+  };
+
+  const disciplineFields = linked.length > 0 ? (
+    <>
+      <Select
+        label="Disciplina"
+        required
+        value={typeof values.disciplineCode === "string" ? values.disciplineCode : ""}
+        onChange={(e) => chooseDiscipline(e.target.value)}
+        hint="As disciplinas ligadas a você pelo SAD. Para outra, fale com o SAD."
+        containerClassName="sm:col-span-2"
+      >
+        <option value="">Selecione</option>
+        {linked.map((d) => (
+          <option key={d.code} value={d.code}>
+            {d.code} · {d.name}
+          </option>
+        ))}
+      </Select>
+      <Input label="Nº de alunos" required type="number" inputMode="numeric" min={1} {...text("studentCount")} />
+      <Input label="Responsável pela disciplina" required {...text("disciplineOwner")} />
+    </>
+  ) : (
     <>
       <Input
         label="Código da disciplina"

@@ -11,6 +11,7 @@ import {
   roomLabel,
 } from "../audit/log";
 import { assertCanRequestActivity } from "../auth/permissions";
+import { assertDisciplineAllowed } from "./disciplines";
 import { asyncHandler } from "../lib/async-handler";
 import { formatDayMonth } from "../lib/calendar";
 import { AppError } from "../lib/errors";
@@ -76,6 +77,8 @@ reservationsRouter.post(
     assertMinAdvance(window.start);
 
     const requestedResources = await normalizeRequestedResources(prisma, input.requestedResources);
+    // Fase 19: o docente com disciplinas ligadas pede só para elas.
+    await assertDisciplineAllowed(req.user!, input);
 
     let occurrences: Occurrence[] = input.recurrence
       ? expandRecurrence(input.recurrence.rrule, window.start, window.end, input.recurrence.until)
@@ -317,6 +320,8 @@ reservationsRouter.put(
     const window = reservedWindow(input);
     assertValidDuration(window.start, window.end);
     const requestedResources = await normalizeRequestedResources(prisma, input.requestedResources);
+    // Fase 19: o docente com disciplinas ligadas pede só para elas.
+    await assertDisciplineAllowed(req.user!, input);
 
     const updatedIds = await prisma.$transaction(
       async (tx) => {

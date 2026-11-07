@@ -19,6 +19,7 @@ import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Alert, CardListSkeleton, EmptyState } from "../ui/Feedback";
 import { Input, Select, Switch } from "../ui/Field";
+import { DisciplinesAdmin } from "./DisciplinesAdmin";
 import { Card, PageHeader } from "../ui/Surface";
 
 interface Person {
@@ -389,6 +390,9 @@ export function UsersAdmin() {
           }}
         />
       )}
+
+      {/* Fase 19: disciplinas e os docentes de cada uma. */}
+      <DisciplinesAdmin />
     </div>
   );
 }

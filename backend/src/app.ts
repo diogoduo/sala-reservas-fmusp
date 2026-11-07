@@ -28,6 +28,7 @@ import { authorizationsRouter } from "./routes/authorizations";
 import { eventOrganizationRouter } from "./routes/event-organization";
 import { eventPaymentRouter, settingsRouter } from "./routes/event-payment";
 import { conversationsRouter } from "./routes/conversations";
+import { disciplinesRouter } from "./routes/disciplines";
 import { materialsRouter } from "./routes/materials";
 import { plantaoRouter } from "./routes/plantao";
 import { tasksRouter } from "./routes/tasks";
@@ -76,6 +77,7 @@ export function createApp() {
   app.use("/api/plantao", plantaoRouter);
   app.use("/api/materials", materialsRouter);
   app.use("/api/conversations", conversationsRouter);
+  app.use("/api/disciplines", disciplinesRouter);
   app.use("/api/authorizations", authorizationsRouter);
   app.use("/api/resources", resourcesRouter);
   app.use("/api/reservations", reservationsRouter);

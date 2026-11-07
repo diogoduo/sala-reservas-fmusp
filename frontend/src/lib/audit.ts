@@ -23,6 +23,7 @@ import {
   FlagCheckeredIcon,
   ListChecksIcon,
   TrashIcon,
+  UsersThreeIcon,
   UserMinusIcon,
   UserPlusIcon,
   WrenchIcon,
@@ -128,6 +129,9 @@ const ACTIONS: Record<string, ActionMeta> = {
   "material.checkout": { label: "Retirada de material", tone: "warning", icon: StackIcon },
   "material.return": { label: "Devolução de material", tone: "success", icon: StackIcon },
   "material.move": { label: "Material movimentado", tone: "info", icon: StackIcon },
+  "discipline.import": { label: "Disciplinas importadas", tone: "info", icon: UsersThreeIcon },
+  "discipline.unlink": { label: "Docente desligado de disciplina", tone: "neutral", icon: UsersThreeIcon },
+  "discipline.delete": { label: "Disciplina apagada", tone: "neutral", icon: TrashIcon },
   "event.request": { label: "Evento pedido", tone: "info", icon: CalendarStarIcon },
   "event.cancel": { label: "Evento cancelado pelo solicitante", tone: "neutral", icon: ProhibitIcon },
   "event.review": { label: "Análise iniciada (NUCEV)", tone: "info", icon: CalendarStarIcon },
@@ -337,6 +341,10 @@ export function auditDetailLines(entry: AuditEntry): string[] {
     lines.push([`${d.quantity} unidade(s)`, typeof d.location === "string" ? `para ${d.location}` : null, typeof d.from === "string" && entry.action !== "material.move" ? `de ${d.from}` : null, typeof d.takenBy === "string" ? `retirou: ${d.takenBy}` : null, typeof d.returnedBy === "string" ? `devolveu: ${d.returnedBy}` : null].filter(Boolean).join(" · "));
   }
   if (entry.action === "material.move" && typeof d.to === "string") lines.push(`De ${d.from} para ${d.to}${typeof d.movedBy === "string" ? ` (por ${d.movedBy})` : ""}`);
+  if (entry.action === "discipline.import") {
+    lines.push(`${num(d.created)} nova(s) · ${num(d.linked)} ligação(ões)${Array.isArray(d.missing) && d.missing.length ? ` · sem cadastro: ${d.missing.join(", ")}` : ""}`);
+  }
+  if (entry.action === "discipline.unlink" && typeof d.discipline === "string") lines.push(`Disciplina: ${d.discipline}`);
   if (entry.action === "event.close") {
     if (typeof d.actualAttendees === "number") lines.push(`Público presente: ${d.actualAttendees}`);
     if (num(d.openTasks) > 0) lines.push(`Encerrado com ${plural(num(d.openTasks), "pendência aberta", "pendências abertas")}`);

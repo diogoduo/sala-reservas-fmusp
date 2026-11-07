@@ -467,8 +467,9 @@ async function reset(keepRooms: RoomKey[] = []) {
   const keep = DEV_USERS.map((u) => u.email);
   await prisma.$transaction([
     // Plantão: passagens e tarefas (as avulsas; as dos eventos vão junto com eles).
-    // Conversas das reservas (pelo protocolo).
+    // Conversas das reservas (pelo protocolo) e as disciplinas dos docentes.
     prisma.reservationMessage.deleteMany(),
+    prisma.discipline.deleteMany(),
     prisma.shiftHandover.deleteMany(),
     prisma.operationalTask.deleteMany(),
     // Pranchões: o histórico, as retiradas e o estoque.
@@ -866,6 +867,22 @@ async function main() {
     dayKey: (offset) => zonedDateKey(new Date(Date.now() + offset * 86_400_000)),
   }, jaleco?.id ?? null);
   console.log("40 pranchões (10 em uso)");
+
+  // Fase 19: o catálogo de disciplinas, com as das reservas da base. Os docentes
+  // (Prof./Profa./Docente) ficam ligados às deles; a secretaria, a nenhuma.
+  const taught = await prisma.reservation.findMany({ where: { activityType: { in: ["UNDERGRADUATE", "GRADUATE"] } }, select: { activityType: true, activityDetails: true, user: { select: { id: true, name: true } } } });
+  const catalog = new Map<string, { name: string; department: string | null; level: "UNDERGRADUATE" | "GRADUATE"; teachers: Set<string> }>();
+  for (const r of taught) {
+    const d = (r.activityDetails ?? {}) as { disciplineCode?: string; disciplineName?: string; department?: string };
+    if (!d.disciplineCode || !/^[A-Z]{3}[0-9]{4}$/.test(d.disciplineCode)) continue;
+    const entry = catalog.get(d.disciplineCode) ?? { name: d.disciplineName ?? d.disciplineCode, department: d.department ?? null, level: r.activityType as "UNDERGRADUATE" | "GRADUATE", teachers: new Set<string>() };
+    if (/^(Prof|Docente)/.test(r.user.name)) entry.teachers.add(r.user.id);
+    catalog.set(d.disciplineCode, entry);
+  }
+  for (const [code, d] of catalog) {
+    await prisma.discipline.create({ data: { code, name: d.name, department: d.department, level: d.level, teachers: { create: [...d.teachers].map((userId) => ({ userId })) } } });
+  }
+  console.log(`${catalog.size} disciplinas no catálogo`);
 
   // Fase 19: uma conversa entre quem pediu e o SAD, num pedido pendente.
   const chatReservation = await prisma.reservation.findFirst({ where: { status: "PENDING", eventId: null, title: { contains: "Medicina Esportiva" } }, include: { user: true } })

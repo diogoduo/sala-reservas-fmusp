@@ -86,7 +86,11 @@ export type AuditAction =
   | "material.update"
   | "material.checkout"
   | "material.return"
-  | "material.move";
+  | "material.move"
+  // Fase 19: disciplinas dos docentes
+  | "discipline.import"
+  | "discipline.unlink"
+  | "discipline.delete";
 
 export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user" | "price" | "event" | "setting" | "task" | "handover" | "material";
 

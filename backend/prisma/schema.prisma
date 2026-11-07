@@ -124,6 +124,7 @@ model User {
   handoversNext         ShiftHandover[]     @relation("HandoverNext")
   handoversCreated      ShiftHandover[]     @relation("HandoverCreator")
   reservationMessages   ReservationMessage[] @relation("ReservationMessageAuthor")
+  disciplines           DisciplineTeacher[]
 
   @@map("users")
 }
@@ -1116,4 +1117,37 @@ model ReservationMessage {
 
   @@index([protocol, createdAt])
   @@map("reservation_messages")
+}
+
+// ---------------------------------------------------------------------------
+// Fase 19 — disciplinas e os docentes de cada uma (documento SAD/NUCEV, 2.3)
+// ---------------------------------------------------------------------------
+
+/// Disciplina (código USP, ex.: MCM0101). O docente ligado a ela pede as
+/// reservas de Graduação (ou Pós) só das disciplinas dele.
+model Discipline {
+  id         String       @id @default(uuid()) @db.Uuid
+  code       String       @unique
+  name       String
+  department String?
+  /// Graduação (UNDERGRADUATE) ou Pós-Graduação (GRADUATE).
+  level      ActivityType @default(UNDERGRADUATE)
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  teachers DisciplineTeacher[]
+
+  @@map("disciplines")
+}
+
+model DisciplineTeacher {
+  disciplineId String   @map("discipline_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  discipline Discipline @relation(fields: [disciplineId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([disciplineId, userId])
+  @@index([userId])
+  @@map("discipline_teachers")
 }
