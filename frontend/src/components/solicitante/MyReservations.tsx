@@ -1,6 +1,7 @@
 import {
   CalendarBlankIcon,
   CalendarCheckIcon,
+  ChatsCircleIcon,
   CalendarPlusIcon,
   CalendarXIcon,
   CaretDownIcon,
@@ -42,7 +43,9 @@ import type { Reservation, ReviewScope } from "../../lib/types";
 import { StatusBadge } from "../StatusBadge";
 import { Badge } from "../ui/Badge";
 import { RoomPhotosButton } from "../rooms/RoomPhotos";
+import { ReservationConversation } from "../reservations/ReservationConversation";
 import { Button } from "../ui/Button";
+import { Dialog } from "../ui/Dialog";
 import { Alert, CardListSkeleton, EmptyState } from "../ui/Feedback";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Card, IconTile, PageHeader, StatCard } from "../ui/Surface";
@@ -131,6 +134,7 @@ export function MyReservations() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [suspension, setSuspension] = useState<{ until: string | null; reason: string } | null>(null);
+  const [chatting, setChatting] = useState<{ protocol: string; title: string } | null>(null);
 
   useEffect(() => {
     api<{ suspension: { until: string | null; reason: string } | null }>("/reservations/me/standing")
@@ -306,6 +310,11 @@ export function MyReservations() {
                         </span>
                       </p>
                     </div>
+                    {/* Fase 19: a conversa com o SAD sobre este pedido. */}
+                    <Button size="sm" variant="secondary" icon={ChatsCircleIcon} onClick={() => setChatting({ protocol: first.protocol, title: first.title })} className="shrink-0">
+                      <span className="hidden sm:inline">Conversa com o SAD</span>
+                      <span className="sm:hidden">Conversa</span>
+                    </Button>
                   </div>
 
                   <ul className="divide-y divide-border border-t border-border">
@@ -426,6 +435,12 @@ export function MyReservations() {
             );
           })}
         </ul>
+      )}
+
+      {chatting && (
+        <Dialog open variant="drawer" onClose={() => setChatting(null)} title="Conversa com o SAD" description={`${chatting.title} · Protocolo ${chatting.protocol}. Cada mensagem avisa o SAD por e-mail.`}>
+          <ReservationConversation protocol={chatting.protocol} compact />
+        </Dialog>
       )}
     </div>
   );

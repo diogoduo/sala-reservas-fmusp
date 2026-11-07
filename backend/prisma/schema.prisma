@@ -123,6 +123,7 @@ model User {
   createdTasks          OperationalTask[]   @relation("TaskCreator")
   handoversNext         ShiftHandover[]     @relation("HandoverNext")
   handoversCreated      ShiftHandover[]     @relation("HandoverCreator")
+  reservationMessages   ReservationMessage[] @relation("ReservationMessageAuthor")
 
   @@map("users")
 }
@@ -1094,4 +1095,25 @@ model MaterialMovement {
 
   @@index([itemId, at])
   @@map("material_movements")
+}
+
+// ---------------------------------------------------------------------------
+// Fase 19 — conversa de cada reserva (documento SAD/NUCEV, 2.2)
+// ---------------------------------------------------------------------------
+
+/// Mensagem entre quem pediu e o SAD, pelo protocolo do pedido (uma série
+/// inteira tem uma conversa só). O histórico é permanente.
+model ReservationMessage {
+  id         String   @id @default(uuid()) @db.Uuid
+  protocol   String
+  authorId   String?  @map("author_id") @db.Uuid
+  authorName String   @map("author_name")
+  authorRole String   @map("author_role")
+  body       String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  author User? @relation("ReservationMessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([protocol, createdAt])
+  @@map("reservation_messages")
 }

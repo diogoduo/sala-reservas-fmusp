@@ -22,6 +22,7 @@ import type { AdminReservation, ApprovalChecklist, RequestedResource, Resource, 
 import { boardApprovalWarning, capacityWarning, checklistWarnings, reservationWarnings, type PortariaWarning } from "../../lib/portarias";
 import { PortariaWarnings } from "./PortariaWarnings";
 import { NoShowButton } from "./ReservationActions";
+import { ReservationConversation } from "../reservations/ReservationConversation";
 import { ReservationHistory } from "./AuditTrail";
 import { RequesterStanding } from "./RequesterStanding";
 import { StatusBadge } from "../StatusBadge";
@@ -171,6 +172,8 @@ export function RequestDetails({ group, resources }: { group: AdminReservation[]
       </dl>
 
       <ReservationHistory protocol={first.protocol} />
+      {/* Fase 19: a conversa com quem pediu (as reservas de evento conversam pela página do evento). */}
+      {!first.eventId && <ReservationConversation protocol={first.protocol} />}
     </section>
   );
 }

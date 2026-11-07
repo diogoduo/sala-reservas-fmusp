@@ -467,6 +467,8 @@ async function reset(keepRooms: RoomKey[] = []) {
   const keep = DEV_USERS.map((u) => u.email);
   await prisma.$transaction([
     // Plantão: passagens e tarefas (as avulsas; as dos eventos vão junto com eles).
+    // Conversas das reservas (pelo protocolo).
+    prisma.reservationMessage.deleteMany(),
     prisma.shiftHandover.deleteMany(),
     prisma.operationalTask.deleteMany(),
     // Pranchões: o histórico, as retiradas e o estoque.
@@ -864,6 +866,20 @@ async function main() {
     dayKey: (offset) => zonedDateKey(new Date(Date.now() + offset * 86_400_000)),
   }, jaleco?.id ?? null);
   console.log("40 pranchões (10 em uso)");
+
+  // Fase 19: uma conversa entre quem pediu e o SAD, num pedido pendente.
+  const chatReservation = await prisma.reservation.findFirst({ where: { status: "PENDING", eventId: null, title: { contains: "Medicina Esportiva" } }, include: { user: true } })
+    ?? (await prisma.reservation.findFirst({ where: { status: "PENDING", eventId: null }, include: { user: true } }));
+  if (chatReservation) {
+    const sadUser = people.get("admin@fm.usp.br")!;
+    await prisma.reservationMessage.createMany({
+      data: [
+        { protocol: chatReservation.protocol, authorId: chatReservation.userId, authorName: chatReservation.user.name, authorRole: chatReservation.user.role, body: "Bom dia! Vamos precisar de dois microfones sem fio. Dá para incluir?", createdAt: new Date(Date.now() - 26 * 3_600_000) },
+        { protocol: chatReservation.protocol, authorId: sadUser.id, authorName: sadUser.name, authorRole: "ADMIN", body: "Bom dia! Incluímos os dois microfones; a equipe técnica chega 30 min antes.", createdAt: new Date(Date.now() - 25 * 3_600_000) },
+      ],
+    });
+    console.log(`Conversa de exemplo no pedido ${chatReservation.protocol} (${chatReservation.title})`);
+  }
 
   // Fase 9: Graduação, Pós e Defesa são exclusivos de quem tem permissão. Quem
   // pediu esses tipos nesta base recebe a permissão correspondente (Cultura e
