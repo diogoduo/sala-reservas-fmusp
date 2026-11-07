@@ -63,7 +63,9 @@ export type AuditAction =
   | "event.payment_receipt"
   | "event.payment_validate"
   | "event.payment_refuse"
-  | "event.confirm";
+  | "event.confirm"
+  // Textos editáveis pela equipe (orientações de pagamento)
+  | "settings.update";
 
 export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user" | "price" | "event";
 

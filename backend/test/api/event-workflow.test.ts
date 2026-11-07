@@ -124,13 +124,17 @@ describe("Gestão do evento (Fase 12)", () => {
     await aluno.post(`/api/events/${eventId}/quotes/${v1.id}/decision`).send({ decision: "CHANGES", note: "Somos da FMUSP, sem inscrição." }).expect(200);
     expect((await prisma.event.findUniqueOrThrow({ where: { id: eventId } })).status).toBe("CHANGES_REQUESTED");
 
-    const v2 = (await nucev.post(`/api/events/${eventId}/quotes`).send({ exemptionReason: "Evento institucional sem inscrição (Art. 4º I)" }).expect(201)).body.quote;
-    expect(v2).toMatchObject({ version: 2, totalCents: 0 });
+    const v2 = (await nucev.post(`/api/events/${eventId}/quotes`).send({ notes: "Revisado: o desconto institucional já está aplicado." }).expect(201)).body.quote;
+    expect(v2).toMatchObject({ version: 2, totalCents: 1_575_000 });
     expect((await prisma.eventQuote.findUniqueOrThrow({ where: { id: v1.id } })).status).toBe("SUPERSEDED");
     // A versão antiga não aceita mais resposta.
     await aluno.post(`/api/events/${eventId}/quotes/${v1.id}/decision`).send({ decision: "APPROVE" }).expect(409);
     await aluno.post(`/api/events/${eventId}/quotes/${v2.id}/decision`).send({ decision: "APPROVE" }).expect(200);
-    expect((await prisma.event.findUniqueOrThrow({ where: { id: eventId } })).status).toBe("QUOTE_APPROVED");
+    // Fase 13: aprovado, o evento aguarda o pagamento, com o valor e as orientações.
+    expect(await prisma.event.findUniqueOrThrow({ where: { id: eventId } })).toMatchObject({ status: "QUOTE_APPROVED", paymentExpectedCents: 1_575_000 });
+    const payment = await prisma.eventNotice.findFirstOrThrow({ where: { eventId, subject: { startsWith: "Orientações de pagamento" } } });
+    expect(payment.to).toEqual(["aluno@usp.br"]);
+    expect(payment.body).toContain("Dados para o pagamento");
   });
 
   it("autorização da Diretoria pelo link do e-mail, sem login", async () => {
@@ -165,11 +169,72 @@ describe("Gestão do evento (Fase 12)", () => {
     expect(staff.notices.some((n: { link: string | null }) => n.link?.includes("/autorizacao/"))).toBe(true);
   });
 
+  it("pagamento (Fase 13): comprovante, recusa e reenvio, validação pelo NUCEV e confirmação pelo SAD", async () => {
+    const aluno = await loginAs(app, "aluno@usp.br");
+    const pdf = Buffer.from("%PDF-1.4\n% comprovante de teste\n");
+    await aluno.post(`/api/events/${eventId}/receipts?nome=comprovante.pdf`).set("Content-Type", "image/png").send(Buffer.from("não é imagem")).expect(400);
+    await aluno.post(`/api/events/${eventId}/receipts?nome=comprovante.pdf`).set("Content-Type", "application/pdf").send(pdf).expect(201);
+    expect((await prisma.event.findUniqueOrThrow({ where: { id: eventId } })).status).toBe("PAYMENT_SUBMITTED");
+
+    // O NUCEV recusa (ilegível); o solicitante envia outro.
+    const nucev = await loginAs(app, "vanessa@fm.usp.br");
+    await nucev.post(`/api/events/${eventId}/payment/refuse`).send({ reason: "Comprovante ilegível" }).expect(200);
+    expect((await prisma.event.findUniqueOrThrow({ where: { id: eventId } })).status).toBe("QUOTE_APPROVED");
+    await aluno.post(`/api/events/${eventId}/receipts?nome=comprovante-2.pdf`).set("Content-Type", "application/pdf").send(pdf).expect(201);
+
+    // O arquivo abre para quem pediu e para a equipe; para outra pessoa, não.
+    const { receipts } = (await aluno.get(`/api/events/${eventId}`).expect(200)).body.management;
+    expect(receipts.map((r: { status: string }) => r.status)).toEqual(["PENDING", "REFUSED"]);
+    const file = await aluno.get(`/api/events/${eventId}/receipts/${receipts[0].id}`).expect(200);
+    expect(file.headers["content-type"]).toBe("application/pdf");
+    await (await loginAs(app, "outro@usp.br")).get(`/api/events/${eventId}/receipts/${receipts[0].id}`).expect(404);
+
+    // Comprovante sozinho não confirma: o NUCEV valida e só o SAD confirma.
+    await nucev.post(`/api/events/${eventId}/payment/validate`).send({}).expect(200);
+    await nucev.post(`/api/events/${eventId}/confirm`).send({}).expect(403);
+    const sad = await loginAs(app, "admin@fm.usp.br");
+    await sad.post(`/api/events/${eventId}/confirm`).send({}).expect(200);
+    expect(await prisma.event.findUniqueOrThrow({ where: { id: eventId } })).toMatchObject({ status: "CONFIRMED", preReservedUntil: null, confirmedByName: "admin" });
+    // A pré-reserva virou reserva efetivada: sem validade, e não vence.
+    const reservations = await prisma.reservation.findMany({ where: { eventId, status: "APPROVED" } });
+    expect(reservations).toHaveLength(5);
+    expect(reservations.every((r) => r.preReservedUntil === null)).toBe(true);
+    expect(await expireOverduePreReservations()).toBe(0);
+  });
+
+  /** Um evento de um dia, com uma sala pré-reservada pelo SAD. */
+  async function preReservedEvent(title: string, daysAhead: number) {
+    const aluno = await loginAs(app, "aluno@usp.br");
+    const day = inDays(daysAhead);
+    const id = (
+      await aluno
+        .post("/api/events")
+        .send(eventBody({ title, days: [{ date: day, start: "09:00", end: "12:00" }], spaces: [{ categoryId: salasCategoryId, count: 1 }] }))
+        .expect(201)
+    ).body.event.id as string;
+    const sad = await loginAs(app, "admin@fm.usp.br");
+    const [space] = (await sad.get(`/api/events/${id}/candidates`).expect(200)).body.spaces;
+    await sad.post(`/api/events/${id}/pre-reserve`).send({ validUntil: inDays(5), allocations: [{ spaceId: space.spaceId, roomIds: [salaA.id] }] }).expect(200);
+    return id;
+  }
+
+  it("orçamento isento: aprovado, vai direto para a confirmação do SAD, sem pagamento", async () => {
+    const id = await preReservedEvent("Evento isento", 30);
+    const nucev = await loginAs(app, "vanessa@fm.usp.br");
+    const quote = (await nucev.post(`/api/events/${id}/quotes`).send({ exemptionReason: "Evento institucional sem inscrição (Art. 4º I)" }).expect(201)).body.quote;
+    expect(quote.totalCents).toBe(0);
+    const aluno = await loginAs(app, "aluno@usp.br");
+    await aluno.post(`/api/events/${id}/quotes/${quote.id}/decision`).send({ decision: "APPROVE" }).expect(200);
+    expect(await prisma.event.findUniqueOrThrow({ where: { id } })).toMatchObject({ status: "PAYMENT_VALIDATED", paymentValidatedByName: "Isento (sem pagamento)" });
+    await (await loginAs(app, "admin@fm.usp.br")).post(`/api/events/${id}/confirm`).send({}).expect(200);
+  });
+
   it("pré-reserva vencida: o sistema cancela as reservas e libera as salas", async () => {
-    await prisma.event.update({ where: { id: eventId }, data: { preReservedUntil: new Date(Date.now() - 60_000) } });
+    const id = await preReservedEvent("Evento que vence", 40);
+    await prisma.event.update({ where: { id }, data: { preReservedUntil: new Date(Date.now() - 60_000) } });
     expect(await expireOverduePreReservations()).toBe(1);
-    expect((await prisma.event.findUniqueOrThrow({ where: { id: eventId } })).status).toBe("EXPIRED");
-    expect(await prisma.reservation.count({ where: { eventId, status: "APPROVED" } })).toBe(0);
+    expect((await prisma.event.findUniqueOrThrow({ where: { id } })).status).toBe("EXPIRED");
+    expect(await prisma.reservation.count({ where: { eventId: id, status: "APPROVED" } })).toBe(0);
     const [entry] = await prisma.auditLog.findMany({ where: { action: "event.expire" } });
     expect(entry).toMatchObject({ actorId: null });
   });

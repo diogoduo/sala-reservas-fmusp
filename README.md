@@ -1087,6 +1087,38 @@ Divisão de tarefas combinada:
   `POST …/messages`, `POST …/authorization`; público:
   `GET/POST /api/authorizations/:token`.
 
+## Fase 13 — Pagamento e confirmação
+
+Regra do documento (4.4): **o comprovante sozinho não confirma nada.**
+
+1. **Aprovado o orçamento**, o evento fica "Aguardando pagamento" e quem
+   pediu recebe o **valor** e as **orientações de pagamento** (por e-mail e na
+   tela do evento), com o prazo da pré-reserva. O evento guarda o texto que
+   recebeu (`payment_instructions`).
+2. **Quem pediu envia o comprovante** (PDF, JPG ou PNG, até 10 MB; o tipo é
+   conferido pelo conteúdo): "Comprovante enviado". O NUCEV é avisado.
+3. **O NUCEV confere:** valida ("Pagamento validado", o SAD é avisado) ou
+   recusa com o motivo (volta a aguardar o pagamento, e quem pediu envia
+   outro). Com o comprovante enviado, a pré-reserva não vence.
+4. **O SAD confirma a reserva:** a pré-reserva vira reserva efetivada (as
+   reservas do evento perdem a validade e não vencem mais), o evento fica
+   "Confirmado" e quem pediu é avisado. "Em andamento" e "Finalizado" vêm das
+   datas.
+
+- **Orçamento isento** (total zero): aprovado, vai direto para a confirmação
+  do SAD, sem pagamento.
+- **Orientações de pagamento** (`app_settings`, chave
+  `event_payment_instructions`): o SAD e o NUCEV editam na tela **Preços**.
+  ⚠️ O texto inicial é um modelo: faltam os dados reais (conta, GRU ou
+  boleto).
+- Comprovantes em `event_receipts` (arquivo no banco, como os PDFs do
+  regulamento); abrem para quem pediu e para a equipe.
+- Cancelar depois de confirmado: o SAD, pela tela do evento (libera as salas).
+- API: `POST /api/events/:id/receipts?nome=` (corpo = o arquivo),
+  `GET /api/events/:id/receipts/:receiptId`, `POST …/payment/validate`,
+  `POST …/payment/refuse { reason }`, `POST …/confirm`,
+  `GET/PUT /api/settings/payment-instructions`.
+
 ## Interface
 
 Redesign completo do front-end, responsivo do celular ao computador, com tema

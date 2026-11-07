@@ -75,6 +75,15 @@ async function releaseReservations(tx: Prisma.TransactionClient, eventId: string
   });
 }
 
+const brl = (cents: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
+
+/** Fase 13: orientações de pagamento que o SAD e o NUCEV editam (app_settings). */
+export const PAYMENT_INSTRUCTIONS_KEY = "event_payment_instructions";
+export async function paymentInstructions(db: Prisma.TransactionClient | typeof prisma): Promise<string> {
+  const row = await db.appSetting.findUnique({ where: { key: PAYMENT_INSTRUCTIONS_KEY } });
+  return row?.value ?? "Dados para o pagamento: a definir pelo SAD e pelo NUCEV. Depois de pagar, envie o comprovante nesta página.";
+}
+
 const requesterPath = (id: string) => `/eventos/${id}`;
 const staffPath = (id: string) => `/admin/eventos/${id}`;
 
@@ -416,18 +425,29 @@ eventWorkflowRouter.post(
     if (!quote || quote.status !== "SENT") throw new AppError(409, "QUOTE_NOT_OPEN", "Este orçamento não está mais aguardando resposta.");
 
     const next = { APPROVE: ["APPROVED", "QUOTE_APPROVED"], CHANGES: ["CHANGES_REQUESTED", "CHANGES_REQUESTED"], REJECT: ["REJECTED", "CANCELLED"] } as const;
-    const [quoteStatus, eventStatus] = next[decision];
+    const [quoteStatus] = next[decision];
+    // Fase 13: orçamento isento (total zero) não tem pagamento: vai direto para a confirmação do SAD.
+    const exempt = decision === "APPROVE" && quote.totalCents === 0;
+    const eventStatus: EventStatus = exempt ? "PAYMENT_VALIDATED" : next[decision][1];
     const ids = await prisma.$transaction(async (tx) => {
+      const now = new Date();
       await tx.eventQuote.update({
         where: { id: quote.id },
-        data: { status: quoteStatus, decidedAt: new Date(), decidedByName: req.user!.name, decisionNote: note || null },
+        data: { status: quoteStatus, decidedAt: now, decidedByName: req.user!.name, decisionNote: note || null },
       });
       if (decision === "REJECT") await releaseReservations(tx, event.id, req.user!.id, "Orçamento recusado pelo solicitante.");
+      const instructions = decision === "APPROVE" ? await paymentInstructions(tx) : null;
       await tx.event.update({
         where: { id: event.id },
         data: {
           status: eventStatus,
-          ...(decision === "REJECT" && { cancelledAt: new Date(), cancellationReason: `Orçamento recusado${note ? `: ${note}` : "."}`, preReservedUntil: null }),
+          ...(decision === "REJECT" && { cancelledAt: now, cancellationReason: `Orçamento recusado${note ? `: ${note}` : "."}`, preReservedUntil: null }),
+          ...(decision === "APPROVE" && {
+            paymentExpectedCents: quote.totalCents,
+            paymentInstructions: exempt ? null : instructions,
+            paymentRequestedAt: exempt ? null : now,
+            ...(exempt && { paymentValidatedAt: now, paymentValidatedByName: "Isento (sem pagamento)" }),
+          }),
         },
       });
       await recordAudit(tx, {
@@ -445,10 +465,30 @@ eventWorkflowRouter.post(
         to: await staffEmails(tx, { withSad: decision !== "APPROVE" }),
         subject: `Orçamento ${decision === "APPROVE" ? "aprovado" : decision === "CHANGES" ? "com pedido de alteração" : "recusado"}: ${event.title}`,
         heading: "Resposta ao orçamento",
-        paragraphs: [`${event.user.name} ${text} orçamento (versão ${quote.version}) do evento ${event.protocol}.`, ...(note ? [`Comentário: ${note}`] : [])],
+        paragraphs: [
+          `${event.user.name} ${text} orçamento (versão ${quote.version}) do evento ${event.protocol}.`,
+          ...(note ? [`Comentário: ${note}`] : []),
+          ...(exempt ? ["O orçamento é isento: falta só o SAD confirmar a reserva."] : []),
+        ],
         path: staffPath(event.id),
       });
-      return [notice.id];
+      const ids = [notice.id];
+      if (decision === "APPROVE") {
+        // Orientações de pagamento (ou o aviso de isenção) para quem pediu.
+        const payment = await queueNotice(tx, {
+          eventId: event.id,
+          to: [event.user.email],
+          subject: exempt ? `Orçamento aprovado (isento): ${event.title}` : `Orientações de pagamento: ${event.title}`,
+          heading: exempt ? "Orçamento aprovado" : "Orientações de pagamento",
+          paragraphs: exempt
+            ? [`O orçamento do evento ${event.protocol} é isento. O SAD vai confirmar a reserva.`]
+            : [`Valor do evento ${event.protocol}: ${brl(quote.totalCents)}.`, instructions ?? "", "Depois de pagar, envie o comprovante na página do evento."],
+          details: event.preReservedUntil ? [["Prazo da pré-reserva", event.preReservedUntil.toLocaleDateString("pt-BR", { timeZone: env.APP_TIMEZONE })]] : undefined,
+          path: requesterPath(event.id),
+        });
+        ids.push(payment.id);
+      }
+      return ids;
     });
     deliverNotices(ids);
     res.json({ ok: true });
@@ -618,7 +658,7 @@ eventWorkflowRouter.post(
 /** Salas pré-reservadas, orçamentos, conversa, autorizações e e-mails do evento, para quem pode ver. */
 export async function eventManagement(eventId: string, viewer: { id: string; role: string; email: string }) {
   const staff = viewer.role === "ADMIN" || viewer.role === "NUCEV";
-  const [reservations, quotes, messages, authorizations, notices] = await Promise.all([
+  const [reservations, quotes, messages, authorizations, notices, receipts] = await Promise.all([
     prisma.reservation.findMany({
       where: { eventId, status: { in: ["PENDING", "APPROVED"] } },
       include: { room: { select: { id: true, name: true, building: true, floor: true, requiresBoardApproval: true } } },
@@ -628,6 +668,12 @@ export async function eventManagement(eventId: string, viewer: { id: string; rol
     prisma.eventMessage.findMany({ where: { eventId }, orderBy: { createdAt: "asc" } }),
     prisma.eventAuthorization.findMany({ where: { eventId }, orderBy: { requestedAt: "desc" } }),
     prisma.eventNotice.findMany({ where: { eventId }, orderBy: { createdAt: "desc" } }),
+    // Fase 13: comprovantes, sem o arquivo (que abre por GET …/receipts/:id).
+    prisma.eventReceipt.findMany({
+      where: { eventId },
+      orderBy: { uploadedAt: "desc" },
+      select: { id: true, fileName: true, mimeType: true, size: true, uploadedAt: true, uploadedByName: true, status: true, reviewedAt: true, reviewedByName: true, reviewNote: true },
+    }),
   ]);
   return {
     reservations: reservations.map((r) => ({
@@ -643,5 +689,6 @@ export async function eventManagement(eventId: string, viewer: { id: string; rol
     // O token é o segredo do link da Diretoria: só a equipe vê (pelos e-mails).
     authorizations: authorizations.map(({ token: _token, ...a }) => a),
     notices: staff ? notices : notices.filter((n) => n.to.includes(viewer.email)),
+    receipts,
   };
 }

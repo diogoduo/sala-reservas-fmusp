@@ -20,6 +20,7 @@ import {
   dayLabel,
   QUOTE_STATUS_LABELS,
   QUOTE_STATUS_TONES,
+  RECEIPT_STATUS_LABELS,
   spaceText,
   type CandidateSpace,
   type EventManagement,
@@ -28,7 +29,7 @@ import {
   type EventStatus,
 } from "../../lib/events";
 import { ROLE_LABELS, type UserRole } from "../../lib/permissions";
-import { formatDateKey } from "../../lib/prices";
+import { formatDateKey, formatMoney } from "../../lib/prices";
 import { useToast } from "../../lib/toast";
 import type { QuoteEstimate } from "../../lib/types";
 import { QuoteBreakdown } from "../quotes/QuoteBreakdown";
@@ -699,6 +700,163 @@ export function NoticesPanel({ management }: { management: EventManagement }) {
           </li>
         ))}
       </ul>
+    </Card>
+  );
+}
+
+const PAYMENT_STAGES: EventStatus[] = ["QUOTE_APPROVED", "PAYMENT_SUBMITTED", "PAYMENT_VALIDATED", "CONFIRMED"];
+
+/**
+ * Fase 13 — pagamento: o valor e as orientações, o envio do comprovante (quem
+ * pediu), a conferência (NUCEV) e a confirmação (SAD). O comprovante sozinho não
+ * confirma nada.
+ */
+export function PaymentPanel({ event, management, onChanged }: { event: EventRequest; management: EventManagement; onChanged: () => void }) {
+  const { user } = useAuth();
+  const toast = useToast();
+  const inputId = useId();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [refusing, setRefusing] = useState(false);
+  const mine = event.userId === user?.id;
+  const nucev = user?.role === "NUCEV" || user?.role === "ADMIN";
+  const sad = user?.role === "ADMIN";
+  const receipts = management.receipts;
+  if (!PAYMENT_STAGES.includes(event.status) && receipts.length === 0) return null;
+  const exempt = event.paymentExpectedCents === 0;
+
+  async function upload(file: File) {
+    setBusy("upload");
+    try {
+      await api(`/events/${event.id}/receipts?nome=${encodeURIComponent(file.name)}`, { method: "POST", headers: { "Content-Type": file.type }, body: file });
+      toast.success("Comprovante enviado", "O NUCEV vai conferir.");
+      onChanged();
+    } catch (e) {
+      toast.error("Não foi possível enviar.", errorText(e, ""));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function post(path: string, body: unknown, success: string) {
+    setBusy(path);
+    try {
+      await api(`/events/${event.id}/${path}`, { method: "POST", body: JSON.stringify(body) });
+      toast.success(success, event.protocol);
+      setRefusing(false);
+      onChanged();
+    } catch (e) {
+      toast.error("Não foi possível concluir.", errorText(e, ""));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Card className="space-y-4 p-4 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-base font-semibold">Pagamento</h2>
+        {event.status === "CONFIRMED" ? (
+          <Badge tone="success">Reserva confirmada</Badge>
+        ) : event.status === "PAYMENT_VALIDATED" ? (
+          <Badge tone="success">{exempt ? "Isento" : "Validado"}</Badge>
+        ) : event.status === "PAYMENT_SUBMITTED" ? (
+          <Badge tone="warning">Em conferência</Badge>
+        ) : (
+          <Badge tone="warning">Aguardando pagamento</Badge>
+        )}
+      </div>
+
+      {event.paymentExpectedCents !== null && (
+        <p className="text-2xl font-bold tabular-nums">{exempt ? "Isento" : formatMoney(event.paymentExpectedCents)}</p>
+      )}
+      {!exempt && event.paymentInstructions && (
+        <div className="rounded-xl bg-surface-muted p-3 text-sm whitespace-pre-line">{event.paymentInstructions}</div>
+      )}
+      {event.status === "QUOTE_APPROVED" && event.preReservedUntil && (
+        <p className="text-sm text-muted">Envie o comprovante até {new Date(event.preReservedUntil).toLocaleDateString("pt-BR")}: depois disso a pré-reserva vence e as salas são liberadas.</p>
+      )}
+
+      {mine && event.status === "QUOTE_APPROVED" && (
+        <div>
+          <label htmlFor={inputId} className="text-sm font-medium">
+            Comprovante de pagamento (PDF, JPG ou PNG, até 10 MB)
+          </label>
+          <input
+            id={inputId}
+            type="file"
+            accept="application/pdf,image/jpeg,image/png"
+            disabled={busy !== null}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void upload(file);
+            }}
+            className="mt-1.5 block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-primary file:px-3 file:py-2 file:font-medium file:text-primary-foreground"
+          />
+        </div>
+      )}
+
+      {receipts.length > 0 && (
+        <ul className="divide-y divide-border text-sm">
+          {receipts.map((r) => (
+            <li key={r.id} className="py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <a href={`/api/events/${event.id}/receipts/${r.id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+                  {r.fileName} <ArrowSquareOutIcon size={14} aria-hidden />
+                </a>
+                <Badge tone={r.status === "VALIDATED" ? "success" : r.status === "REFUSED" ? "danger" : "warning"}>{RECEIPT_STATUS_LABELS[r.status]}</Badge>
+              </div>
+              <p className="text-xs text-muted">
+                Enviado em {dateTimeText(r.uploadedAt)} por {r.uploadedByName}
+                {r.reviewedAt ? ` · conferido em ${dateTimeText(r.reviewedAt)}${r.reviewedByName ? ` por ${r.reviewedByName}` : ""}` : ""}
+              </p>
+              {r.reviewNote && <p className="text-xs text-muted">{r.status === "REFUSED" ? "Motivo" : "Observação"}: {r.reviewNote}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {event.paymentValidatedAt && (
+        <p className="text-sm text-muted">
+          {exempt ? "Sem pagamento (isento)." : `Pagamento validado em ${dateTimeText(event.paymentValidatedAt)}${event.paymentValidatedByName ? ` por ${event.paymentValidatedByName}` : ""}.`}
+        </p>
+      )}
+      {event.confirmedAt && (
+        <p className="text-sm text-muted">
+          Reserva confirmada em {dateTimeText(event.confirmedAt)}
+          {event.confirmedByName ? ` por ${event.confirmedByName}` : ""}.
+        </p>
+      )}
+
+      {nucev && event.status === "PAYMENT_SUBMITTED" && (
+        <div className="flex flex-col gap-2 border-t border-border pt-4">
+          <Button icon={CheckCircleIcon} loading={busy === "payment/validate"} onClick={() => void post("payment/validate", {}, "Pagamento validado")}>
+            Validar o pagamento
+          </Button>
+          <Button variant="ghost" icon={XCircleIcon} onClick={() => setRefusing(true)}>
+            Recusar o comprovante
+          </Button>
+        </div>
+      )}
+      {sad && event.status === "PAYMENT_VALIDATED" && (
+        <div className="border-t border-border pt-4">
+          <Button icon={CheckCircleIcon} loading={busy === "confirm"} onClick={() => void post("confirm", {}, "Reserva confirmada")} className="w-full">
+            Confirmar a reserva
+          </Button>
+          <p className="mt-2 text-xs text-muted">A pré-reserva vira reserva efetivada, e quem pediu é avisado.</p>
+        </div>
+      )}
+      {refusing && (
+        <ReasonDialog
+          title="Recusar o comprovante?"
+          description="Quem pediu recebe o motivo e pode enviar outro comprovante."
+          label="Motivo"
+          confirmLabel="Recusar"
+          danger
+          onClose={() => setRefusing(false)}
+          onSubmit={(reason) => post("payment/refuse", { reason }, "Comprovante recusado")}
+        />
+      )}
     </Card>
   );
 }

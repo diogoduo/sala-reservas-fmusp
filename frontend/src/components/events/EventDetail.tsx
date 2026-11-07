@@ -23,7 +23,7 @@ import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { Alert, CardListSkeleton } from "../ui/Feedback";
 import { Card, PageHeader } from "../ui/Surface";
-import { AuthorizationPanel, Conversation, NoticesPanel, QuotePanel, ReservedRooms, StaffActions } from "./EventManagement";
+import { AuthorizationPanel, Conversation, NoticesPanel, PaymentPanel, QuotePanel, ReservedRooms, StaffActions } from "./EventManagement";
 
 const REQUESTER_CANCELLABLE: EventStatus[] = ["SUBMITTED", "IN_REVIEW", "PRE_RESERVED", "QUOTE_SENT", "CHANGES_REQUESTED", "QUOTE_APPROVED"];
 const hoursText = (minutes: number) => `${(minutes / 60).toLocaleString("pt-BR")} h`;
@@ -196,6 +196,7 @@ export function EventDetail() {
 
         <div className="min-w-0 space-y-6">
           {staff && <StaffActions event={event} management={management} possiblyExempt={possiblyExempt} onChanged={load} />}
+          <PaymentPanel event={event} management={management} onChanged={load} />
           <QuotePanel event={event} quotes={quotes} onChanged={load} />
           <AuthorizationPanel management={management} />
           {quotes.length === 0 ? (

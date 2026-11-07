@@ -2,8 +2,10 @@ import {
   ArrowCounterClockwiseIcon,
   CalendarPlusIcon,
   CheckCircleIcon,
+  CalendarStarIcon,
   ClockCounterClockwiseIcon,
   CurrencyCircleDollarIcon,
+  StampIcon,
   DoorOpenIcon,
   FilePdfIcon,
   GavelIcon,
@@ -27,6 +29,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Tone } from "../components/ui/Badge";
 import { ACTIVITY_TYPE_LABELS } from "./activities";
 import { api } from "./api";
+import { EVENT_STATUS_LABELS, type EventStatus } from "./events";
 import { PERMISSION_LABELS, ROLE_LABELS, type Permission, type UserRole } from "./permissions";
 import { formatMinutes } from "./reservations";
 import {
@@ -57,6 +60,7 @@ export const AUDIT_ENTITY_LABELS: Record<AuditEntityType, string> = {
   notebook: "Notebooks",
   sanction: "Sanções",
   price: "Preços",
+  event: "Eventos",
 };
 
 interface ActionMeta {
@@ -101,6 +105,23 @@ const ACTIONS: Record<string, ActionMeta> = {
   "price.table_delete": { label: "Tabela de preços excluída", tone: "danger", icon: TrashIcon },
   "price.category_create": { label: "Categoria de preço criada", tone: "success", icon: CurrencyCircleDollarIcon },
   "price.category_update": { label: "Categoria de preço alterada", tone: "info", icon: CurrencyCircleDollarIcon },
+  "settings.update": { label: "Orientações de pagamento alteradas", tone: "info", icon: CurrencyCircleDollarIcon },
+  "event.request": { label: "Evento pedido", tone: "info", icon: CalendarStarIcon },
+  "event.cancel": { label: "Evento cancelado pelo solicitante", tone: "neutral", icon: ProhibitIcon },
+  "event.review": { label: "Análise iniciada (NUCEV)", tone: "info", icon: CalendarStarIcon },
+  "event.pre_reserve": { label: "Salas pré-reservadas (SAD)", tone: "success", icon: DoorOpenIcon },
+  "event.release": { label: "Pré-reserva liberada", tone: "neutral", icon: DoorOpenIcon },
+  "event.quote_send": { label: "Orçamento enviado", tone: "info", icon: PaperPlaneTiltIcon },
+  "event.quote_decision": { label: "Resposta ao orçamento", tone: "info", icon: CheckCircleIcon },
+  "event.reject": { label: "Evento recusado", tone: "danger", icon: XCircleIcon },
+  "event.staff_cancel": { label: "Evento cancelado pelo SAD", tone: "danger", icon: ProhibitIcon },
+  "event.authorization_request": { label: "Autorização pedida à Diretoria", tone: "info", icon: StampIcon },
+  "event.authorization_response": { label: "Resposta da Diretoria", tone: "success", icon: StampIcon },
+  "event.expire": { label: "Pré-reserva vencida", tone: "warning", icon: ClockCounterClockwiseIcon },
+  "event.payment_receipt": { label: "Comprovante enviado", tone: "info", icon: CurrencyCircleDollarIcon },
+  "event.payment_validate": { label: "Pagamento validado (NUCEV)", tone: "success", icon: CheckCircleIcon },
+  "event.payment_refuse": { label: "Comprovante recusado", tone: "warning", icon: XCircleIcon },
+  "event.confirm": { label: "Evento confirmado (SAD)", tone: "success", icon: CheckCircleIcon },
 };
 
 export function auditActionMeta(action: string): ActionMeta {
@@ -143,6 +164,7 @@ const FIELD_LABELS: Record<string, string> = {
   institutionalDiscountPercent: "Desconto institucional (%)",
   unit: "Cobrança",
   didactic: "Espaço didático",
+  paymentInstructions: "Orientações de pagamento",
   caption: "Legenda",
   description: "Descrição",
   requestsQuantity: "Pede quantidade",
@@ -180,6 +202,7 @@ export function formatAuditValue(entityType: AuditEntityType, field: string, val
   }
   switch (field) {
     case "status":
+      if (entityType === "event") return EVENT_STATUS_LABELS[value as EventStatus] ?? String(value);
       return entityType === "room"
         ? (ROOM_STATUS_LABELS[value as RoomStatus] ?? String(value))
         : (RESERVATION_STATUS_LABELS[value as ReservationStatus] ?? String(value));
@@ -262,6 +285,18 @@ export function auditDetailLines(entry: AuditEntry): string[] {
     lines.push([`Papel: ${ROLE_LABELS[d.role as UserRole] ?? String(d.role)}`, perms.length ? perms.join(", ") : null].filter(Boolean).join(" · "));
   }
   if (entry.action === "regulation.update" && d.bodyChanged) lines.push("Texto do regulamento alterado");
+  if (entry.action === "event.quote_send" && typeof d.version === "number") {
+    lines.push(`Versão ${d.version}${typeof d.totalCents === "number" ? ` · ${(d.totalCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : ""}${d.exempt ? " · isento" : ""}`);
+  }
+  if (entry.action === "event.quote_decision" && typeof d.decision === "string") {
+    lines.push(`Versão ${d.version}: ${({ APPROVE: "aprovou", CHANGES: "pediu alteração", REJECT: "recusou" } as Record<string, string>)[d.decision] ?? d.decision}${typeof d.note === "string" ? ` — ${d.note}` : ""}`);
+  }
+  if (entry.action === "event.pre_reserve" && Array.isArray(d.rooms)) {
+    lines.push(`Salas: ${d.rooms.join(", ")}${typeof d.validUntil === "string" ? ` · válida até ${d.validUntil.split("-").reverse().join("/")}` : ""}`);
+  }
+  if (entry.action === "event.authorization_response" && typeof d.decision === "string") {
+    lines.push(`${d.decision === "AUTHORIZED" ? "Autorizado" : "Negado"} pela Diretoria Executiva${typeof d.note === "string" ? `: ${d.note}` : ""}`);
+  }
   if (entry.action === "price.table_create" && typeof d.validFrom === "string") {
     lines.push(`Vale a partir de ${d.validFrom.split("-").reverse().join("/")}${typeof d.copiedFrom === "string" ? ` · copiada de ${d.copiedFrom}` : ""}`);
   }

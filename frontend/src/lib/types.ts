@@ -314,7 +314,7 @@ export interface RegulationFile {
 // Histórico geral (Fase 9)
 // ---------------------------------------------------------------------------
 
-export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user" | "price";
+export type AuditEntityType = "reservation" | "room" | "resource" | "sanction" | "regulation" | "notebook" | "user" | "price" | "event";
 
 // --- Preços (Fase 9, bloco 4 — Portaria 2794) --------------------------------
 

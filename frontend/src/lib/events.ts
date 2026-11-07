@@ -53,7 +53,7 @@ export const EVENT_STATUS_HINTS: Record<EventStatus, string> = {
   IN_REVIEW: "O NUCEV está analisando o pedido, e o SAD vai escolher as salas.",
   QUOTE_SENT: "O orçamento foi enviado: aprove, recuse ou peça alteração.",
   CHANGES_REQUESTED: "Alteração pedida: o NUCEV e o SAD vão revisar os espaços e o orçamento.",
-  QUOTE_APPROVED: "Orçamento aprovado. Faça o pagamento seguindo as orientações e envie o comprovante.",
+  QUOTE_APPROVED: "Orçamento aprovado. Faça o pagamento seguindo as orientações abaixo e envie o comprovante.",
   PRE_RESERVED: "O SAD pré-reservou os espaços. O NUCEV vai enviar o orçamento.",
   PAYMENT_SUBMITTED: "Comprovante enviado. O NUCEV está conferindo.",
   PAYMENT_VALIDATED: "Pagamento validado. O SAD vai confirmar a reserva.",
@@ -119,6 +119,14 @@ export interface EventRequest {
   assigneeName: string | null;
   preReservedUntil: string | null;
   rejectionReason: string | null;
+  /** Fase 13: valor esperado, orientações enviadas e as datas de validação e confirmação. */
+  paymentExpectedCents: number | null;
+  paymentInstructions: string | null;
+  paymentRequestedAt: string | null;
+  paymentValidatedAt: string | null;
+  paymentValidatedByName: string | null;
+  confirmedAt: string | null;
+  confirmedByName: string | null;
   /** O orçamento mais recente emitido (só a versão e o total). */
   quotes?: { version: number; totalCents: number; status: QuoteStatus }[];
   cancelledAt: string | null;
@@ -248,7 +256,25 @@ export interface EventReservationRow {
   preReservedUntil: string | null;
 }
 
+export type ReceiptStatus = "PENDING" | "VALIDATED" | "REFUSED";
+
+export const RECEIPT_STATUS_LABELS: Record<ReceiptStatus, string> = { PENDING: "Aguardando conferência", VALIDATED: "Validado", REFUSED: "Recusado" };
+
+export interface EventReceiptRow {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+  uploadedByName: string;
+  status: ReceiptStatus;
+  reviewedAt: string | null;
+  reviewedByName: string | null;
+  reviewNote: string | null;
+}
+
 export interface EventManagement {
+  receipts: EventReceiptRow[];
   reservations: EventReservationRow[];
   quotes: EventQuoteRow[];
   messages: EventMessageRow[];
